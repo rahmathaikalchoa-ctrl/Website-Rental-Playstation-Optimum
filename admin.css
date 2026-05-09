@@ -1,0 +1,605 @@
+:root {
+  --neon: #00eaff;
+  --neon-green: #00ff9d;
+  --bg: #111318;
+  --panel: #181b22;
+  --muted: #9fb4c2;
+  --border: rgba(0, 234, 255, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: #e8eef8;
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ===== LOGIN ===== */
+.login-box {
+  width: 340px;
+  margin: 100px auto;
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 32px;
+  border: 1px solid var(--border);
+  box-shadow: 0 0 30px rgba(0, 234, 255, 0.1);
+}
+
+.login-box h2 {
+  color: var(--neon);
+  text-align: center;
+  margin-bottom: 20px;
+  font-size: 22px;
+  letter-spacing: 1px;
+}
+
+.login-box input {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0b0f14;
+  color: #fff;
+  font-size: 14px;
+}
+
+.login-box button {
+  width: 100%;
+  padding: 11px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, var(--neon), var(--neon-green));
+  color: #000;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.login-box .error {
+  color: #ff6b6b;
+  font-size: 13px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+  width: 240px;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #0f1216, #0a0d11);
+  border-right: 1px solid var(--border);
+  padding: 28px 18px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar h2 {
+  color: var(--neon);
+  text-align: center;
+  margin-bottom: 32px;
+  font-size: 22px;
+  letter-spacing: 1px;
+  text-shadow: 0 0 10px rgba(0, 234, 255, 0.4);
+}
+
+.sidebar a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 15px;
+  transition: all 0.2s ease;
+}
+
+.sidebar a:hover {
+  color: var(--neon);
+  background: rgba(0, 234, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 234, 255, 0.25);
+}
+
+.sidebar a.active {
+  color: var(--neon);
+  background: rgba(0, 234, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 234, 255, 0.35);
+}
+
+.sidebar a[href*="logout"] {
+  margin-top: auto;
+  color: #ff6b6b;
+}
+
+.sidebar a[href*="logout"]:hover {
+  background: rgba(255, 107, 107, 0.1);
+  box-shadow: 0 0 12px rgba(255, 107, 107, 0.25);
+}
+
+/* ===== MAIN CONTENT ===== */
+main {
+  margin-left: 240px;
+  padding: 32px 36px;
+  flex: 1;
+  max-width: 100%;
+}
+
+main h2 {
+  font-size: 20px;
+  color: var(--neon);
+  margin-bottom: 24px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ===== TABLE ===== */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+th {
+  background: rgba(0, 234, 255, 0.07);
+  color: var(--neon);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+td {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: #d0dce8;
+  font-size: 14px;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:hover td {
+  background: rgba(0, 234, 255, 0.03);
+}
+
+.users-table th,
+.users-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* ===== STATUS BADGE ===== */
+.status {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.status.online  { color: var(--neon-green); }
+.status.offline { color: #555e6b; }
+
+/* ===== BUTTONS (TABLE) ===== */
+button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--neon);
+  color: #000;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+button:hover {
+  opacity: 0.85;
+}
+
+button.btn-danger {
+  background: #ff4d4d;
+  color: #fff;
+}
+
+/* ===== PAGINATION ===== */
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.pagination a {
+  color: var(--neon);
+  text-decoration: none;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  transition: background 0.2s;
+}
+
+.pagination a:hover {
+  background: rgba(0, 234, 255, 0.08);
+}
+
+/* ===== ROOM FORM (#addRoomForm) ===== */
+#addRoomForm {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 2fr auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 28px;
+  background: var(--panel);
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+#addRoomForm input,
+#addRoomForm select {
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0b0f14;
+  color: #fff;
+  font-size: 14px;
+}
+
+#addRoomForm input::placeholder {
+  color: var(--muted);
+}
+
+#addRoomForm select {
+  appearance: none;
+  cursor: pointer;
+}
+
+#addRoomForm button {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--neon), var(--neon-green));
+  color: #000;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ===== GAME FORM (#addGameForm) ===== */
+#addGameForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 28px;
+  background: var(--panel);
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  max-width: 480px;
+}
+
+#addGameForm input[type="text"],
+#addGameForm input[name="title"],
+#addGameForm select {
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0b0f14;
+  color: #fff;
+  font-size: 14px;
+  width: 100%;
+}
+
+#addGameForm input::placeholder {
+  color: var(--muted);
+}
+
+#addGameForm select {
+  appearance: none;
+  cursor: pointer;
+}
+
+/* File input — disembunyikan, diganti .file-upload-zone */
+#addGameForm input[type="file"] { display: none; }
+
+/* Custom genre input */
+.custom-genre-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.custom-genre-wrap input {
+  flex: 1;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--neon);
+  background: rgba(0, 234, 255, 0.05);
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  box-shadow: 0 0 10px rgba(0, 234, 255, 0.15);
+}
+
+.custom-genre-wrap input::placeholder { color: var(--muted); }
+
+.btn-cancel-genre {
+  height: 42px;
+  width: 42px;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, 0.15);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  color: #ff6b6b;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.btn-cancel-genre:hover {
+  background: rgba(255, 107, 107, 0.3);
+}
+
+/* Checkbox group */
+#addGameForm .checkbox-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#addGameForm .checkbox-group input[type="checkbox"] {
+  display: none;
+}
+
+#addGameForm .checkbox-group label {
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  border: 1px solid transparent;
+}
+
+/* PS3 */
+#addGameForm .checkbox-group label:has(input[value="PS3"]) {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.5);
+}
+#addGameForm .checkbox-group label:has(input[value="PS3"]:checked) {
+  background: linear-gradient(135deg, #ff6b6b, #ff3b3b);
+  color: #000;
+  box-shadow: 0 0 12px rgba(255, 107, 107, 0.5);
+}
+
+/* PS4 */
+#addGameForm .checkbox-group label:has(input[value="PS4"]) {
+  color: #4da6ff;
+  border-color: rgba(77, 166, 255, 0.5);
+}
+#addGameForm .checkbox-group label:has(input[value="PS4"]:checked) {
+  background: linear-gradient(135deg, #4da6ff, #1e90ff);
+  color: #000;
+  box-shadow: 0 0 12px rgba(77, 166, 255, 0.5);
+}
+
+/* PS5 */
+#addGameForm .checkbox-group label:has(input[value="PS5"]) {
+  color: #b26bff;
+  border-color: rgba(178, 107, 255, 0.5);
+}
+#addGameForm .checkbox-group label:has(input[value="PS5"]:checked) {
+  background: linear-gradient(135deg, #b26bff, #8a2be2);
+  color: #000;
+  box-shadow: 0 0 12px rgba(178, 107, 255, 0.5);
+}
+
+/* Submit button */
+#addGameForm button[type="submit"] {
+  height: 44px;
+  width: 100%;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--neon), var(--neon-green));
+  color: #000;
+  font-weight: 800;
+  font-size: 15px;
+  box-shadow: 0 0 16px rgba(0, 234, 255, 0.35);
+  transition: all 0.2s ease;
+}
+
+#addGameForm button[type="submit"]:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+
+/* ===== MENU FORM (#addMenuForm) ===== */
+#addMenuForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 28px;
+  background: var(--panel);
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  max-width: 480px;
+}
+
+#addMenuForm input,
+#addMenuForm select {
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0b0f14;
+  color: #fff;
+  font-size: 14px;
+  width: 100%;
+}
+
+#addMenuForm input[type="file"] { display: none; }
+
+#addMenuForm input::placeholder {
+  color: var(--muted);
+}
+
+#addMenuForm select {
+  appearance: none;
+  cursor: pointer;
+}
+
+#addMenuForm button[type="submit"] {
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--neon), var(--neon-green));
+  color: #000;
+  font-weight: 800;
+  font-size: 15px;
+  box-shadow: 0 0 16px rgba(0, 234, 255, 0.35);
+  transition: all 0.2s ease;
+}
+
+#addMenuForm button[type="submit"]:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+
+/* ===== CUSTOM FILE UPLOAD ZONE ===== */
+.file-upload-zone {
+  display: block;
+  border: 2px dashed rgba(0, 234, 255, 0.25);
+  border-radius: 10px;
+  background: #0a0d12;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+  width: 100%;
+}
+
+.file-upload-zone:hover,
+.file-upload-zone.dragover {
+  border-color: var(--neon);
+  background: rgba(0, 234, 255, 0.04);
+  box-shadow: 0 0 18px rgba(0, 234, 255, 0.12);
+}
+
+.file-upload-zone.has-file {
+  border-color: var(--neon-green);
+  border-style: solid;
+}
+
+.file-upload-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 14px 14px;
+  text-align: center;
+}
+
+.file-upload-icon {
+  font-size: 26px;
+  line-height: 1;
+  transition: transform 0.2s;
+}
+
+.file-upload-zone:hover .file-upload-icon {
+  transform: scale(1.15);
+}
+
+.file-upload-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-upload-name {
+  color: var(--neon);
+  font-size: 12px;
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+}
+
+.file-upload-preview {
+  width: 100%;
+  max-height: 130px;
+  object-fit: cover;
+  display: block;
+  border-bottom: 1px solid rgba(0, 234, 255, 0.15);
+}
+
+/* ===== ROLE BADGE ===== */
+.role-badge {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.role-admin {
+  color: #00eaff;
+  background: rgba(0, 234, 255, 0.1);
+  border-color: rgba(0, 234, 255, 0.4);
+}
+.role-user {
+  color: #9fb4c2;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 1100px) {
+  #addRoomForm {
+    grid-template-columns: 1fr 1fr;
+  }
+  #addRoomForm button {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 200px;
+  }
+  main {
+    margin-left: 200px;
+    padding: 20px;
+  }
+  #addRoomForm {
+    grid-template-columns: 1fr;
+  }
+  #addRoomForm button {
+    grid-column: span 1;
+  }
+}
