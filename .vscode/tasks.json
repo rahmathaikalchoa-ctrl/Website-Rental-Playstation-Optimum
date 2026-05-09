@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Checkpoint & Push",
+      "type": "shell",
+      "command": "git add . ; git commit -m '${input:commitMsg}' ; git push origin main",
+      "options": {
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-Command"]
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "commitMsg",
+      "type": "promptString",
+      "description": "Pesan checkpoint:",
+      "default": "checkpoint"
+    }
+  ]
+}
