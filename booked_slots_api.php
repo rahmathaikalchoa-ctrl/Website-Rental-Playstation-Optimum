@@ -8,7 +8,12 @@ if ($roomId <= 0) {
   exit;
 }
 
-$todayStart = mktime(0, 0, 0);
+$today   = date('Y-m-d');
+$allowed = [$today, date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+2 days'))];
+$dateStr = $_GET['date'] ?? $today;
+if (!in_array($dateStr, $allowed, true)) $dateStr = $today;
+
+$todayStart = strtotime($dateStr . ' 00:00:00');
 $todayEnd   = $todayStart + 86400;
 
 $stmt = $conn->prepare("

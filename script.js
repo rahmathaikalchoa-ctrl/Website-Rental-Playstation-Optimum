@@ -307,6 +307,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const roomId   = $("roomSelect")?.value;
     const dur      = parseInt($("duration")?.value) || 0;
     const timeVal  = $("timeStart")?.value || "";
+    const dateSel  = document.getElementById("bookingDate");
+    const dateVal  = dateSel?.value || getTodayISO();
+    const dateLabel = dateSel?.options[dateSel.selectedIndex]?.text || dateVal;
 
     const room = roomsData.find((r) => String(r.id) === String(roomId));
 
@@ -317,7 +320,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const total = room.price * dur;
 
-    // Hitung jam selesai
     const [h, m] = timeVal.split(":").map(Number);
     const endH   = ((h + dur) % 24).toString().padStart(2, "0");
     const endTime = `${endH}:${m.toString().padStart(2, "0")}`;
@@ -330,6 +332,10 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="summary-row">
         <span class="sr-label">Konsol</span>
         <span class="sr-val">${room.consoleType}</span>
+      </div>
+      <div class="summary-row">
+        <span class="sr-label">Tanggal</span>
+        <span class="sr-val">${dateLabel}</span>
       </div>
       <div class="summary-row">
         <span class="sr-label">Sesi</span>
@@ -434,6 +440,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       populateSelect();
+      generateDateOptions();
       generateTimeOptions();
       updateDurationOptions();
       prefillBookingUser();
@@ -480,6 +487,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         populateSelect();
+        generateDateOptions();
         generateTimeOptions();
         updateDurationOptions();
         prefillBookingUser();
@@ -515,6 +523,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bookedSlots = [];
     const infoEl = document.getElementById("bookedSlotsInfo");
     if (infoEl) infoEl.textContent = "";
+    generateDateOptions();
     generateTimeOptions();
     updateDurationOptions();
     applyBookedSlots();
@@ -545,6 +554,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const bookingDate = document.getElementById("bookingDate")?.value || getTodayISO();
+
     fetch("apikr.php", {
       method: "POST",
       headers: {
@@ -557,6 +568,7 @@ document.addEventListener("DOMContentLoaded", () => {
         room_id: roomId,
         time,
         duration,
+        date: bookingDate,
       }),
     })
       .then((r) => r.json())
@@ -571,6 +583,7 @@ document.addEventListener("DOMContentLoaded", () => {
           alert("Booking BERHASIL!");
           loadUpcomingBooking();
           $("bookingForm").reset();
+          generateDateOptions();
           generateTimeOptions();
           updateDurationOptions();
           updateBookingSummary();
@@ -1009,6 +1022,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (reorderBtn) {
       const roomId = reorderBtn.dataset.roomid;
       populateSelect();
+      generateDateOptions();
       generateTimeOptions();
       updateDurationOptions();
       prefillBookingUser();
@@ -1643,41 +1657,50 @@ document.addEventListener("DOMContentLoaded", () => {
   showView("home");
 });
 
-// OPSI PILIH JAM MULAI
-function loadTimeOptions() {
-  const select = document.getElementById("timeStart");
-  select.innerHTML = "";
-
-  const startHour = 11; // 11 pagi
-  const endHour = 23; // 11 malam
-
-  for (let hour = startHour; hour <= endHour; hour++) {
-    const h = hour.toString().padStart(2, "0");
-
-    const option = document.createElement("option");
-    option.value = `${h}:00`;
-    option.textContent = `${h}:00`;
-
-    select.appendChild(option);
-  }
-}
-
-//JAM MULAI (11.00–23.30)
+//JAM MULAI (11.00–23.00)
 const timeSelect = document.getElementById("timeStart");
 const durationSelect = document.getElementById("duration");
 
+function getTodayISO() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+
+function generateDateOptions() {
+  const sel = document.getElementById("bookingDate");
+  if (!sel) return;
+  sel.innerHTML = "";
+  const labels = ["Hari ini", "Besok", "Lusa"];
+  for (let i = 0; i < 3; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    const iso = d.toISOString().slice(0, 10);
+    const opt = document.createElement("option");
+    opt.value = iso;
+    opt.textContent = labels[i];
+    sel.appendChild(opt);
+  }
+}
+
 function generateTimeOptions() {
+  const dateSel = document.getElementById("bookingDate");
+  const selectedDate = dateSel?.value || getTodayISO();
+  const isToday = selectedDate === getTodayISO();
+  const nowHour = new Date().getHours();
+
   timeSelect.innerHTML = "";
+  let firstAvailable = null;
   for (let hour = 11; hour <= 23; hour++) {
+    if (isToday && hour <= nowHour) continue;
     const h = hour.toString().padStart(2, "0");
     const opt = document.createElement("option");
     opt.value = `${h}:00`;
     opt.textContent = `${h}:00`;
     timeSelect.appendChild(opt);
+    if (!firstAvailable) firstAvailable = `${h}:00`;
   }
 
-  // set default
-  timeSelect.value = "11:00";
+  if (firstAvailable) timeSelect.value = firstAvailable;
 }
 
 function updateDurationOptions() {
@@ -1699,21 +1722,31 @@ function updateDurationOptions() {
   }
 }
 
+generateDateOptions();
 generateTimeOptions();
 updateDurationOptions();
 timeSelect.addEventListener("change", updateDurationOptions);
+
+document.getElementById("bookingDate")?.addEventListener("change", () => {
+  generateTimeOptions();
+  updateDurationOptions();
+  const roomId = document.getElementById("roomSelect")?.value;
+  if (roomId) fetchBookedSlots(roomId);
+  updateBookingSummary();
+});
 
 // ===== BOOKED SLOTS =====
 let bookedSlots = [];
 
 function fetchBookedSlots(roomId) {
   const infoEl = document.getElementById("bookedSlotsInfo");
+  const date = document.getElementById("bookingDate")?.value || getTodayISO();
   if (!roomId) {
     bookedSlots = [];
     applyBookedSlots();
     return;
   }
-  fetch(`booked_slots_api.php?room_id=${roomId}`)
+  fetch(`booked_slots_api.php?room_id=${roomId}&date=${date}`)
     .then((r) => r.json())
     .then((data) => {
       bookedSlots = data;
@@ -1730,7 +1763,7 @@ function fetchBookedSlots(roomId) {
               });
             return `${fmt(s.start_time)}–${fmt(s.end_time)}`;
           });
-          infoEl.textContent = "Jam terpesan hari ini: " + ranges.join(", ");
+          infoEl.textContent = "Jam terpesan: " + ranges.join(", ");
         }
       }
     })

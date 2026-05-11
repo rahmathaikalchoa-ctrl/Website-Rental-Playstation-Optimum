@@ -16,6 +16,14 @@ $roomId   = intval($_POST["room_id"] ?? 0);
 $time     = trim($_POST["time"] ?? "");
 $duration = intval($_POST["duration"] ?? 0);
 
+$today   = date("Y-m-d");
+$allowed = [$today, date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+2 days'))];
+$date    = trim($_POST["date"] ?? $today);
+if (!in_array($date, $allowed, true)) {
+  echo json_encode(["status" => "error", "message" => "Tanggal booking tidak valid"]);
+  exit;
+}
+
 $user_id = $_SESSION['user_id'] ?? null;
 
 if ($customer === "" || $roomId <= 0 || $time === "" || $duration <= 0) {
@@ -39,15 +47,14 @@ if (!$room) {
   exit;
 }
 
-$today = date("Y-m-d");
-$startTimestamp = strtotime("$today $time");
+$startTimestamp = strtotime("$date $time");
 
 if ($startTimestamp === false) {
   echo json_encode(["status" => "error", "message" => "Format waktu tidak valid"]);
   exit;
 }
 
-if ($startTimestamp < time()) {
+if ($date === $today && $startTimestamp < time()) {
   echo json_encode(["status" => "error", "message" => "Waktu mulai tidak boleh di masa lalu"]);
   exit;
 }

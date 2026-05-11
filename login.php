@@ -18,13 +18,8 @@ $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-if (!$user) {
-  echo json_encode(["status" => "error", "message" => "Akun tidak ditemukan"]);
-  exit;
-}
-
-if (!password_verify($password, $user['password'])) {
-  echo json_encode(["status" => "error", "message" => "Password salah"]);
+if (!$user || !password_verify($password, $user['password'])) {
+  echo json_encode(["status" => "error", "message" => "Username atau password salah"]);
   exit;
 }
 

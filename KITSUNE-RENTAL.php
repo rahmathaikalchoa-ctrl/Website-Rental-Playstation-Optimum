@@ -193,6 +193,10 @@ session_start();
                     <select id="roomSelect" required></select>
                     <p id="bookedSlotsInfo" style="margin-top:6px;font-size:0.8rem;color:#ff6b6b;min-height:1.2em"></p>
                   </div>
+                  <div class="bfield">
+                    <label>Tanggal</label>
+                    <select id="bookingDate" required></select>
+                  </div>
                   <div class="brow">
                     <div class="bfield">
                       <label>Jam Mulai</label>

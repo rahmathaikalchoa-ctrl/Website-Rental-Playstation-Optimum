@@ -11,6 +11,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $action = $_POST['action'] ?? '';
 
+// ===== RATE LIMIT: max 3 percobaan per 15 menit =====
+$window = 900;
+$maxAttempts = 3;
+$_SESSION['fp_attempts'] = array_values(array_filter(
+  $_SESSION['fp_attempts'] ?? [],
+  fn($t) => time() - $t < $window
+));
+if (count($_SESSION['fp_attempts']) >= $maxAttempts) {
+  echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan. Coba lagi dalam 15 menit."]);
+  exit;
+}
+
 // ===== CEK USERNAME =====
 if ($action === 'check') {
   $username = trim($_POST['username'] ?? '');
@@ -18,6 +30,9 @@ if ($action === 'check') {
     echo json_encode(["status" => "error", "message" => "Username tidak boleh kosong"]);
     exit;
   }
+
+  $_SESSION['fp_attempts'][] = time();
+
   $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
   $stmt->bind_param("s", $username);
   $stmt->execute();
@@ -40,12 +55,16 @@ if ($action === 'reset') {
     exit;
   }
 
+  $_SESSION['fp_attempts'][] = time();
+
   $hashed = password_hash($password, PASSWORD_DEFAULT);
   $stmt = $conn->prepare("UPDATE users SET password = ? WHERE username = ?");
   $stmt->bind_param("ss", $hashed, $username);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();
+
+  if ($ok) unset($_SESSION['fp_attempts']);
 
   echo json_encode($ok
     ? ["status" => "ok"]
