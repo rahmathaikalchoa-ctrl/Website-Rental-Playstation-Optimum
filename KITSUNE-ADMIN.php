@@ -2,26 +2,29 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/db.php';
-require __DIR__ . '/config.php';
 
 if (isset($_POST['login'])) {
-  $inputUser = trim($_POST['username'] ?? '');
-  $inputPass = $_POST['password'] ?? '';
-
-  $stmt = $conn->prepare("SELECT id, password FROM users WHERE username = ? AND role = 'admin'");
-  $stmt->bind_param("s", $inputUser);
-  $stmt->execute();
-  $adminUser = $stmt->get_result()->fetch_assoc();
-  $stmt->close();
-
-  if ($adminUser && password_verify($inputPass, $adminUser['password'])) {
-    session_regenerate_id(true);
-    $_SESSION['admin']          = true;
-    $_SESSION['admin_username'] = $inputUser;
-    header("Location: KITSUNE-ADMIN.php");
-    exit;
+  if (!checkRateLimit('admin_login_attempts', 5, 300)) {
+    $error = "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit.";
   } else {
-    $error = "Username/password salah atau akun tidak memiliki akses admin";
+    $inputUser = trim($_POST['username'] ?? '');
+    $inputPass = $_POST['password'] ?? '';
+
+    $stmt = $conn->prepare("SELECT id, password FROM users WHERE username = ? AND role = 'admin'");
+    $stmt->bind_param("s", $inputUser);
+    $stmt->execute();
+    $adminUser = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if ($adminUser && password_verify($inputPass, $adminUser['password'])) {
+      session_regenerate_id(true);
+      $_SESSION['admin']          = true;
+      $_SESSION['admin_username'] = $inputUser;
+      header("Location: KITSUNE-ADMIN.php");
+      exit;
+    } else {
+      $error = "Username/password salah atau akun tidak memiliki akses admin";
+    }
   }
 }
 
@@ -41,6 +44,7 @@ $offset  = ($pageNum - 1) * $perPage;
 <!DOCTYPE html>
 <html>
 <head>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Admin GameZone</title>
   <link rel="stylesheet" href="admin.css">
 </head>

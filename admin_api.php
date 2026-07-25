@@ -239,11 +239,16 @@ if ($action === 'toggle_menu_item') {
 // ================= DELETE MENU ITEM =================
 if ($action === 'delete_menu_item') {
     $id = intval($_POST['id'] ?? 0);
-    $stmt = $conn->prepare("DELETE FROM menu_items WHERE id = ?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $stmt->close();
-    echo json_encode(["status" => "ok"]);
+    try {
+        $stmt = $conn->prepare("DELETE FROM menu_items WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $stmt->close();
+        echo json_encode(["status" => "ok"]);
+    } catch (\mysqli_sql_exception $e) {
+        // Item masih punya histori pesanan (FK RESTRICT) — nonaktifkan saja, jangan hapus.
+        echo json_encode(["status" => "error", "message" => "Item ini masih punya histori pesanan, tidak bisa dihapus. Gunakan tombol nonaktifkan (stok habis) sebagai gantinya."]);
+    }
     exit;
 }
 

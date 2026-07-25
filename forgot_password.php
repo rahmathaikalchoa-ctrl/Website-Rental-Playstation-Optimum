@@ -9,8 +9,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   exit;
 }
 
-$action = $_POST['action'] ?? '';
-
 // ===== RATE LIMIT: max 3 percobaan per 15 menit =====
 $window = 900;
 $maxAttempts = 3;
@@ -23,54 +21,37 @@ if (count($_SESSION['fp_attempts']) >= $maxAttempts) {
   exit;
 }
 
-// ===== CEK USERNAME =====
-if ($action === 'check') {
-  $username = trim($_POST['username'] ?? '');
-  if ($username === '') {
-    echo json_encode(["status" => "error", "message" => "Username tidak boleh kosong"]);
-    exit;
-  }
+// ===== GANTI PASSWORD (verifikasi via password lama, bukan email/OTP) =====
+$username    = trim($_POST['username'] ?? '');
+$oldPassword = $_POST['old_password'] ?? '';
+$newPassword = $_POST['new_password'] ?? '';
 
-  $_SESSION['fp_attempts'][] = time();
-
-  $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
-  $stmt->bind_param("s", $username);
-  $stmt->execute();
-  $found = $stmt->get_result()->num_rows > 0;
-  $stmt->close();
-  echo json_encode($found
-    ? ["status" => "ok"]
-    : ["status" => "error", "message" => "Username tidak ditemukan"]
-  );
+if ($username === '' || $oldPassword === '' || strlen($newPassword) < 6) {
+  echo json_encode(["status" => "error", "message" => "Lengkapi semua kolom. Password baru minimal 6 karakter."]);
   exit;
 }
 
-// ===== RESET PASSWORD =====
-if ($action === 'reset') {
-  $username = trim($_POST['username'] ?? '');
-  $password = $_POST['password'] ?? '';
+$_SESSION['fp_attempts'][] = time();
 
-  if ($username === '' || strlen($password) < 6) {
-    echo json_encode(["status" => "error", "message" => "Password minimal 6 karakter"]);
-    exit;
-  }
+$stmt = $conn->prepare("SELECT id, password FROM users WHERE username = ?");
+$stmt->bind_param("s", $username);
+$stmt->execute();
+$user = $stmt->get_result()->fetch_assoc();
+$stmt->close();
 
-  $_SESSION['fp_attempts'][] = time();
-
-  $hashed = password_hash($password, PASSWORD_DEFAULT);
-  $stmt = $conn->prepare("UPDATE users SET password = ? WHERE username = ?");
-  $stmt->bind_param("ss", $hashed, $username);
-  $stmt->execute();
-  $ok = $stmt->affected_rows > 0;
-  $stmt->close();
-
-  if ($ok) unset($_SESSION['fp_attempts']);
-
-  echo json_encode($ok
-    ? ["status" => "ok"]
-    : ["status" => "error", "message" => "Gagal mereset password"]
-  );
+// Pesan generik untuk username tidak ditemukan maupun password lama salah,
+// supaya tidak bisa dipakai untuk menebak username yang valid.
+if (!$user || !password_verify($oldPassword, $user['password'])) {
+  echo json_encode(["status" => "error", "message" => "Username atau password lama salah"]);
   exit;
 }
 
-echo json_encode(["status" => "error", "message" => "Action tidak dikenal"]);
+$hashed = password_hash($newPassword, PASSWORD_DEFAULT);
+$stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+$stmt->bind_param("si", $hashed, $user['id']);
+$stmt->execute();
+$ok = $stmt->affected_rows >= 0;
+$stmt->close();
+
+unset($_SESSION['fp_attempts']);
+echo json_encode(["status" => "ok"]);

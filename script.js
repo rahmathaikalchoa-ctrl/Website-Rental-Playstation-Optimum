@@ -1,6 +1,14 @@
 // view handler
 const $ = (id) => document.getElementById(id);
 
+// Escape data sebelum dipasang lewat innerHTML, supaya judul/deskripsi/catatan
+// yang berisi karakter HTML tidak bisa mengeksekusi script (XSS).
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
 const views = {
   home: "view-home",
   consoles: "view-consoles",
@@ -199,10 +207,10 @@ document.addEventListener("DOMContentLoaded", () => {
           const cover = g.image ? `assets/images/games/${g.image}` : `assets/images/games/default.jpg`;
           return `
             <div class="game-mini-card">
-              <img src="${cover}" alt="${g.title}" onerror="this.src='assets/images/games/default.jpg'">
+              <img src="${cover}" alt="${escapeHtml(g.title)}" onerror="this.src='assets/images/games/default.jpg'">
               <div class="game-mini-body">
-                <p class="game-mini-title">${g.title}</p>
-                <p class="muted small">${g.genre}</p>
+                <p class="game-mini-title">${escapeHtml(g.title)}</p>
+                <p class="muted small">${escapeHtml(g.genre)}</p>
               </div>
             </div>`;
         }).join('')
@@ -215,11 +223,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const box = $("roomDetail");
     box.innerHTML = `
-      <h2 style="color:var(--neon);margin-bottom:10px">${room.title}
+      <h2 style="color:var(--neon);margin-bottom:10px">${escapeHtml(room.title)}
         <span class="room-status-badge ${stDetail.cls}" style="position:static;display:inline-block;margin-left:10px;vertical-align:middle">${stDetail.label}</span>
       </h2>
-      <img src="${room.img}" alt="${room.title}" style="width:100%;height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">
-      <p class="muted">${room.desc}</p>
+      <img src="${room.img}" alt="${escapeHtml(room.title)}" style="width:100%;height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">
+      <p class="muted">${escapeHtml(room.desc)}</p>
       <p style="margin-top:6px"><strong>${formatRup(room.price)}/jam</strong></p>
       <div style="margin-top:12px;display:flex;gap:8px">
         ${bookBtnHtml}
@@ -230,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div id="roomTimeline" class="room-timeline"><span class="muted small">Memuat jadwal...</span></div>
       </div>
       <div style="margin-top:24px">
-        <h3 style="color:var(--neon);margin-bottom:12px">Game Tersedia di ${room.consoleType}</h3>
+        <h3 style="color:var(--neon);margin-bottom:12px">Game Tersedia di ${escapeHtml(room.consoleType)}</h3>
         <div class="game-mini-list">${gamesHtml}</div>
       </div>
     `;
@@ -327,11 +335,11 @@ document.addEventListener("DOMContentLoaded", () => {
     box.innerHTML = `
       <div class="summary-row">
         <span class="sr-label">Ruangan</span>
-        <span class="sr-val">${room.title}</span>
+        <span class="sr-val">${escapeHtml(room.title)}</span>
       </div>
       <div class="summary-row">
         <span class="sr-label">Konsol</span>
-        <span class="sr-val">${room.consoleType}</span>
+        <span class="sr-val">${escapeHtml(room.consoleType)}</span>
       </div>
       <div class="summary-row">
         <span class="sr-label">Tanggal</span>
@@ -379,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!container) return;
     const genres = ['Semua', ...[...new Set(gamesData.map(g => g.genre))].sort()];
     container.innerHTML = genres.map(g =>
-      `<button class="genre-btn${g === activeGenre ? ' active' : ''}" data-genre="${g}">${g}</button>`
+      `<button class="genre-btn${g === activeGenre ? ' active' : ''}" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</button>`
     ).join('');
   }
 
@@ -405,13 +413,13 @@ document.addEventListener("DOMContentLoaded", () => {
         .join(" ");
 
       const cover = g.image ? `assets/images/games/${g.image}` : `assets/images/games/default.jpg`;
-      const coverHtml = `<img class="game-cover-img" src="${cover}" alt="${g.title}" onerror="this.src='assets/images/games/default.jpg'">`;
+      const coverHtml = `<img class="game-cover-img" src="${cover}" alt="${escapeHtml(g.title)}" onerror="this.src='assets/images/games/default.jpg'">`;
 
       card.innerHTML = `
       ${coverHtml}
       <div class="room-body">
-        <h3 style="color:var(--neon)">${g.title}</h3>
-        <p class="muted small">${g.genre}</p>
+        <h3 style="color:var(--neon)">${escapeHtml(g.title)}</h3>
+        <p class="muted small">${escapeHtml(g.genre)}</p>
         <div style="margin-top:8px">${badges}</div>
       </div>
     `;
@@ -466,14 +474,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const vbtn = e.target.closest("[data-view]");
     if (vbtn) {
       const v = vbtn.dataset.view;
-
-      // // Profile Page
-      // if (v === "profile") {
-      //   e.preventDefault();
-      //   showView("profile");
-      //   loadProfilePage(); // 🔥 INI KUNCINYA
-      //   return;
-      // }
 
       e.preventDefault();
 
@@ -551,6 +551,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!name || !roomId || !time || !duration) {
       alert("Lengkapi data!");
+      return;
+    }
+
+    if (phone && !/^[0-9]{9,14}$/.test(phone)) {
+      alert("Nomor HP tidak valid (hanya angka, 9-14 digit).");
       return;
     }
 
@@ -763,17 +768,17 @@ document.addEventListener("DOMContentLoaded", () => {
         : `<span class="menu-stock-badge stock-habis">Stok Habis</span>`;
 
       const btnPesan = item.is_available == 1
-        ? `<button class="btn menu-order-btn" data-id="${item.id}" data-name="${item.name.replace(/"/g,'')}" data-price="${item.price}">Pesan</button>`
+        ? `<button class="btn menu-order-btn" data-id="${item.id}" data-name="${escapeHtml(item.name)}" data-price="${item.price}">Pesan</button>`
         : `<button class="btn btn-disabled" disabled>Stok Habis</button>`;
 
       card.innerHTML = `
         <div class="menu-img-wrap">
-          <img src="${imgSrc}" alt="${item.name}" onerror="this.src='assets/images/games/default.jpg'">
+          <img src="${imgSrc}" alt="${escapeHtml(item.name)}" onerror="this.src='assets/images/games/default.jpg'">
           ${stockBadge}
         </div>
         <div class="room-body">
-          <h3 style="color:var(--neon)">${item.name}</h3>
-          <p class="muted small">${item.description || ''}</p>
+          <h3 style="color:var(--neon)">${escapeHtml(item.name)}</h3>
+          <p class="muted small">${escapeHtml(item.description || '')}</p>
           <div class="room-meta" style="margin-top:10px">
             <strong>${formatRupMenu(item.price)}</strong>
             ${btnPesan}
@@ -831,13 +836,13 @@ document.addEventListener("DOMContentLoaded", () => {
           const tgl = new Date(o.created_at).toLocaleString('id-ID', {
             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
           });
-          const note = o.note ? `<p class="muted small">Catatan: ${o.note}</p>` : '';
+          const note = o.note ? `<p class="muted small">Catatan: ${escapeHtml(o.note)}</p>` : '';
           return `
             <div class="menu-order-item" data-id="${o.id}" data-status="${o.status}">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
                 <div>
-                  <strong>${o.name}</strong>
-                  <p class="muted small" style="text-transform:capitalize">${o.category} · ${o.quantity}x · ${total}</p>
+                  <strong>${escapeHtml(o.name)}</strong>
+                  <p class="muted small" style="text-transform:capitalize">${escapeHtml(o.category)} · ${o.quantity}x · ${total}</p>
                   ${note}
                   <p class="muted small">${tgl}</p>
                 </div>
@@ -884,7 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function showSessionWarning(roomName, minutes) {
     const notif = document.createElement("div");
     notif.className = "order-notif session-warning";
-    notif.innerHTML = `⚠️ Sesi <strong>${roomName}</strong> tersisa ${minutes} menit!`;
+    notif.innerHTML = `⚠️ Sesi <strong>${escapeHtml(roomName)}</strong> tersisa ${minutes} menit!`;
     document.body.appendChild(notif);
     requestAnimationFrame(() => notif.classList.add("show"));
     setTimeout(() => {
@@ -1141,15 +1146,12 @@ document.addEventListener("DOMContentLoaded", () => {
     loginModal.classList.add("show");
   });
 
-  // ===== FORGOT PASSWORD MODAL =====
+  // ===== GANTI PASSWORD MODAL (verifikasi via password lama) =====
   const forgotModal    = document.getElementById("forgotModal");
-  const forgotStep1    = document.getElementById("forgotStep1");
-  const forgotStep2    = document.getElementById("forgotStep2");
 
   function openForgot() {
-    forgotStep1.style.display = "block";
-    forgotStep2.style.display = "none";
     document.getElementById("forgotUsername").value = "";
+    document.getElementById("forgotOldPass").value = "";
     document.getElementById("forgotNewPass").value = "";
     document.getElementById("forgotConfirmPass").value = "";
     loginModal.classList.remove("show");
@@ -1166,55 +1168,34 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("closeForgot")?.addEventListener("click", closeForgot);
-  document.getElementById("closeForgot2")?.addEventListener("click", closeForgot);
   forgotModal?.querySelector(".modal-overlay")?.addEventListener("click", closeForgot);
 
-  // Step 1: cek username
-  document.getElementById("forgotCheckBtn")?.addEventListener("click", () => {
-    const username = document.getElementById("forgotUsername").value.trim();
-    if (!username) { alert("Masukkan username kamu."); return; }
-
-    fetch("forgot_password.php", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `action=check&username=${encodeURIComponent(username)}`
-    })
-      .then(r => r.json())
-      .then(res => {
-        if (res.status === "ok") {
-          document.getElementById("forgotUsernameLabel").textContent = username;
-          forgotStep1.style.display = "none";
-          forgotStep2.style.display = "block";
-        } else {
-          alert(res.message || "Username tidak ditemukan.");
-        }
-      });
-  });
-
-  // Step 2: reset password
   document.getElementById("forgotResetBtn")?.addEventListener("click", () => {
     const username = document.getElementById("forgotUsername").value.trim();
+    const oldPass  = document.getElementById("forgotOldPass").value;
     const newPass  = document.getElementById("forgotNewPass").value;
     const confirm  = document.getElementById("forgotConfirmPass").value;
 
-    if (newPass.length < 6) { alert("Password minimal 6 karakter."); return; }
-    if (newPass !== confirm) { alert("Konfirmasi password tidak cocok."); return; }
+    if (!username || !oldPass) { alert("Lengkapi username dan password lama."); return; }
+    if (newPass.length < 6) { alert("Password baru minimal 6 karakter."); return; }
+    if (newPass !== confirm) { alert("Konfirmasi password baru tidak cocok."); return; }
 
     fetch("forgot_password.php", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `action=reset&username=${encodeURIComponent(username)}&password=${encodeURIComponent(newPass)}`
+      body: `username=${encodeURIComponent(username)}&old_password=${encodeURIComponent(oldPass)}&new_password=${encodeURIComponent(newPass)}`
     })
       .then(r => r.json())
       .then(res => {
         if (res.status === "ok") {
-          alert("Password berhasil direset! Silakan login kembali.");
+          alert("Password berhasil diganti! Silakan login kembali.");
           closeForgot();
           loginModal.classList.add("show");
         } else {
-          alert(res.message || "Gagal mereset password.");
+          alert(res.message || "Gagal mengganti password.");
         }
-      });
+      })
+      .catch(() => alert("Terjadi kesalahan jaringan. Coba lagi."));
   });
 
   // overlay REGISTER
@@ -1334,6 +1315,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.AUTH = null;
     window._notifiedSessions = new Set();
+    if (window._bookingCountdownInterval) {
+      clearInterval(window._bookingCountdownInterval);
+      window._bookingCountdownInterval = null;
+    }
     localStorage.removeItem("bk_email");
     localStorage.removeItem("bk_phone");
     const banner = document.getElementById("upcomingBanner");
@@ -1386,16 +1371,20 @@ document.addEventListener("DOMContentLoaded", () => {
   fetch("update_activity.php");
 
   /* LOGOUT */
-  document.getElementById("logoutBtn")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  function doLogout() {
     if (!confirm("Yakin mau logout?")) return;
     IS_LOGGED_IN = false;
     setLoggedOut();
     resetLoginForm();
     showView("home");
     setActiveNav("home");
-    fetch("logout.php");
+    fetch("logout.php").catch(() => {});
+  }
+
+  document.getElementById("logoutBtn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    doLogout();
   });
 
   // RESET LOGIN
@@ -1433,8 +1422,8 @@ document.addEventListener("DOMContentLoaded", () => {
       a.classList.remove("active");
     });
 
-    // const activeLink = document.querySelector(`.nav a[data-view="${view}"]`);
-    // if (activeLink) activeLink.classList.add("active");
+    const activeLink = document.querySelector(`.nav a[data-view="${view}"]`);
+    if (activeLink) activeLink.classList.add("active");
   }
 
   /* ===== PROFILE DROPDOWN TOGGLE ===== */
@@ -1467,13 +1456,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // logout dari halaman profile
   document.getElementById("profileLogoutBtn")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (!confirm("Yakin mau logout?")) return;
-    IS_LOGGED_IN = false;
-    setLoggedOut();
-    resetLoginForm();
-    showView("home");
-    setActiveNav("home");
-    fetch("logout.php");
+    doLogout();
   });
 
   // ===== PROFILE DETAIL (FINAL – SINGLE SOURCE OF TRUTH) =====
@@ -1537,7 +1520,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
               const cancelHtml = isUpcoming ? `
                 <div style="margin-top:8px">
-                  <button class="btn-ghost cancel-booking-btn" data-bid="${b.id}" data-room="${b.room}"
+                  <button class="btn-ghost cancel-booking-btn" data-bid="${b.id}" data-room="${escapeHtml(b.room)}"
                     style="font-size:0.78rem;padding:4px 10px;color:#ff6b6b;border-color:#ff6b6b44">
                     Batalkan
                   </button>
@@ -1579,7 +1562,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
               box.innerHTML += `
                 <div class="booking-item">
-                  <strong>${b.room}</strong><br>
+                  <strong>${escapeHtml(b.room)}</strong><br>
                   <span class="small muted">Jam: ${b.time} &bull; Durasi: ${b.duration} jam</span><br>
                   ${statusHtml}
                   ${extendHtml}
@@ -1707,7 +1690,8 @@ function updateDurationOptions() {
   durationSelect.innerHTML = "";
 
   const [hour] = timeSelect.value.split(":").map(Number);
-  const remaining = 24 - hour;
+  const maxDuration = 12; // sesuai batas maksimal di server (apikr.php)
+  const remaining = Math.min(24 - hour, maxDuration);
 
   for (let i = 1; i <= remaining; i++) {
     const opt = document.createElement("option");
@@ -1820,27 +1804,5 @@ function showView(v) {
 
   // 🔥 reset scroll & state
   window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-// PROFILE PAGE
-function loadProfilePage() {
-  // 🔹 ISI DEFAULT (PASTI MUNCUL)
-  const uname = document.getElementById("profileUsername");
-  const box = document.getElementById("profileBookingList");
-
-  if (uname) uname.textContent = "User";
-  if (box) box.innerHTML = '<p class="muted small">Memuat booking...</p>';
-
-  // 🔹 COBA UPDATE DARI SESSION (JIKA ADA)
-  fetch("session.php")
-    .then((r) => r.json())
-    .then((s) => {
-      if (s.logged_in && uname) {
-        uname.textContent = s.username;
-      }
-    })
-    .catch(() => {
-      // sengaja kosong agar UI tidak mati
-    });
 }
 

@@ -180,7 +180,7 @@ session_start();
                     </div>
                     <div class="bfield">
                       <label>No. HP</label>
-                      <input id="phone" placeholder="08xxxxxxxxxx" autocomplete="new-password">
+                      <input id="phone" type="tel" inputmode="numeric" pattern="[0-9]{9,14}" maxlength="14" placeholder="08xxxxxxxxxx" autocomplete="new-password">
                     </div>
                   </div>
                 </div>
@@ -368,7 +368,7 @@ session_start();
         Belum punya akun? <a href="#" class="daftar">Daftar di sini</a>
       </p>
       <p class="small muted" style="margin-top: 6px; text-align: center;">
-        <a href="#" id="openForgotPassword" style="color:var(--neon)">Lupa Password?</a>
+        <a href="#" id="openForgotPassword" style="color:var(--neon)">Ganti Password?</a>
       </p>
     </form>
   </div>
@@ -435,35 +435,29 @@ session_start();
 <div id="forgotModal" class="modal">
   <div class="modal-overlay"></div>
   <div class="modal-content" onclick="event.stopPropagation()">
-    <h2>Reset Password</h2>
+    <h2>Ganti Password</h2>
 
-    <!-- Step 1: cek username -->
     <div id="forgotStep1">
-      <p class="small muted" style="margin-bottom:12px">Masukkan username akunmu untuk mereset password.</p>
+      <p class="small muted" style="margin-bottom:12px">Masukkan username, password lama, dan password baru akunmu.</p>
       <label>
         Username
         <input type="text" id="forgotUsername" placeholder="Username kamu" required autocomplete="new-password" />
       </label>
-      <div class="modal-actions" style="margin-top:12px">
-        <button type="button" class="btn" id="forgotCheckBtn">Lanjut</button>
-        <button type="button" class="btn-ghost" id="closeForgot">Batal</button>
-      </div>
-    </div>
-
-    <!-- Step 2: set password baru -->
-    <div id="forgotStep2" style="display:none">
-      <p class="small muted" style="margin-bottom:12px">Masukkan password baru untuk akun <strong id="forgotUsernameLabel"></strong>.</p>
-      <label>
+      <label style="margin-top:8px">
+        Password Lama
+        <input type="password" id="forgotOldPass" placeholder="Password lama kamu" required autocomplete="new-password" />
+      </label>
+      <label style="margin-top:8px">
         Password Baru
         <input type="password" id="forgotNewPass" placeholder="Min. 6 karakter" required autocomplete="new-password" />
       </label>
       <label style="margin-top:8px">
-        Konfirmasi Password
+        Konfirmasi Password Baru
         <input type="password" id="forgotConfirmPass" placeholder="Ulangi password baru" required autocomplete="new-password" />
       </label>
       <div class="modal-actions" style="margin-top:12px">
-        <button type="button" class="btn" id="forgotResetBtn">Reset Password</button>
-        <button type="button" class="btn-ghost" id="closeForgot2">Batal</button>
+        <button type="button" class="btn" id="forgotResetBtn">Ganti Password</button>
+        <button type="button" class="btn-ghost" id="closeForgot">Batal</button>
       </div>
     </div>
   </div>
