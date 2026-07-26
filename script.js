@@ -23,8 +23,10 @@ const views = {
 // ===== AUTH STATE =====
 let IS_LOGGED_IN = false;
 
-document.addEventListener("DOMContentLoaded", () => {
-  /* ================= BLOKIR AUTOFILL CHROME ================= */
+// Beberapa browser me-restore isi form dari cache halaman (bfcache) saat
+// refresh/kembali, tanpa memicu ulang DOMContentLoaded — jadi fungsi ini
+// dipanggil baik di DOMContentLoaded maupun di event "pageshow".
+function clearNoFillFields() {
   const noFillIds = ["name", "email", "phone", "regUsername",
                      "forgotUsername", "orderNote"];
   noFillIds.forEach((id) => {
@@ -33,7 +35,25 @@ document.addEventListener("DOMContentLoaded", () => {
     // Nama acak tiap load — browser tidak bisa cocokkan ke history tersimpan
     el.setAttribute("name", "nofill_" + Math.random().toString(36).substr(2, 8));
     el.setAttribute("autocomplete", "new-password");
+    // Browser suka "mengingat" isi form terakhir saat halaman di-refresh (F5),
+    // terlepas dari localStorage/JS kita — kosongkan paksa tiap load supaya
+    // form selalu bersih, bukan cuma setelah submit sukses.
+    el.value = "";
   });
+}
+
+window.addEventListener("pageshow", clearNoFillFields);
+// Chrome kadang me-restore value form SETELAH DOMContentLoaded/pageshow selesai
+// (bagian dari mekanisme internal reload-nya) — jadi kosongkan lagi beberapa saat
+// setelah load untuk menimpa restorasi yang telat itu.
+window.addEventListener("load", () => {
+  setTimeout(clearNoFillFields, 0);
+  setTimeout(clearNoFillFields, 300);
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  /* ================= BLOKIR AUTOFILL CHROME ================= */
+  clearNoFillFields();
 
   /* ================= SESSION CHECK ON LOAD ================= */
   fetch("session.php")
@@ -291,9 +311,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function prefillBookingUser() {
-    const nameEl = $("name");
-    const emailEl = $("email");
-    const phoneEl = $("phone");
     const welcome = $("bookingWelcome");
 
     // Tampilkan username di indikator akun (tidak bisa diedit)
@@ -302,10 +319,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (accountBadge) accountBadge.textContent = window.AUTH.username;
       if (welcome) welcome.textContent = `Halo, ${window.AUTH.username}! Lengkapi detail booking di bawah.`;
     }
-
-    // Restore email & phone dari localStorage
-    if (!emailEl.value) emailEl.value = localStorage.getItem("bk_email") || "";
-    if (!phoneEl.value) phoneEl.value = localStorage.getItem("bk_phone") || "";
   }
 
   function updateBookingSummary() {
@@ -478,6 +491,13 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
 
       if (v === "login") return;
+      if (v === "profile") {
+        // Sama seperti link "Detail" di dropdown profil — supaya tombol
+        // "Lihat Detail" di banner booking mendatang (Beranda) menampilkan
+        // data booking yang sama, bukan halaman profil kosong.
+        openProfileDetail();
+        return;
+      }
       if (v === "consoles") renderAll();
       if (v === "booking") {
         if (!IS_LOGGED_IN) {
@@ -587,12 +607,6 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((r) => r.json())
       .then((r) => {
         if (r.status === "success") {
-          // Simpan email & phone untuk prefill berikutnya
-          const em = $("email").value.trim();
-          const ph = $("phone").value.trim();
-          if (em) localStorage.setItem("bk_email", em);
-          if (ph) localStorage.setItem("bk_phone", ph);
-
           alert("Booking BERHASIL!");
           loadUpcomingBooking();
           $("bookingForm").reset();
@@ -600,7 +614,6 @@ document.addEventListener("DOMContentLoaded", () => {
           generateTimeOptions();
           updateDurationOptions();
           updateBookingSummary();
-          prefillBookingUser();
         } else {
           alert("ERROR: " + r.message);
         }
@@ -1360,8 +1373,6 @@ document.addEventListener("DOMContentLoaded", () => {
       clearInterval(window._bookingCountdownInterval);
       window._bookingCountdownInterval = null;
     }
-    localStorage.removeItem("bk_email");
-    localStorage.removeItem("bk_phone");
     const banner = document.getElementById("upcomingBanner");
     if (banner) banner.style.display = "none";
 
@@ -1501,20 +1512,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ===== PROFILE DETAIL (FINAL – SINGLE SOURCE OF TRUTH) =====
-  const profileDetailLink = document.getElementById("profileDetail");
+  // Dipakai baik oleh link "Detail" di dropdown profil maupun tombol
+  // "Lihat Detail" di banner booking mendatang (halaman Beranda), supaya
+  // keduanya selalu menampilkan data booking yang sama & ter-update.
+  function openProfileDetail() {
+    loadUserBookings();
 
-  if (profileDetailLink) {
-    profileDetailLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation(); // ⛔ STOP SEMUA EVENT GLOBAL
-      closeProfileDropdown();
-      loadUserBookings();
+    // 1️⃣ tampilkan view
+    showView("profile");
 
-      // 1️⃣ tampilkan view
-      showView("profile");
-
-      // RIWAYAT BOOKING PADA DETAIL PROFILE
-      function loadUserBookings() {
+    // RIWAYAT BOOKING PADA DETAIL PROFILE
+    function loadUserBookings() {
         const box = document.getElementById("profileBookingList");
         if (!box) return;
 
@@ -1675,7 +1683,15 @@ document.addEventListener("DOMContentLoaded", () => {
           if (uname) uname.textContent = "User";
           if (statusEl) statusEl.textContent = "Offline";
         });
+  }
 
+  const profileDetailLink = document.getElementById("profileDetail");
+  if (profileDetailLink) {
+    profileDetailLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // ⛔ STOP SEMUA EVENT GLOBAL
+      closeProfileDropdown();
+      openProfileDetail();
     });
   }
 
