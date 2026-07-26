@@ -46,7 +46,7 @@ $offset  = ($pageNum - 1) * $perPage;
 <head>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Admin GameZone</title>
-  <link rel="stylesheet" href="admin.css">
+  <link rel="stylesheet" href="admin.css?v=<?= filemtime(__DIR__ . '/admin.css') ?>">
 </head>
 <body>
 
@@ -93,12 +93,14 @@ $offset  = ($pageNum - 1) * $perPage;
   ?>
   <h2>Data Booking (<?= $totalRow ?> total)</h2>
   <table class="users-table">
-    <tr><th>Nama</th><th>Room</th><th>Durasi</th><th>Aksi</th></tr>
+    <tr><th>Nama</th><th>Room</th><th>Durasi</th><th>Total</th><th>Status Bayar</th><th>Aksi</th></tr>
     <?php while($b = $data->fetch_assoc()): ?>
     <tr>
       <td><?= htmlspecialchars($b['customer_name']) ?></td>
       <td><?= intval($b['room_id']) ?></td>
       <td><?= intval($b['duration']) ?> jam</td>
+      <td>Rp<?= number_format(intval($b['total_price']), 0, ',', '.') ?></td>
+      <td><?= htmlspecialchars($b['payment_status']) ?></td>
       <td><button onclick="hapusBooking(<?= intval($b['id']) ?>)">Hapus</button></td>
     </tr>
     <?php endwhile; ?>
@@ -416,7 +418,7 @@ $orders = mysqli_query($conn, "
 
 <?php endif; ?>
 </main>
-<script src="admin.js"></script>
+<script src="admin.js?v=<?= filemtime(__DIR__ . '/admin.js') ?>"></script>
 <?php endif; ?>
 </body>
 </html>

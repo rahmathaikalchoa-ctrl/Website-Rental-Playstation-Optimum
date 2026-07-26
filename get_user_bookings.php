@@ -21,7 +21,10 @@ $sql = "
     r.price,
     b.duration,
     b.start_time,
-    b.end_time
+    b.end_time,
+    b.total_price,
+    b.order_code,
+    b.payment_status
   FROM bookings b
   JOIN rooms r ON b.room_id = r.id
   WHERE b.user_id = ?
@@ -37,14 +40,17 @@ $data = [];
 
 while ($row = $res->fetch_assoc()) {
   $data[] = [
-    'id'         => $row['id'],
-    'room_id'    => $row['room_id'],
-    'room'       => $row['room'],
-    'price'      => $row['price'],
-    'duration'   => $row['duration'],
-    'time'       => date('H:i', (int)$row['start_time']),
-    'start_time' => $row['start_time'],
-    'end_time'   => $row['end_time'],
+    'id'             => $row['id'],
+    'room_id'        => $row['room_id'],
+    'room'           => $row['room'],
+    'price'          => $row['price'],
+    'duration'       => $row['duration'],
+    'time'           => date('H:i', (int)$row['start_time']),
+    'start_time'     => $row['start_time'],
+    'end_time'       => $row['end_time'],
+    'total_price'    => $row['total_price'],
+    'order_code'     => $row['order_code'],
+    'payment_status' => $row['payment_status'],
   ];
 }
 

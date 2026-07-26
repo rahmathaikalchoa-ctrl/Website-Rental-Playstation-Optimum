@@ -9,7 +9,7 @@ session_start();
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>GameZone — Rental PlayStation Neon Biru</title>
 
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__ . '/style.css') ?>">
   </head>
 
   <body>
@@ -463,7 +463,7 @@ session_start();
   </div>
 </div>
 
-   <script src="script.js"></script>
+   <script src="script.js?v=<?= filemtime(__DIR__ . '/script.js') ?>"></script>
 
    <!-- REFRESH TETAP LOGIN -->
    <script>

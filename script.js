@@ -549,7 +549,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const time = $("timeStart").value;
     const duration = $("duration").value;
 
-    if (!name || !roomId || !time || !duration) {
+    if (!time || !duration) {
+      alert("Tidak ada jam tersisa untuk tanggal ini. Silakan pilih tanggal lain.");
+      return;
+    }
+
+    if (!name || !roomId) {
       alert("Lengkapi data!");
       return;
     }
@@ -560,6 +565,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const bookingDate = document.getElementById("bookingDate")?.value || getTodayISO();
+
+    const submitBtn = $("bookingForm").querySelector('[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
 
     fetch("apikr.php", {
       method: "POST",
@@ -597,7 +605,8 @@ document.addEventListener("DOMContentLoaded", () => {
           alert("ERROR: " + r.message);
         }
       })
-      .catch(() => alert("SERVER ERROR"));
+      .catch(() => alert("SERVER ERROR"))
+      .finally(() => { if (submitBtn) submitBtn.disabled = false; });
   });
 
   // search center form
@@ -903,16 +912,25 @@ document.addEventListener("DOMContentLoaded", () => {
     // Tombol "Perpanjang" → tampilkan form + cek ketersediaan jam
     const extBtn = e.target.closest(".extend-btn");
     if (extBtn) {
-      const bid    = extBtn.dataset.bid;
-      const roomId = extBtn.dataset.roomid;
-      const endTs  = parseInt(extBtn.dataset.end);
-      const price  = parseInt(extBtn.dataset.price) || 0;
-      const form   = document.getElementById(`extend-form-${bid}`);
+      const bid      = extBtn.dataset.bid;
+      const roomId   = extBtn.dataset.roomid;
+      const endTs    = parseInt(extBtn.dataset.end);
+      const price    = parseInt(extBtn.dataset.price) || 0;
+      const curDur   = parseInt(extBtn.dataset.duration) || 0;
+      const startTs  = parseInt(extBtn.dataset.start);
+      const form     = document.getElementById(`extend-form-${bid}`);
       if (!form) return;
 
       const isOpen = form.style.display === "block";
       form.style.display = isOpen ? "none" : "block";
       if (isOpen) return;
+
+      // Mirror batas server: total durasi maks 12 jam & tidak boleh lewat tengah malam
+      // hari mulainya sesi (lihat extend_booking.php).
+      const maxTotalDuration = 12;
+      const startDate = new Date(startTs * 1000);
+      const dayStart  = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime() / 1000;
+      const closeLimit = dayStart + 24 * 3600;
 
       fetch(`booked_slots_api.php?room_id=${roomId}`)
         .then((r) => r.json())
@@ -929,9 +947,16 @@ document.addEventListener("DOMContentLoaded", () => {
             const clash  = slots.some(
               (s) => parseInt(s.start_time) < newEnd && parseInt(s.end_time) > endTs
             );
-            opt.disabled    = clash;
-            opt.textContent = clash ? `+${extra} jam — Terpesan` : `+${extra} jam`;
-            if (!clash) anyAvailable = true;
+            const overCap   = curDur + extra > maxTotalDuration;
+            const pastClose = newEnd > closeLimit;
+            const disabled  = clash || overCap || pastClose;
+
+            opt.disabled    = disabled;
+            opt.textContent = clash ? `+${extra} jam — Terpesan`
+              : overCap ? `+${extra} jam — Lewat batas 12 jam`
+              : pastClose ? `+${extra} jam — Lewat jam tutup`
+              : `+${extra} jam`;
+            if (!disabled) anyAvailable = true;
           });
 
           if (noAvailEl) noAvailEl.style.display = anyAvailable ? "none" : "block";
@@ -1070,15 +1095,18 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Submit pesanan
-  document.getElementById("orderSubmitBtn")?.addEventListener("click", () => {
+  document.getElementById("orderSubmitBtn")?.addEventListener("click", (e) => {
     const itemId   = $("orderItemId").value;
-    const quantity = parseInt($("orderQty").value) || 1;
+    const quantity = Math.max(1, Math.min(20, parseInt($("orderQty").value) || 1));
     const note     = $("orderNote").value.trim();
 
     if (!IS_LOGGED_IN) {
       alert("Kamu harus login dulu untuk memesan.");
       return;
     }
+
+    const btn = e.currentTarget;
+    btn.disabled = true;
 
     const body = new URLSearchParams({ action: "order", item_id: itemId, quantity, note });
     fetch("menu_order_api.php", { method: "POST", body })
@@ -1092,7 +1120,8 @@ document.addEventListener("DOMContentLoaded", () => {
           alert("Gagal memesan: " + (res.message || "Error"));
         }
       })
-      .catch(() => alert("Server error"));
+      .catch(() => alert("Server error"))
+      .finally(() => { btn.disabled = false; });
   });
 
   // ===== LOGIN MODAL =====
@@ -1170,7 +1199,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("closeForgot")?.addEventListener("click", closeForgot);
   forgotModal?.querySelector(".modal-overlay")?.addEventListener("click", closeForgot);
 
-  document.getElementById("forgotResetBtn")?.addEventListener("click", () => {
+  document.getElementById("forgotResetBtn")?.addEventListener("click", (e) => {
     const username = document.getElementById("forgotUsername").value.trim();
     const oldPass  = document.getElementById("forgotOldPass").value;
     const newPass  = document.getElementById("forgotNewPass").value;
@@ -1179,6 +1208,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!username || !oldPass) { alert("Lengkapi username dan password lama."); return; }
     if (newPass.length < 6) { alert("Password baru minimal 6 karakter."); return; }
     if (newPass !== confirm) { alert("Konfirmasi password baru tidak cocok."); return; }
+
+    const btn = e.currentTarget;
+    btn.disabled = true;
 
     fetch("forgot_password.php", {
       method: "POST",
@@ -1195,7 +1227,8 @@ document.addEventListener("DOMContentLoaded", () => {
           alert(res.message || "Gagal mengganti password.");
         }
       })
-      .catch(() => alert("Terjadi kesalahan jaringan. Coba lagi."));
+      .catch(() => alert("Terjadi kesalahan jaringan. Coba lagi."))
+      .finally(() => { btn.disabled = false; });
   });
 
   // overlay REGISTER
@@ -1222,6 +1255,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const submitBtn = e.target.querySelector('[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+
     fetch("login.php", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -1239,7 +1275,8 @@ document.addEventListener("DOMContentLoaded", () => {
           alert(res.message);
         }
       })
-      .catch(() => alert("Server error"));
+      .catch(() => alert("Server error"))
+      .finally(() => { if (submitBtn) submitBtn.disabled = false; });
   });
 
   // ===== REGISTER (FIX FINAL) =====
@@ -1266,6 +1303,9 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
+        const submitBtn = registerForm.querySelector('[type="submit"]');
+        if (submitBtn) submitBtn.disabled = true;
+
         fetch("register.php", {
           method: "POST",
           headers: {
@@ -1287,7 +1327,8 @@ document.addEventListener("DOMContentLoaded", () => {
               alert("ERROR: " + r.message);
             }
           })
-          .catch(() => alert("SERVER ERROR"));
+          .catch(() => alert("SERVER ERROR"))
+          .finally(() => { if (submitBtn) submitBtn.disabled = false; });
       },
       true, // 🔥 INI WAJIB ADA
     );
@@ -1539,6 +1580,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   <button class="btn-ghost extend-btn"
                     data-bid="${b.id}" data-roomid="${b.room_id}"
                     data-end="${b.end_time}" data-price="${b.price}"
+                    data-duration="${b.duration}" data-start="${b.start_time}"
                     style="font-size:0.78rem;padding:4px 10px">+ Perpanjang</button>
                   <div id="extend-form-${b.id}" style="display:none;margin-top:8px">
                     <p id="extend-noavail-${b.id}" style="display:none;color:#ff6b6b;font-size:0.8rem;margin-bottom:6px">
@@ -1563,7 +1605,7 @@ document.addEventListener("DOMContentLoaded", () => {
               box.innerHTML += `
                 <div class="booking-item">
                   <strong>${escapeHtml(b.room)}</strong><br>
-                  <span class="small muted">Jam: ${b.time} &bull; Durasi: ${b.duration} jam</span><br>
+                  <span class="small muted">Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam</span><br>
                   ${statusHtml}
                   ${extendHtml}
                   ${cancelHtml}
@@ -1644,9 +1686,17 @@ document.addEventListener("DOMContentLoaded", () => {
 const timeSelect = document.getElementById("timeStart");
 const durationSelect = document.getElementById("duration");
 
+// Format tanggal lokal (bukan UTC) supaya "hari ini" tidak salah tanggal
+// untuk pengguna WIB antara jam 00:00-06:59 (toISOString() memakai UTC).
+function toLocalISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getTodayISO() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return toLocalISODate(new Date());
 }
 
 function generateDateOptions() {
@@ -1657,7 +1707,7 @@ function generateDateOptions() {
   for (let i = 0; i < 3; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    const iso = d.toISOString().slice(0, 10);
+    const iso = toLocalISODate(d);
     const opt = document.createElement("option");
     opt.value = iso;
     opt.textContent = labels[i];
@@ -1683,11 +1733,31 @@ function generateTimeOptions() {
     if (!firstAvailable) firstAvailable = `${h}:00`;
   }
 
-  if (firstAvailable) timeSelect.value = firstAvailable;
+  if (firstAvailable) {
+    timeSelect.value = firstAvailable;
+    timeSelect.disabled = false;
+  } else {
+    // Sudah lewat jam operasional untuk tanggal ini (mis. sudah jam 23 lewat hari ini)
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Tidak ada jam tersisa hari ini";
+    timeSelect.appendChild(opt);
+    timeSelect.disabled = true;
+  }
 }
 
 function updateDurationOptions() {
   durationSelect.innerHTML = "";
+
+  if (!timeSelect.value) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Pilih tanggal lain";
+    durationSelect.appendChild(opt);
+    durationSelect.disabled = true;
+    return;
+  }
+  durationSelect.disabled = false;
 
   const [hour] = timeSelect.value.split(":").map(Number);
   const maxDuration = 12; // sesuai batas maksimal di server (apikr.php)

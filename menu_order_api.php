@@ -53,8 +53,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     }
     $chk->close();
 
-    $stmt = $conn->prepare("INSERT INTO menu_orders (user_id, item_id, quantity, note) VALUES (?, ?, ?, ?)");
-    $stmt->bind_param("iiis", $uid, $itemId, $quantity, $note);
+    // Kalau user sedang punya booking aktif, tautkan pesanan ke booking itu
+    // supaya nanti bisa ditagih jadi satu (ruangan + jajanan).
+    $now = time();
+    $bk = $conn->prepare("
+        SELECT id FROM bookings
+        WHERE user_id = ? AND start_time <= ? AND end_time > ?
+        ORDER BY start_time DESC LIMIT 1
+    ");
+    $bk->bind_param("iii", $uid, $now, $now);
+    $bk->execute();
+    $activeBooking = $bk->get_result()->fetch_assoc();
+    $bk->close();
+    $bookingId = $activeBooking ? intval($activeBooking['id']) : null;
+
+    $stmt = $conn->prepare("INSERT INTO menu_orders (user_id, item_id, booking_id, quantity, note) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param("iiiis", $uid, $itemId, $bookingId, $quantity, $note);
     $stmt->execute();
     $stmt->close();
 

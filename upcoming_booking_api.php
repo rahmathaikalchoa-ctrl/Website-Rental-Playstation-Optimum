@@ -12,7 +12,7 @@ if (!isset($_SESSION['user_id'])) {
 $userId = intval($_SESSION['user_id']);
 
 $stmt = $conn->prepare("
-  SELECT b.id, r.title AS room, b.start_time, b.end_time, b.duration
+  SELECT b.id, r.title AS room, b.start_time, b.end_time, b.duration, b.total_price, b.order_code
   FROM bookings b
   JOIN rooms r ON r.id = b.room_id
   WHERE b.user_id = ? AND b.start_time > UNIX_TIMESTAMP()

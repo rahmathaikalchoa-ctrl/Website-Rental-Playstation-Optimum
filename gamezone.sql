@@ -32,8 +32,14 @@ CREATE TABLE `bookings` (
   `duration` int(11) NOT NULL,
   `start_time` bigint(20) NOT NULL,
   `end_time` bigint(20) NOT NULL,
+  `total_price` int(11) NOT NULL DEFAULT 0,
+  `payment_status` enum('unpaid','pending','paid','cancelled') NOT NULL DEFAULT 'unpaid',
+  `order_code` varchar(40) DEFAULT NULL,
+  `expires_at` int(11) DEFAULT NULL,
+  `paid_at` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `order_code` (`order_code`),
   KEY `room_id` (`room_id`),
   KEY `user_id` (`user_id`),
   CONSTRAINT `bookings_ibfk_1` FOREIGN KEY (`room_id`) REFERENCES `rooms` (`id`),
@@ -47,7 +53,7 @@ CREATE TABLE `bookings` (
 
 LOCK TABLES `bookings` WRITE;
 /*!40000 ALTER TABLE `bookings` DISABLE KEYS */;
-INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,'2026-05-10 05:58:14');
+INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,'unpaid','GZ-20',NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,'unpaid','GZ-21',NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,'unpaid','GZ-22',NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,'unpaid','GZ-23',NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,'unpaid','GZ-24',NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,'unpaid','GZ-25',NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,'unpaid','GZ-26',NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,'unpaid','GZ-28',NULL,NULL,'2026-05-10 05:58:14');
 /*!40000 ALTER TABLE `bookings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -133,7 +139,7 @@ CREATE TABLE `menu_items` (
 
 LOCK TABLES `menu_items` WRITE;
 /*!40000 ALTER TABLE `menu_items` DISABLE KEYS */;
-INSERT INTO `menu_items` VALUES (1,'Indomie Goreng','makanan',12000,'-',NULL,1,'2026-05-03 11:03:18'),(2,'Indomie Rebus','makanan',12000,'-',NULL,1,'2026-05-03 11:03:34'),(3,'Indomie Goreng Jumbo','makanan',18000,'-',NULL,1,'2026-05-03 11:03:51'),(5,'Indomie Rebus Jumbo','makanan',18000,'-',NULL,1,'2026-05-03 11:04:37'),(6,'Nasi Goreng','makanan',15000,'-',NULL,1,'2026-05-03 11:04:51'),(7,'Air Mineral','minuman',5000,'-',NULL,1,'2026-05-03 11:05:14'),(8,'Coca Cola','minuman',8000,'-',NULL,0,'2026-05-03 11:05:28');
+INSERT INTO `menu_items` VALUES (1,'Indomie Goreng','makanan',12000,'-',NULL,1,'2026-05-03 11:03:18'),(2,'Indomie Rebus','makanan',12000,'-',NULL,1,'2026-05-03 11:03:34'),(3,'Indomie Goreng Jumbo','makanan',18000,'-',NULL,1,'2026-05-03 11:03:51'),(5,'Indomie Rebus Jumbo','makanan',18000,'-',NULL,1,'2026-05-03 11:04:37'),(6,'Nasi Goreng','makanan',15000,'-',NULL,1,'2026-05-03 11:04:51'),(7,'Air Mineral','minuman',5000,'-',NULL,1,'2026-05-03 11:05:14'),(8,'Coca Cola','minuman',8000,'-',NULL,1,'2026-05-03 11:05:28');
 /*!40000 ALTER TABLE `menu_items` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -148,6 +154,7 @@ CREATE TABLE `menu_orders` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `user_id` int(11) NOT NULL,
   `item_id` int(11) NOT NULL,
+  `booking_id` int(11) DEFAULT NULL,
   `quantity` int(11) NOT NULL DEFAULT 1,
   `note` text DEFAULT NULL,
   `status` enum('pending','selesai') NOT NULL DEFAULT 'pending',
@@ -155,8 +162,10 @@ CREATE TABLE `menu_orders` (
   PRIMARY KEY (`id`),
   KEY `user_id` (`user_id`),
   KEY `menu_orders_ibfk_2` (`item_id`),
+  KEY `booking_id` (`booking_id`),
   CONSTRAINT `menu_orders_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `menu_orders_ibfk_2` FOREIGN KEY (`item_id`) REFERENCES `menu_items` (`id`)
+  CONSTRAINT `menu_orders_ibfk_2` FOREIGN KEY (`item_id`) REFERENCES `menu_items` (`id`),
+  CONSTRAINT `menu_orders_ibfk_3` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -166,7 +175,7 @@ CREATE TABLE `menu_orders` (
 
 LOCK TABLES `menu_orders` WRITE;
 /*!40000 ALTER TABLE `menu_orders` DISABLE KEYS */;
-INSERT INTO `menu_orders` VALUES (1,8,1,1,'','selesai','2026-05-03 11:05:54'),(2,24,3,2,'','selesai','2026-05-04 12:40:13'),(3,24,8,4,'','selesai','2026-05-04 12:40:27'),(4,23,1,1,'TIDAK PEDAS','selesai','2026-05-07 13:25:09'),(5,22,7,1,'','selesai','2026-05-09 18:47:04'),(6,25,3,1,'Pedas','selesai','2026-05-10 05:59:25');
+INSERT INTO `menu_orders` VALUES (1,8,1,NULL,1,'','selesai','2026-05-03 11:05:54'),(2,24,3,NULL,2,'','selesai','2026-05-04 12:40:13'),(3,24,8,NULL,4,'','selesai','2026-05-04 12:40:27'),(4,23,1,NULL,1,'TIDAK PEDAS','selesai','2026-05-07 13:25:09'),(5,22,7,NULL,1,'','selesai','2026-05-09 18:47:04'),(6,25,3,NULL,1,'Pedas','selesai','2026-05-10 05:59:25');
 /*!40000 ALTER TABLE `menu_orders` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -216,7 +225,7 @@ CREATE TABLE `users` (
   `last_activity` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`)
-) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -225,7 +234,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (8,'DONNY','user','$2y$10$FyOZFIzqKxU7hk2nH9dnhuUnTQGZtKLA0aqBORoCSKq.rw/C23eWG','2026-01-07 15:02:46','2026-07-25 17:06:40'),(16,'WILLIAN','user','$2y$10$NI4CkXtAnsCL4QoBgbhgJ.lrWMCuOy0Odvnj3yqloeK/mk11la016','2026-01-15 14:12:55','2026-01-18 16:49:43'),(17,'haziq','user','$2y$10$H0T7pVuWnfd1.TQam1XaT.fWmqsGe8Ggl3Yky6oacoibtYXqk5Hwi','2026-01-17 10:43:25','2026-01-17 17:43:35'),(18,'sela','user','$2y$10$nmp9uMVJeCgVc3ZvjZV9nebgkERmonT6KGWRNHDTMdgvHc2hH/S/u','2026-01-17 10:49:46','2026-01-17 17:50:00'),(19,'CELA','user','$2y$10$EUfq.eZKFxL20SelTcfxre1CR/Vo8eiNS/k7OmouKToFZIIihctJW','2026-01-18 09:53:19','2026-01-18 20:26:05'),(20,'DEVID','user','$2y$10$s0O0jaWztSKy2SPxEvPVKOHvdgkV6RNnQr1ZNzdyqDnmYYkAct8Pi','2026-01-22 12:38:12',NULL),(21,'SELINA','user','$2y$10$XXHiXgZDDZr8/Adlwns7..ozuRlf2AkMpkVbtyxjxLgQ7TdKQegb.','2026-01-25 09:56:00','2026-01-25 16:56:30'),(22,'HAIKAL','admin','$2y$10$zUUv/QVEZNzRwGYVDT5odeAsIQunU/sAjplfjdNUlwH8eAh9w42D6','2026-05-03 10:00:36','2026-05-21 23:37:13'),(23,'WILIAN','user','$2y$10$1Z1pkIKTDMARQvCsw4j4kegSASQVBMwV1/C2SLS29vhenyP1OXcrG','2026-05-03 15:01:16','2026-05-09 13:40:13'),(24,'SelaCantik','user','$2y$10$JTAr1Xl56NYxAb2fGP7Qv.tnxCTJ6zayNHlOc4QF09z2VSlzyqSe.','2026-05-04 12:37:49','2026-05-04 19:39:35'),(25,'ARDI','user','$2y$10$64vfk2iQ.kxsqH/5R.olr.4g/ENKt84q.dk5CXGOqndVqzjAm3E/S','2026-05-10 05:57:13','2026-05-10 13:16:23'),(26,'JEREMY','user','$2y$10$/sMqP.r6iMReSwGCeod5QeXZK6iCjB7ks3f0DWNtSkhLJLtnAtjAm','2026-05-14 06:01:35','2026-05-21 22:48:45');
+INSERT INTO `users` VALUES (8,'DONNY','user','$2y$10$FyOZFIzqKxU7hk2nH9dnhuUnTQGZtKLA0aqBORoCSKq.rw/C23eWG','2026-01-07 15:02:46','2026-07-26 07:53:41'),(16,'WILLIAN','user','$2y$10$NI4CkXtAnsCL4QoBgbhgJ.lrWMCuOy0Odvnj3yqloeK/mk11la016','2026-01-15 14:12:55','2026-01-18 16:49:43'),(17,'haziq','user','$2y$10$H0T7pVuWnfd1.TQam1XaT.fWmqsGe8Ggl3Yky6oacoibtYXqk5Hwi','2026-01-17 10:43:25','2026-01-17 17:43:35'),(18,'sela','user','$2y$10$nmp9uMVJeCgVc3ZvjZV9nebgkERmonT6KGWRNHDTMdgvHc2hH/S/u','2026-01-17 10:49:46','2026-01-17 17:50:00'),(19,'CELA','user','$2y$10$EUfq.eZKFxL20SelTcfxre1CR/Vo8eiNS/k7OmouKToFZIIihctJW','2026-01-18 09:53:19','2026-01-18 20:26:05'),(20,'DEVID','user','$2y$10$s0O0jaWztSKy2SPxEvPVKOHvdgkV6RNnQr1ZNzdyqDnmYYkAct8Pi','2026-01-22 12:38:12',NULL),(21,'SELINA','user','$2y$10$XXHiXgZDDZr8/Adlwns7..ozuRlf2AkMpkVbtyxjxLgQ7TdKQegb.','2026-01-25 09:56:00','2026-01-25 16:56:30'),(22,'HAIKAL','admin','$2y$10$zUUv/QVEZNzRwGYVDT5odeAsIQunU/sAjplfjdNUlwH8eAh9w42D6','2026-05-03 10:00:36','2026-05-21 23:37:13'),(23,'WILIAN','user','$2y$10$1Z1pkIKTDMARQvCsw4j4kegSASQVBMwV1/C2SLS29vhenyP1OXcrG','2026-05-03 15:01:16','2026-05-09 13:40:13'),(24,'SelaCantik','user','$2y$10$JTAr1Xl56NYxAb2fGP7Qv.tnxCTJ6zayNHlOc4QF09z2VSlzyqSe.','2026-05-04 12:37:49','2026-05-04 19:39:35'),(25,'ARDI','user','$2y$10$64vfk2iQ.kxsqH/5R.olr.4g/ENKt84q.dk5CXGOqndVqzjAm3E/S','2026-05-10 05:57:13','2026-05-10 13:16:23'),(26,'JEREMY','user','$2y$10$/sMqP.r6iMReSwGCeod5QeXZK6iCjB7ks3f0DWNtSkhLJLtnAtjAm','2026-05-14 06:01:35','2026-05-21 22:48:45');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -242,4 +251,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-07-25 17:24:57
+-- Dump completed on 2026-07-26  8:05:35
