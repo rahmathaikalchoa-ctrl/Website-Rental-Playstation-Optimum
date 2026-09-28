@@ -9,6 +9,17 @@ function escapeHtml(str) {
   }[c]));
 }
 
+// Ikon SVG (sama dengan icons.php)
+const ICON_PATHS = {
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
+  utensils: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
+};
+function icon(name) {
+  return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ""}</svg>`;
+}
+
 const views = {
   home: "view-home",
   consoles: "view-consoles",
@@ -455,7 +466,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document.addEventListener("click", (e) => {
-    // 🔥 1. DETAIL KAMAR (PRIORITAS UTAMA)
+    // 1. DETAIL KAMAR (PRIORITAS UTAMA)
     const detailBtn = e.target.closest("[data-detail]");
     if (detailBtn) {
       e.preventDefault();
@@ -463,7 +474,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // 🔥 2. BOOKING DARI DETAIL / CARD
+    // 2. BOOKING DARI DETAIL / CARD
     const bookBtn = e.target.closest("[data-book]");
     if (bookBtn) {
       e.preventDefault();
@@ -487,12 +498,12 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // ⛔ JANGAN TUTUP DROPDOWN SAAT KLIK DI DALAMNYA
+    // JANGAN TUTUP DROPDOWN SAAT KLIK DI DALAMNYA
     if (e.target.closest("#profileToggle")) {
       return;
     }
 
-    // 🔥 1. JANGAN SENTUH KLIK DI DALAM MODAL (LOGIN / REGISTER)
+    // 1. JANGAN SENTUH KLIK DI DALAM MODAL (LOGIN / REGISTER)
     if (e.target.closest(".modal")) {
       return;
     }
@@ -569,11 +580,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("bookingForm").addEventListener("submit", (e) => {
     e.preventDefault();
 
-    // 🔒 BLOKIR PALING AWAL (SEBELUM KODE LAIN JALAN)
+    // BLOKIR PALING AWAL (SEBELUM KODE LAIN JALAN)
     if (!IS_LOGGED_IN) {
       alert("Anda harus login untuk melakukan booking.");
       document.getElementById("loginModal").classList.add("show");
-      return; // ⛔ HENTIKAN FUNGSI DI SINI
+      return; // HENTIKAN FUNGSI DI SINI
     }
 
     const name = $("name").value.trim();
@@ -868,7 +879,7 @@ document.addEventListener("DOMContentLoaded", () => {
         box.innerHTML = data.map(o => {
           const total = formatRupMenu(o.price * o.quantity);
           const statusCls = o.status === 'selesai' ? 'order-done' : 'order-pending';
-          const statusLabel = o.status === 'selesai' ? '✓ Sudah Sampai' : '⏳ Diproses';
+          const statusLabel = o.status === 'selesai' ? `${icon('check')} Sudah Sampai` : `${icon('clock')} Diproses`;
           const tgl = new Date(o.created_at).toLocaleString('id-ID', {
             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
           });
@@ -895,7 +906,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function showOrderNotif(itemName) {
     const notif = document.createElement("div");
     notif.className = "order-notif";
-    notif.textContent = `🍜 "${itemName}" sudah sampai!`;
+    notif.innerHTML = `${icon('utensils')} "${escapeHtml(itemName)}" sudah sampai!`;
     document.body.appendChild(notif);
     requestAnimationFrame(() => notif.classList.add("show"));
     setTimeout(() => {
@@ -925,7 +936,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function showSessionWarning(roomName, minutes) {
     const notif = document.createElement("div");
     notif.className = "order-notif session-warning";
-    notif.innerHTML = `⚠️ Sesi <strong>${escapeHtml(roomName)}</strong> tersisa ${minutes} menit!`;
+    notif.innerHTML = `${icon('alert')} Sesi <strong>${escapeHtml(roomName)}</strong> tersisa ${minutes} menit!`;
     document.body.appendChild(notif);
     requestAnimationFrame(() => notif.classList.add("show"));
     setTimeout(() => {
@@ -1314,7 +1325,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "submit",
       (e) => {
         e.preventDefault();
-        e.stopPropagation(); // ⛔ ini KUNCI
+        e.stopPropagation(); // ini KUNCI
 
         const username = document.getElementById("regUsername").value.trim();
         const password = document.getElementById("regPassword").value.trim();
@@ -1357,7 +1368,7 @@ document.addEventListener("DOMContentLoaded", () => {
           .catch(() => alert("SERVER ERROR"))
           .finally(() => { if (submitBtn) submitBtn.disabled = false; });
       },
-      true, // 🔥 INI WAJIB ADA
+      true, // INI WAJIB ADA
     );
   }
 
@@ -1434,7 +1445,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setActiveNav("home");
   }
 
-  // 🔥 UPDATE ACTIVITY SEKETIKA
+  // UPDATE ACTIVITY SEKETIKA
   fetch("update_activity.php");
 
   /* LOGOUT */
@@ -1707,7 +1718,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (profileDetailLink) {
     profileDetailLink.addEventListener("click", (e) => {
       e.preventDefault();
-      e.stopPropagation(); // ⛔ STOP SEMUA EVENT GLOBAL
+      e.stopPropagation(); // STOP SEMUA EVENT GLOBAL
       closeProfileDropdown();
       openProfileDetail();
     });
@@ -1816,7 +1827,7 @@ function updateDurationOptions() {
     return;
   }
 
-  // 🔥 WAJIB: pilih default durasi
+  // WAJIB: pilih default durasi
   if (durationSelect.options.length > 0) {
     durationSelect.value = durationSelect.options[0].value;
   }
@@ -1925,7 +1936,7 @@ function showView(v) {
 
   if (v === "booking") refreshQueue();
 
-  // 🔥 reset scroll & state
+  // reset scroll & state
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1955,7 +1966,7 @@ function renderQueueEntry(entry) {
     cancelBtn.style.display = "";
   } else {
     const end = new Date(entry.end_time * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    text.innerHTML = `✅ Giliranmu! Silakan ke <strong>${escapeHtml(entry.room)}</strong> — sesi s/d ${end}.`;
+    text.innerHTML = `${icon('check')} Giliranmu! Silakan ke <strong>${escapeHtml(entry.room)}</strong> — sesi s/d ${end}.`;
     cancelBtn.style.display = "none";
     if (wasWaiting) alert(`Giliranmu! Silakan ke ${entry.room}.`);
   }

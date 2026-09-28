@@ -1,5 +1,6 @@
 <?php
 session_start();
+require __DIR__ . '/icons.php';
 ?>
 
 <!DOCTYPE html>
@@ -27,7 +28,7 @@ session_start();
               placeholder="Cari kamar, game, atau fitur..."
               aria-label="Cari"
             />
-            <button type="submit" aria-label="Cari">🔍</button>
+            <button type="submit" aria-label="Cari"><?= icon('search') ?></button>
           </form>
         </div>
 
@@ -101,7 +102,7 @@ session_start();
 
         <div id="upcomingBanner" style="display:none" class="upcoming-banner container">
           <div class="upcoming-banner-inner">
-            <span class="upcoming-icon">🎮</span>
+            <span class="upcoming-icon"><?= icon('gamepad') ?></span>
             <div class="upcoming-text">
               <span class="upcoming-label">Booking Mendatang</span>
               <span id="upcomingDetail"></span>
@@ -150,9 +151,9 @@ session_start();
             <p class="muted" id="bookingWelcome"></p>
           </div>
 
-          <!-- ANTRIAN MAIN SEKARANG (FIFO, gabung dengan konsumen walk-in) -->
+          <!-- ANTRIAN MAIN SEKARANG -->
           <div class="booking-form-card queue-card" style="margin-bottom:18px">
-            <h3 class="bsection-title">⚡ Main Sekarang — Ambil Antrian</h3>
+            <h3 class="bsection-title"><?= icon('clock') ?> Main Sekarang — Ambil Antrian</h3>
             <p class="muted small" style="margin-bottom:12px">
               Tanpa pilih jam: kamu masuk antrian bersama konsumen yang datang langsung,
               dilayani sesuai urutan. Ruangan diberikan otomatis saat giliranmu.
@@ -188,14 +189,14 @@ session_start();
 
                 <!-- Pemesan -->
                 <div class="bsection">
-                  <h3 class="bsection-title">👤 Informasi Pemesan</h3>
+                  <h3 class="bsection-title"><?= icon('user') ?> Informasi Pemesan</h3>
 
                   <!-- Indikator akun -->
                   <div class="bfield">
                     <label>Akun</label>
                     <div class="account-indicator">
                       <span class="account-indicator-username" id="bookingAccountName">—</span>
-                      <span class="account-indicator-lock">🔒</span>
+                      <span class="account-indicator-lock"><?= icon('lock') ?></span>
                     </div>
                   </div>
 
@@ -217,7 +218,7 @@ session_start();
 
                 <!-- Detail Sesi -->
                 <div class="bsection">
-                  <h3 class="bsection-title">🎮 Detail Sesi</h3>
+                  <h3 class="bsection-title"><?= icon('gamepad') ?> Detail Sesi</h3>
                   <div class="bfield">
                     <label>Pilih Ruangan</label>
                     <select id="roomSelect" required></select>
@@ -248,7 +249,7 @@ session_start();
 
             <!-- SUMMARY CARD -->
             <div class="booking-summary-card">
-              <h3 class="bsection-title">📋 Ringkasan</h3>
+              <h3 class="bsection-title"><?= icon('clipboard') ?> Ringkasan</h3>
               <div id="bookingSummary">
                 <div class="summary-placeholder">
                   <p class="muted small">Pilih ruangan & durasi<br>untuk melihat estimasi biaya.</p>

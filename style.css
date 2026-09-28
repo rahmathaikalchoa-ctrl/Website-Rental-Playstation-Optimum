@@ -695,7 +695,7 @@ body {
   z-index: 999;
 
   display: none;
-  flex-direction: column; /* 🔥 KUNCI VERTIKAL */
+  flex-direction: column; /* KUNCI VERTIKAL */
 }
 
 /* ITEM */
@@ -1059,4 +1059,17 @@ body {
 
 .nav a.active::after {
   width: 0%;
+}
+
+/* Ikon SVG inline */
+.icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
 }

@@ -203,7 +203,7 @@ function toggleRoom(id) {
 }
 
 // =====================
-// WALK-IN & ANTRIAN
+// BOOKING OPERATOR (KONSUMEN DATANG LANGSUNG)
 // =====================
 function postAdmin(params) {
   return fetch("admin_api.php", {
@@ -213,7 +213,7 @@ function postAdmin(params) {
 }
 
 function finishBooking(id) {
-  if (!confirm("Selesaikan sesi ini sekarang? Ruangan akan diberikan ke antrian berikutnya.")) return;
+  if (!confirm("Selesaikan sesi ini sekarang? Ruangan akan diberikan ke konsumen berikutnya di daftar tunggu.")) return;
   postAdmin({ action: "finish_booking", id })
     .then((r) => {
       if (r.status === "ok") location.reload();
@@ -223,16 +223,34 @@ function finishBooking(id) {
 }
 
 function cancelQueue(id, name) {
-  if (!confirm(`Batalkan antrian "${name}"?`)) return;
+  if (!confirm(`Hapus "${name}" dari daftar tunggu?`)) return;
   postAdmin({ action: "queue_cancel", id })
     .then(() => location.reload())
     .catch(() => alert("Server error"));
 }
 
-document.getElementById("walkinForm")?.addEventListener("submit", function (e) {
+const walkinForm = document.getElementById("walkinForm");
+
+// Estimasi pakai harga ruangan termurah untuk konsol terpilih
+function updateWalkinEstimate() {
+  const out = document.getElementById("walkinEstimate");
+  if (!walkinForm || !out) return;
+  const prices = JSON.parse(walkinForm.dataset.prices || "{}");
+  const ct = walkinForm.elements.console_type.value;
+  const dur = Number(walkinForm.elements.duration.value) || 0;
+  out.textContent = prices[ct]
+    ? "Rp " + (prices[ct] * dur).toLocaleString("id-ID")
+    : "Tidak ada ruangan aktif";
+}
+walkinForm?.addEventListener("change", updateWalkinEstimate);
+updateWalkinEstimate();
+
+walkinForm?.addEventListener("submit", function (e) {
   e.preventDefault();
   const params = Object.fromEntries(new FormData(this));
   params.action = "walkin_join";
+  const btn = this.querySelector("button[type=submit]");
+  btn.disabled = true;
   postAdmin(params)
     .then((r) => {
       if (r.status !== "ok") {
@@ -241,14 +259,15 @@ document.getElementById("walkinForm")?.addEventListener("submit", function (e) {
       }
       alert(r.assigned
         ? `Ruangan tersedia: ${r.room}. Sesi dimulai sekarang (lunas).`
-        : `Semua ruangan penuh. Masuk antrian nomor ${r.position}.`);
+        : `Semua ruangan ${params.console_type} penuh. Konsumen masuk daftar tunggu nomor ${r.position}.`);
       location.reload();
     })
-    .catch(() => alert("Server error"));
+    .catch(() => alert("Server error"))
+    .finally(() => { btn.disabled = false; });
 });
 
-// Halaman antrian di-refresh berkala supaya antrian yang dapat ruangan terlihat,
-// kecuali admin sedang mengisi form walk-in.
+// Refresh berkala supaya daftar tunggu yang sudah dapat ruangan terlihat,
+// kecuali admin sedang mengisi form.
 if (document.getElementById("walkinForm")) {
   setInterval(() => {
     const form = document.getElementById("walkinForm");
@@ -386,7 +405,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .then((res) => res.json())
         .then((res) => {
           if (res.status === "ok") {
-            const imgMsg = res.image_saved === false ? "\n⚠️ Gambar gagal tersimpan (cek format/ukuran file)." : "";
+            const imgMsg = res.image_saved === false ? "\nCatatan: gambar gagal tersimpan (cek format/ukuran file)." : "";
             alert("Game berhasil ditambahkan!" + imgMsg);
             location.reload();
           } else {
