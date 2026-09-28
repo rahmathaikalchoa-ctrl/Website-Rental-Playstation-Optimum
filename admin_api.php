@@ -2,6 +2,7 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/db.php';
+require __DIR__ . '/queue_lib.php';
 
 header('Content-Type: application/json');
 
@@ -24,6 +25,91 @@ if ($action === 'delete_booking') {
   $stmt->bind_param("i", $id);
   $stmt->execute();
   $stmt->close();
+  processQueue($conn);
+  echo json_encode(["status" => "ok"]);
+  exit;
+}
+
+// ================= WALK-IN: MASUK ANTRIAN =================
+if ($action === 'walkin_join') {
+  $name     = trim($_POST['name'] ?? '');
+  $phone    = trim($_POST['phone'] ?? '');
+  $console  = $_POST['console_type'] ?? '';
+  $duration = intval($_POST['duration'] ?? 0);
+
+  if ($name === '' || !in_array($console, QUEUE_CONSOLES, true) || $duration < 1 || $duration > 12) {
+    echo json_encode(["status" => "error", "message" => "Data walk-in tidak lengkap atau tidak valid"]);
+    exit;
+  }
+  if ($phone !== '' && !preg_match('/^[0-9]{9,14}$/', $phone)) {
+    echo json_encode(["status" => "error", "message" => "Format nomor HP tidak valid"]);
+    exit;
+  }
+  $now = time();
+  if (intval(date('G', $now)) < QUEUE_OPEN_HOUR) {
+    echo json_encode(["status" => "error", "message" => "Antrian dibuka mulai jam 11:00"]);
+    exit;
+  }
+  if ($now + $duration * 3600 > queueCloseLimit($now)) {
+    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (tengah malam)"]);
+    exit;
+  }
+
+  $phoneVal = $phone === '' ? null : $phone;
+  $stmt = $conn->prepare("INSERT INTO booking_queue (source, customer_name, phone, console_type, duration) VALUES ('walkin', ?, ?, ?, ?)");
+  $stmt->bind_param("sssi", $name, $phoneVal, $console, $duration);
+  $stmt->execute();
+  $queueId = $stmt->insert_id;
+  $stmt->close();
+
+  processQueue($conn);
+
+  $stmt = $conn->prepare("
+    SELECT q.*, r.title AS room_title
+    FROM booking_queue q
+    LEFT JOIN bookings b ON b.id = q.booking_id
+    LEFT JOIN rooms r    ON r.id = b.room_id
+    WHERE q.id = ?
+  ");
+  $stmt->bind_param("i", $queueId);
+  $stmt->execute();
+  $entry = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  if ($entry['status'] === 'assigned') {
+    echo json_encode(["status" => "ok", "assigned" => true, "room" => $entry['room_title']]);
+  } else {
+    echo json_encode(["status" => "ok", "assigned" => false, "position" => queuePosition($conn, $entry)]);
+  }
+  exit;
+}
+
+// ================= BATALKAN ANTRIAN =================
+if ($action === 'queue_cancel') {
+  $id = intval($_POST['id'] ?? 0);
+  $stmt = $conn->prepare("UPDATE booking_queue SET status = 'cancelled' WHERE id = ? AND status = 'waiting'");
+  $stmt->bind_param("i", $id);
+  $stmt->execute();
+  $stmt->close();
+  processQueue($conn);
+  echo json_encode(["status" => "ok"]);
+  exit;
+}
+
+// ================= SELESAIKAN SESI LEBIH AWAL =================
+if ($action === 'finish_booking') {
+  $id  = intval($_POST['id'] ?? 0);
+  $now = time();
+  $stmt = $conn->prepare("UPDATE bookings SET end_time = ? WHERE id = ? AND start_time <= ? AND end_time > ?");
+  $stmt->bind_param("iiii", $now, $id, $now, $now);
+  $stmt->execute();
+  $ok = $stmt->affected_rows > 0;
+  $stmt->close();
+  if (!$ok) {
+    echo json_encode(["status" => "error", "message" => "Sesi tidak sedang berjalan"]);
+    exit;
+  }
+  processQueue($conn);
   echo json_encode(["status" => "ok"]);
   exit;
 }
@@ -62,6 +148,7 @@ if ($action === 'toggle_room') {
   $stmt->bind_param("i", $id);
   $stmt->execute();
   $stmt->close();
+  processQueue($conn);
   echo json_encode(["status" => "ok"]);
   exit;
 }

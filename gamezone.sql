@@ -34,6 +34,7 @@ CREATE TABLE `bookings` (
   `end_time` bigint(20) NOT NULL,
   `total_price` int(11) NOT NULL DEFAULT 0,
   `payment_status` enum('unpaid','pending','paid','cancelled') NOT NULL DEFAULT 'unpaid',
+  `source` enum('online','walkin') NOT NULL DEFAULT 'online',
   `order_code` varchar(40) DEFAULT NULL,
   `expires_at` int(11) DEFAULT NULL,
   `paid_at` int(11) DEFAULT NULL,
@@ -42,6 +43,7 @@ CREATE TABLE `bookings` (
   UNIQUE KEY `order_code` (`order_code`),
   KEY `room_id` (`room_id`),
   KEY `user_id` (`user_id`),
+  KEY `room_time` (`room_id`,`start_time`,`end_time`),
   CONSTRAINT `bookings_ibfk_1` FOREIGN KEY (`room_id`) REFERENCES `rooms` (`id`),
   CONSTRAINT `bookings_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -53,9 +55,34 @@ CREATE TABLE `bookings` (
 
 LOCK TABLES `bookings` WRITE;
 /*!40000 ALTER TABLE `bookings` DISABLE KEYS */;
-INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,'unpaid','GZ-20',NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,'unpaid','GZ-21',NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,'unpaid','GZ-22',NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,'unpaid','GZ-23',NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,'unpaid','GZ-24',NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,'unpaid','GZ-25',NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,'unpaid','GZ-26',NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,'unpaid','GZ-28',NULL,NULL,'2026-05-10 05:58:14');
+INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,'unpaid','online','GZ-20',NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,'unpaid','online','GZ-21',NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,'unpaid','online','GZ-22',NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,'unpaid','online','GZ-23',NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,'unpaid','online','GZ-24',NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,'unpaid','online','GZ-25',NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,'unpaid','online','GZ-26',NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,'unpaid','online','GZ-28',NULL,NULL,'2026-05-10 05:58:14');
 /*!40000 ALTER TABLE `bookings` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Table structure for table `booking_queue`
+--
+
+DROP TABLE IF EXISTS `booking_queue`;
+CREATE TABLE `booking_queue` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `source` enum('online','walkin') NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `customer_name` varchar(100) NOT NULL,
+  `phone` varchar(20) DEFAULT NULL,
+  `console_type` enum('PS3','PS4','PS5') NOT NULL,
+  `duration` int(11) NOT NULL,
+  `status` enum('waiting','assigned','cancelled') NOT NULL DEFAULT 'waiting',
+  `booking_id` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `assigned_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `status_console` (`status`,`console_type`,`created_at`),
+  KEY `user_id` (`user_id`),
+  KEY `booking_id` (`booking_id`),
+  CONSTRAINT `booking_queue_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `booking_queue_ibfk_2` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Table structure for table `game_consoles`
@@ -178,6 +205,19 @@ LOCK TABLES `menu_orders` WRITE;
 INSERT INTO `menu_orders` VALUES (1,8,1,NULL,1,'','selesai','2026-05-03 11:05:54'),(2,24,3,NULL,2,'','selesai','2026-05-04 12:40:13'),(3,24,8,NULL,4,'','selesai','2026-05-04 12:40:27'),(4,23,1,NULL,1,'TIDAK PEDAS','selesai','2026-05-07 13:25:09'),(5,22,7,NULL,1,'','selesai','2026-05-09 18:47:04'),(6,25,3,NULL,1,'Pedas','selesai','2026-05-10 05:59:25');
 /*!40000 ALTER TABLE `menu_orders` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Table structure for table `rate_limits`
+--
+
+DROP TABLE IF EXISTS `rate_limits`;
+CREATE TABLE `rate_limits` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `rl_key` varchar(191) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `rl_key_time` (`rl_key`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Table structure for table `rooms`

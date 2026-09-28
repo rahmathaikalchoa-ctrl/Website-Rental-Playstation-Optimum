@@ -24,53 +24,26 @@ if ($bookingId <= 0 || $extraHours < 1 || $extraHours > 5) {
   exit;
 }
 
-// Ambil booking — harus milik user ini
-$stmt = $conn->prepare("
-  SELECT id, room_id, start_time, end_time, duration
-  FROM bookings
-  WHERE id = ? AND user_id = ?
-  LIMIT 1
-");
+// Ambil room_id saja untuk menentukan lock; semua validasi dilakukan
+// ulang di dalam transaksi pada data yang sudah dikunci.
+$stmt = $conn->prepare("SELECT room_id FROM bookings WHERE id = ? AND user_id = ? LIMIT 1");
 $stmt->bind_param("ii", $bookingId, $userId);
 $stmt->execute();
-$booking = $stmt->get_result()->fetch_assoc();
+$pre = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-if (!$booking) {
+if (!$pre) {
   echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan"]);
   exit;
 }
+$roomId = intval($pre['room_id']);
 
-$now = time();
-if ($now < $booking['start_time'] || $now >= $booking['end_time']) {
-  echo json_encode(["status" => "error", "message" => "Hanya booking yang sedang aktif yang bisa diperpanjang"]);
-  exit;
-}
-
-$newDuration = intval($booking['duration']) + $extraHours;
-if ($newDuration > $maxDuration) {
-  echo json_encode(["status" => "error", "message" => "Total durasi tidak boleh lebih dari $maxDuration jam"]);
-  exit;
-}
-
-$currentEnd = intval($booking['end_time']);
-$newEnd     = $currentEnd + ($extraHours * 3600);
-$roomId     = intval($booking['room_id']);
-
-// Perpanjangan tidak boleh melewati jam tutup (tengah malam hari yang sama dengan mulainya sesi)
-$dayStart   = strtotime(date('Y-m-d', intval($booking['start_time'])));
-$closeLimit = $dayStart + 24 * 3600;
-if ($newEnd > $closeLimit) {
-  echo json_encode(["status" => "error", "message" => "Perpanjangan melewati jam operasional (maks sampai tengah malam)"]);
-  exit;
-}
-
-// Transaksi + row lock pada ruangan supaya cek-bentrok dan update atomik
-// (mencegah dua perpanjangan/booking lolos bersamaan untuk slot yang sama).
+// Lock room lalu booking (urutan sama dengan apikr.php) supaya dua
+// perpanjangan bersamaan tidak memakai end_time/duration yang basi.
 try {
   $conn->begin_transaction();
 
-  $stmt = $conn->prepare("SELECT id, price FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
+  $stmt = $conn->prepare("SELECT id, price, status FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
   $stmt->bind_param("i", $roomId);
   $stmt->execute();
   $room = $stmt->get_result()->fetch_assoc();
@@ -79,6 +52,53 @@ try {
   if (!$room) {
     $conn->rollback();
     echo json_encode(["status" => "error", "message" => "Room tidak ditemukan"]);
+    exit;
+  }
+  if ($room['status'] !== 'available') {
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => "Ruangan sedang tidak tersedia"]);
+    exit;
+  }
+
+  $stmt = $conn->prepare("
+    SELECT id, start_time, end_time, duration
+    FROM bookings
+    WHERE id = ? AND user_id = ? AND room_id = ?
+    LIMIT 1 FOR UPDATE
+  ");
+  $stmt->bind_param("iii", $bookingId, $userId, $roomId);
+  $stmt->execute();
+  $booking = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  if (!$booking) {
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan"]);
+    exit;
+  }
+
+  $now = time();
+  if ($now < $booking['start_time'] || $now >= $booking['end_time']) {
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => "Hanya booking yang sedang aktif yang bisa diperpanjang"]);
+    exit;
+  }
+
+  if (intval($booking['duration']) + $extraHours > $maxDuration) {
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => "Total durasi tidak boleh lebih dari $maxDuration jam"]);
+    exit;
+  }
+
+  $currentEnd = intval($booking['end_time']);
+  $newEnd     = $currentEnd + ($extraHours * 3600);
+
+  // Perpanjangan tidak boleh melewati jam tutup (tengah malam hari yang sama dengan mulainya sesi)
+  $dayStart   = strtotime(date('Y-m-d', intval($booking['start_time'])));
+  $closeLimit = $dayStart + 24 * 3600;
+  if ($newEnd > $closeLimit) {
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => "Perpanjangan melewati jam operasional (maks sampai tengah malam)"]);
     exit;
   }
 

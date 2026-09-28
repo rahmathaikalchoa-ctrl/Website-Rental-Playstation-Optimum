@@ -150,6 +150,36 @@ session_start();
             <p class="muted" id="bookingWelcome"></p>
           </div>
 
+          <!-- ANTRIAN MAIN SEKARANG (FIFO, gabung dengan konsumen walk-in) -->
+          <div class="booking-form-card queue-card" style="margin-bottom:18px">
+            <h3 class="bsection-title">⚡ Main Sekarang — Ambil Antrian</h3>
+            <p class="muted small" style="margin-bottom:12px">
+              Tanpa pilih jam: kamu masuk antrian bersama konsumen yang datang langsung,
+              dilayani sesuai urutan. Ruangan diberikan otomatis saat giliranmu.
+            </p>
+            <div id="queueJoinBox" class="brow">
+              <div class="bfield">
+                <label>Konsol</label>
+                <select id="queueConsole">
+                  <option value="PS3">PS3</option>
+                  <option value="PS4">PS4</option>
+                  <option value="PS5">PS5</option>
+                </select>
+              </div>
+              <div class="bfield">
+                <label>Durasi</label>
+                <select id="queueDuration"></select>
+              </div>
+              <div class="bfield" style="align-self:flex-end">
+                <button type="button" class="btn" id="queueJoinBtn">Ambil Antrian</button>
+              </div>
+            </div>
+            <div id="queueStatusBox" style="display:none">
+              <p id="queueStatusText" style="margin-bottom:10px"></p>
+              <button type="button" class="btn-ghost" id="queueCancelBtn">Batalkan Antrian</button>
+            </div>
+          </div>
+
           <div class="booking-layout">
 
             <!-- FORM CARD -->

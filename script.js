@@ -42,7 +42,19 @@ function clearNoFillFields() {
   });
 }
 
-window.addEventListener("pageshow", clearNoFillFields);
+window.addEventListener("pageshow", (e) => {
+  clearNoFillFields();
+  // Halaman dipulihkan dari bfcache (tombol Back): status login bisa basi
+  // (mis. sudah logout), jadi reload kalau berbeda dengan server.
+  if (e.persisted) {
+    fetch("session.php", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((sess) => {
+        if (!!sess.logged_in !== IS_LOGGED_IN) location.reload();
+      })
+      .catch(() => {});
+  }
+});
 // Chrome kadang me-restore value form SETELAH DOMContentLoaded/pageshow selesai
 // (bagian dari mekanisme internal reload-nya) — jadi kosongkan lagi beberapa saat
 // setelah load untuk menimpa restorasi yang telat itu.
@@ -56,6 +68,8 @@ document.addEventListener("DOMContentLoaded", () => {
   clearNoFillFields();
 
   /* ================= SESSION CHECK ON LOAD ================= */
+  // Pakai status dari PHP dulu supaya klik sebelum fetch selesai tidak salah ditolak
+  IS_LOGGED_IN = !!window.AUTH?.loggedIn;
   fetch("session.php")
     .then((res) => res.json())
     .then((sess) => {
@@ -227,7 +241,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const cover = g.image ? `assets/images/games/${g.image}` : `assets/images/games/default.jpg`;
           return `
             <div class="game-mini-card">
-              <img src="${cover}" alt="${escapeHtml(g.title)}" onerror="this.src='assets/images/games/default.jpg'">
+              <img src="${escapeHtml(cover)}" alt="${escapeHtml(g.title)}" onerror="this.src='assets/images/games/default.jpg'">
               <div class="game-mini-body">
                 <p class="game-mini-title">${escapeHtml(g.title)}</p>
                 <p class="muted small">${escapeHtml(g.genre)}</p>
@@ -246,7 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <h2 style="color:var(--neon);margin-bottom:10px">${escapeHtml(room.title)}
         <span class="room-status-badge ${stDetail.cls}" style="position:static;display:inline-block;margin-left:10px;vertical-align:middle">${stDetail.label}</span>
       </h2>
-      <img src="${room.img}" alt="${escapeHtml(room.title)}" style="width:100%;height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">
+      <img src="${escapeHtml(room.img)}" alt="${escapeHtml(room.title)}" style="width:100%;height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">
       <p class="muted">${escapeHtml(room.desc)}</p>
       <p style="margin-top:6px"><strong>${formatRup(room.price)}/jam</strong></p>
       <div style="margin-top:12px;display:flex;gap:8px">
@@ -426,7 +440,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .join(" ");
 
       const cover = g.image ? `assets/images/games/${g.image}` : `assets/images/games/default.jpg`;
-      const coverHtml = `<img class="game-cover-img" src="${cover}" alt="${escapeHtml(g.title)}" onerror="this.src='assets/images/games/default.jpg'">`;
+      const coverHtml = `<img class="game-cover-img" src="${escapeHtml(cover)}" alt="${escapeHtml(g.title)}" onerror="this.src='assets/images/games/default.jpg'">`;
 
       card.innerHTML = `
       ${coverHtml}
@@ -795,7 +809,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       card.innerHTML = `
         <div class="menu-img-wrap">
-          <img src="${imgSrc}" alt="${escapeHtml(item.name)}" onerror="this.src='assets/images/games/default.jpg'">
+          <img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(item.name)}" onerror="this.src='assets/images/games/default.jpg'">
           ${stockBadge}
         </div>
         <div class="room-body">
@@ -1369,6 +1383,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.AUTH = null;
     window._notifiedSessions = new Set();
+    stopMenuRefresh();
     if (window._bookingCountdownInterval) {
       clearInterval(window._bookingCountdownInterval);
       window._bookingCountdownInterval = null;
@@ -1516,6 +1531,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // "Lihat Detail" di banner booking mendatang (halaman Beranda), supaya
   // keduanya selalu menampilkan data booking yang sama & ter-update.
   function openProfileDetail() {
+    stopMenuRefresh();
     loadUserBookings();
 
     // 1️⃣ tampilkan view
@@ -1656,6 +1672,8 @@ document.addEventListener("DOMContentLoaded", () => {
               }
             }
 
+            // Request lama yang selesai belakangan bisa sudah memasang interval
+            if (window._bookingCountdownInterval) clearInterval(window._bookingCountdownInterval);
             tick();
             window._bookingCountdownInterval = setInterval(tick, 1000);
           })
@@ -1778,12 +1796,24 @@ function updateDurationOptions() {
   const [hour] = timeSelect.value.split(":").map(Number);
   const maxDuration = 12; // sesuai batas maksimal di server (apikr.php)
   const remaining = Math.min(24 - hour, maxDuration);
+  const start = slotStartTs(timeSelect.value);
 
   for (let i = 1; i <= remaining; i++) {
+    // Durasi yang menabrak booking berikutnya tidak ditawarkan
+    if (isRangeBlocked(start, start + i * 3600)) break;
     const opt = document.createElement("option");
     opt.value = i;
     opt.textContent = `${i} jam`;
     durationSelect.appendChild(opt);
+  }
+
+  if (durationSelect.options.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Jam ini sudah terpesan";
+    durationSelect.appendChild(opt);
+    durationSelect.disabled = true;
+    return;
   }
 
   // 🔥 WAJIB: pilih default durasi
@@ -1791,6 +1821,8 @@ function updateDurationOptions() {
     durationSelect.value = durationSelect.options[0].value;
   }
 }
+
+let bookedSlots = [];
 
 generateDateOptions();
 generateTimeOptions();
@@ -1806,7 +1838,6 @@ document.getElementById("bookingDate")?.addEventListener("change", () => {
 });
 
 // ===== BOOKED SLOTS =====
-let bookedSlots = [];
 
 function fetchBookedSlots(roomId) {
   const infoEl = document.getElementById("bookedSlotsInfo");
@@ -1843,20 +1874,24 @@ function fetchBookedSlots(roomId) {
     });
 }
 
-function isHourBlocked(hour) {
-  return bookedSlots.some((s) => {
-    const startH = new Date(s.start_time * 1000).getHours();
-    const endH   = new Date(s.end_time   * 1000).getHours();
-    return hour >= startH && hour < endH;
-  });
+// Timestamp (detik) untuk jam "HH:MM" pada tanggal booking yang dipilih
+function slotStartTs(timeVal) {
+  const date = document.getElementById("bookingDate")?.value || getTodayISO();
+  return Math.floor(new Date(`${date}T${timeVal}:00`).getTime() / 1000);
+}
+
+// Sama dengan cek bentrok di apikr.php: start < endLain && end > startLain
+function isRangeBlocked(start, end) {
+  return bookedSlots.some((s) => start < s.end_time && end > s.start_time);
 }
 
 function applyBookedSlots() {
   if (!timeSelect) return;
   const currentVal = timeSelect.value;
   Array.from(timeSelect.options).forEach((opt) => {
-    const h = parseInt(opt.value.split(":")[0]);
-    if (isHourBlocked(h)) {
+    if (!opt.value) return;
+    const start = slotStartTs(opt.value);
+    if (isRangeBlocked(start, start + 3600)) {
       opt.disabled = true;
       opt.textContent = `${opt.value} — Terpesan`;
     } else {
@@ -1888,7 +1923,96 @@ function showView(v) {
   const target = document.getElementById(views[v]);
   if (target) target.style.display = "block";
 
+  if (v === "booking") refreshQueue();
+
   // 🔥 reset scroll & state
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
+
+// ===== ANTRIAN FIFO (MAIN SEKARANG) =====
+let queueWaiting = false;
+
+function renderQueueEntry(entry) {
+  const joinBox = $("queueJoinBox");
+  const statusBox = $("queueStatusBox");
+  const text = $("queueStatusText");
+  const cancelBtn = $("queueCancelBtn");
+  if (!joinBox) return;
+
+  const wasWaiting = queueWaiting;
+  queueWaiting = !!entry && entry.state === "waiting";
+
+  if (!entry) {
+    joinBox.style.display = "";
+    statusBox.style.display = "none";
+    return;
+  }
+  joinBox.style.display = "none";
+  statusBox.style.display = "";
+
+  if (entry.state === "waiting") {
+    text.innerHTML = `Antrian <strong>${escapeHtml(entry.console_type)}</strong> · ${Number(entry.duration)} jam — posisi kamu: <strong>#${Number(entry.position)}</strong>`;
+    cancelBtn.style.display = "";
+  } else {
+    const end = new Date(entry.end_time * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    text.innerHTML = `✅ Giliranmu! Silakan ke <strong>${escapeHtml(entry.room)}</strong> — sesi s/d ${end}.`;
+    cancelBtn.style.display = "none";
+    if (wasWaiting) alert(`Giliranmu! Silakan ke ${entry.room}.`);
+  }
+}
+
+function refreshQueue() {
+  if (!IS_LOGGED_IN) {
+    queueWaiting = false;
+    renderQueueEntry(null);
+    return;
+  }
+  fetch("queue_api.php?action=status&t=" + Date.now())
+    .then((r) => r.json())
+    .then((res) => { if (res.status === "ok") renderQueueEntry(res.entry); })
+    .catch(() => {});
+}
+
+function postQueue(params) {
+  return fetch("queue_api.php", { method: "POST", body: new URLSearchParams(params) })
+    .then((r) => r.json());
+}
+
+(function initQueueForm() {
+  const durSel = $("queueDuration");
+  if (durSel) {
+    for (let i = 1; i <= 12; i++) durSel.add(new Option(`${i} jam`, i));
+  }
+
+  $("queueJoinBtn")?.addEventListener("click", () => {
+    if (!IS_LOGGED_IN) {
+      alert("Silakan login terlebih dahulu untuk mengambil antrian.");
+      document.getElementById("loginModal").classList.add("show");
+      return;
+    }
+    const btn = $("queueJoinBtn");
+    btn.disabled = true;
+    postQueue({ action: "join", console_type: $("queueConsole").value, duration: durSel.value })
+      .then((res) => {
+        if (res.status !== "ok") { alert(res.message || "Gagal mengambil antrian"); return; }
+        renderQueueEntry(res.entry);
+        if (res.entry?.state === "assigned") alert(`Ruangan tersedia! Silakan ke ${res.entry.room}.`);
+      })
+      .catch(() => alert("Server error"))
+      .finally(() => { btn.disabled = false; });
+  });
+
+  $("queueCancelBtn")?.addEventListener("click", () => {
+    if (!confirm("Batalkan antrian?")) return;
+    postQueue({ action: "cancel" }).then(refreshQueue).catch(() => alert("Server error"));
+  });
+
+  // Polling: saat di halaman booking, atau selama masih menunggu giliran
+  setInterval(() => {
+    const onBooking = $("view-booking")?.style.display === "block";
+    if (IS_LOGGED_IN && (onBooking || queueWaiting)) refreshQueue();
+  }, 15000);
+
+  document.addEventListener("DOMContentLoaded", refreshQueue);
+})();
 

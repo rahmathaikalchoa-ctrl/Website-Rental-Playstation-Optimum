@@ -81,7 +81,7 @@ if ($endTimestamp > $closeLimit) {
 try {
   $conn->begin_transaction();
 
-  $stmt = $conn->prepare("SELECT id, price FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
+  $stmt = $conn->prepare("SELECT id, price, status FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
   $stmt->bind_param("i", $roomId);
   $stmt->execute();
   $room = $stmt->get_result()->fetch_assoc();
@@ -90,6 +90,11 @@ try {
   if (!$room) {
     $conn->rollback();
     echo json_encode(["status" => "error", "message" => "Room tidak ditemukan"]);
+    exit;
+  }
+  if ($room['status'] !== 'available') {
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => "Ruangan sedang tidak tersedia"]);
     exit;
   }
 

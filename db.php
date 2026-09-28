@@ -34,16 +34,39 @@ function updateUserActivity($conn, $userId) {
   $stmt->close();
 }
 
-// Rate limit sederhana berbasis session (per key, misal "login_attempts").
-// Panggil di awal endpoint; jika return false, langsung tolak requestnya.
-function checkRateLimit($key, $maxAttempts = 5, $windowSec = 300) {
-  $_SESSION[$key] = array_values(array_filter(
-    $_SESSION[$key] ?? [],
-    fn($t) => time() - $t < $windowSec
-  ));
-  if (count($_SESSION[$key]) >= $maxAttempts) {
+// Rate limit per IP, disimpan di DB (bukan session) supaya tidak bisa
+// dilewati dengan membuang cookie session di tiap request.
+function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300) {
+  global $conn;
+  $key = $action . ':' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+
+  $stmt = $conn->prepare("DELETE FROM rate_limits WHERE rl_key = ? AND created_at < (NOW() - INTERVAL ? SECOND)");
+  $stmt->bind_param("si", $key, $windowSec);
+  $stmt->execute();
+  $stmt->close();
+
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM rate_limits WHERE rl_key = ?");
+  $stmt->bind_param("s", $key);
+  $stmt->execute();
+  $count = intval($stmt->get_result()->fetch_assoc()['c']);
+  $stmt->close();
+
+  if ($count >= $maxAttempts) {
     return false;
   }
-  $_SESSION[$key][] = time();
+
+  $stmt = $conn->prepare("INSERT INTO rate_limits (rl_key) VALUES (?)");
+  $stmt->bind_param("s", $key);
+  $stmt->execute();
+  $stmt->close();
   return true;
+}
+
+function clearRateLimit($action) {
+  global $conn;
+  $key = $action . ':' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+  $stmt = $conn->prepare("DELETE FROM rate_limits WHERE rl_key = ?");
+  $stmt->bind_param("s", $key);
+  $stmt->execute();
+  $stmt->close();
 }

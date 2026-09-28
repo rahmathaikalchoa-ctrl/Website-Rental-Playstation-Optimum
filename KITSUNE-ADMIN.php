@@ -2,6 +2,13 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/db.php';
+require __DIR__ . '/queue_lib.php';
+
+// Nilai aman untuk argumen JS di atribut onclick. htmlspecialchars saja tidak cukup:
+// browser men-decode &#039; kembali jadi ' sebelum JS dijalankan.
+function jsArg($v) {
+  return htmlspecialchars(json_encode($v, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP), ENT_QUOTES);
+}
 
 if (isset($_POST['login'])) {
   if (!checkRateLimit('admin_login_attempts', 5, 300)) {
@@ -69,6 +76,7 @@ $offset  = ($pageNum - 1) * $perPage;
 <nav class="sidebar">
   <h2>Admin</h2>
   <a href="?page=booking">Booking</a>
+  <a href="?page=walkin">Walk-in &amp; Antrian</a>
   <a href="?page=room">Room</a>
   <a href="?page=akun">Akun</a>
   <a href="?page=game">Game</a>
@@ -93,10 +101,11 @@ $offset  = ($pageNum - 1) * $perPage;
   ?>
   <h2>Data Booking (<?= $totalRow ?> total)</h2>
   <table class="users-table">
-    <tr><th>Nama</th><th>Room</th><th>Durasi</th><th>Total</th><th>Status Bayar</th><th>Aksi</th></tr>
+    <tr><th>Nama</th><th>Sumber</th><th>Room</th><th>Durasi</th><th>Total</th><th>Status Bayar</th><th>Aksi</th></tr>
     <?php while($b = $data->fetch_assoc()): ?>
     <tr>
       <td><?= htmlspecialchars($b['customer_name']) ?></td>
+      <td><?= $b['source'] === 'walkin' ? 'Walk-in' : 'Online' ?></td>
       <td><?= intval($b['room_id']) ?></td>
       <td><?= intval($b['duration']) ?> jam</td>
       <td>Rp<?= number_format(intval($b['total_price']), 0, ',', '.') ?></td>
@@ -117,6 +126,110 @@ $offset  = ($pageNum - 1) * $perPage;
     <?php endif; ?>
   </div>
   <?php endif; ?>
+
+  <!-- WALK-IN & ANTRIAN -->
+<?php elseif ($page === 'walkin'): ?>
+  <?php
+    processQueue($conn);
+    $now = time();
+    $dayEnd = strtotime(date('Y-m-d', $now)) + 24 * 3600;
+
+    $roomRows = mysqli_query($conn, "SELECT id, title, console_type, status FROM rooms ORDER BY console_type, id");
+    $curStmt = $conn->prepare("SELECT id, customer_name, source, end_time FROM bookings WHERE room_id = ? AND start_time <= ? AND end_time > ? LIMIT 1");
+    $nextStmt = $conn->prepare("SELECT start_time, customer_name FROM bookings WHERE room_id = ? AND start_time > ? AND start_time < ? ORDER BY start_time LIMIT 1");
+
+    $waiting = mysqli_query($conn, "SELECT * FROM booking_queue WHERE status = 'waiting' ORDER BY created_at, id");
+  ?>
+  <h2>Walk-in &amp; Antrian (FIFO)</h2>
+  <p style="color:#9fb4c2;font-size:13px;margin-bottom:14px">
+    Konsumen online dan walk-in masuk satu antrian per konsol, dilayani sesuai urutan datang.
+    Reservasi terjadwal tetap dijaga di jamnya.
+  </p>
+
+  <form id="walkinForm" class="admin-form">
+    <input name="name" placeholder="Nama konsumen" maxlength="100" required>
+    <input name="phone" placeholder="No. HP (opsional)" inputmode="numeric" pattern="[0-9]{9,14}" maxlength="14">
+    <select name="console_type" required>
+      <option value="">Pilih Konsol</option>
+      <option value="PS3">PS3</option>
+      <option value="PS4">PS4</option>
+      <option value="PS5">PS5</option>
+    </select>
+    <select name="duration" required>
+      <?php for ($i = 1; $i <= 12; $i++): ?>
+        <option value="<?= $i ?>"><?= $i ?> jam</option>
+      <?php endfor; ?>
+    </select>
+    <button type="submit">Masukkan Antrian</button>
+  </form>
+
+  <h3 style="margin-top:24px">Status Ruangan Sekarang</h3>
+  <table class="users-table">
+    <tr><th>Room</th><th>Konsol</th><th>Status</th><th>Reservasi Berikutnya</th><th>Aksi</th></tr>
+    <?php while ($r = mysqli_fetch_assoc($roomRows)): ?>
+    <?php
+      $rid = intval($r['id']);
+      $curStmt->bind_param("iii", $rid, $now, $now);
+      $curStmt->execute();
+      $cur = $curStmt->get_result()->fetch_assoc();
+      $nextStmt->bind_param("iii", $rid, $now, $dayEnd);
+      $nextStmt->execute();
+      $next = $nextStmt->get_result()->fetch_assoc();
+    ?>
+    <tr>
+      <td><?= htmlspecialchars($r['title']) ?></td>
+      <td><?= htmlspecialchars($r['console_type']) ?></td>
+      <td>
+        <?php if ($r['status'] !== 'available'): ?>
+          <span style="color:#ffe600;font-weight:600">● In Service</span>
+        <?php elseif ($cur): ?>
+          <span style="color:#ff6b6b;font-weight:600">● Dipakai</span>
+          <?= htmlspecialchars($cur['customer_name']) ?>
+          (<?= $cur['source'] === 'walkin' ? 'walk-in' : 'online' ?>) s/d <?= date('H:i', intval($cur['end_time'])) ?>
+        <?php else: ?>
+          <span style="color:#00ff9d;font-weight:600">● Kosong</span>
+        <?php endif; ?>
+      </td>
+      <td><?= $next ? date('H:i', intval($next['start_time'])) . ' — ' . htmlspecialchars($next['customer_name']) : '-' ?></td>
+      <td>
+        <?php if ($cur): ?>
+          <button onclick="finishBooking(<?= intval($cur['id']) ?>)">Selesai</button>
+        <?php else: ?>
+          <span style="color:#555e6b;font-size:13px">—</span>
+        <?php endif; ?>
+      </td>
+    </tr>
+    <?php endwhile; ?>
+    <?php $curStmt->close(); $nextStmt->close(); ?>
+  </table>
+
+  <h3 style="margin-top:24px">Antrian Menunggu</h3>
+  <table class="users-table">
+    <tr><th>No.</th><th>Nama</th><th>Sumber</th><th>Konsol</th><th>Durasi</th><th>Masuk</th><th>Aksi</th></tr>
+    <?php $pos = []; $any = false; ?>
+    <?php while ($q = mysqli_fetch_assoc($waiting)): $any = true; ?>
+    <?php
+      $ct = $q['console_type'];
+      $pos[$ct] = ($pos[$ct] ?? 0) + 1;
+      $tooLate = $now + intval($q['duration']) * 3600 > $dayEnd;
+    ?>
+    <tr>
+      <td><?= htmlspecialchars($ct) ?> #<?= $pos[$ct] ?></td>
+      <td><?= htmlspecialchars($q['customer_name']) ?><?= $q['phone'] ? '<br><span style="color:#9fb4c2;font-size:12px">' . htmlspecialchars($q['phone']) . '</span>' : '' ?></td>
+      <td><?= $q['source'] === 'walkin' ? 'Walk-in' : 'Online' ?></td>
+      <td><?= htmlspecialchars($ct) ?></td>
+      <td>
+        <?= intval($q['duration']) ?> jam
+        <?php if ($tooLate): ?><br><span style="color:#ff6b6b;font-size:12px">melewati jam tutup</span><?php endif; ?>
+      </td>
+      <td style="font-size:13px"><?= date('H:i', strtotime($q['created_at'])) ?></td>
+      <td><button class="btn-danger" onclick="cancelQueue(<?= intval($q['id']) ?>, <?= jsArg($q['customer_name']) ?>)">Batalkan</button></td>
+    </tr>
+    <?php endwhile; ?>
+    <?php if (!$any): ?>
+    <tr><td colspan="7" style="color:#9fb4c2">Tidak ada antrian.</td></tr>
+    <?php endif; ?>
+  </table>
 
   <!-- ROOMS -->
 <?php elseif ($page === 'room'): ?>
@@ -185,7 +298,7 @@ $offset  = ($pageNum - 1) * $perPage;
       </td>
       <td><?= htmlspecialchars($u['created_at']) ?></td>
       <td>
-        <button onclick="toggleRole(<?= intval($u['id']) ?>, '<?= htmlspecialchars($u['username']) ?>')">
+        <button onclick="toggleRole(<?= intval($u['id']) ?>, <?= jsArg($u['username']) ?>)">
           <?= $isAdmin ? 'Jadikan User' : 'Jadikan Admin' ?>
         </button>
       </td>
@@ -263,8 +376,8 @@ $games = mysqli_query($conn, "
     <td><?= htmlspecialchars($g['genre']) ?></td>
     <td><?= htmlspecialchars($g['consoles'] ?? '-') ?></td>
     <td style="display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="openEditGame(<?= intval($g['id']) ?>,'<?= htmlspecialchars($g['title'], ENT_QUOTES) ?>',<?= htmlspecialchars(json_encode($consolesArr), ENT_QUOTES) ?>)">Edit Console</button>
-      <button class="btn-danger" onclick="deleteGame(<?= intval($g['id']) ?>, '<?= htmlspecialchars($g['title'], ENT_QUOTES) ?>')">Hapus</button>
+      <button onclick="openEditGame(<?= intval($g['id']) ?>, <?= jsArg($g['title']) ?>, <?= jsArg($consolesArr) ?>)">Edit Console</button>
+      <button class="btn-danger" onclick="deleteGame(<?= intval($g['id']) ?>, <?= jsArg($g['title']) ?>)">Hapus</button>
     </td>
   </tr>
   <?php endwhile; ?>
@@ -348,7 +461,7 @@ $menuItems = mysqli_query($conn, "SELECT * FROM menu_items ORDER BY category, na
       <button onclick="toggleMenuItem(<?= intval($item['id']) ?>)">
         <?= $item['is_available'] ? 'Tutup Stok' : 'Buka Stok' ?>
       </button>
-      <button class="btn-danger" onclick="deleteMenuItem(<?= intval($item['id']) ?>, '<?= htmlspecialchars($item['name'], ENT_QUOTES) ?>')">Hapus</button>
+      <button class="btn-danger" onclick="deleteMenuItem(<?= intval($item['id']) ?>, <?= jsArg($item['name']) ?>)">Hapus</button>
     </td>
   </tr>
   <?php endwhile; ?>

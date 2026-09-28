@@ -203,6 +203,61 @@ function toggleRoom(id) {
 }
 
 // =====================
+// WALK-IN & ANTRIAN
+// =====================
+function postAdmin(params) {
+  return fetch("admin_api.php", {
+    method: "POST",
+    body: new URLSearchParams(params),
+  }).then((r) => r.json());
+}
+
+function finishBooking(id) {
+  if (!confirm("Selesaikan sesi ini sekarang? Ruangan akan diberikan ke antrian berikutnya.")) return;
+  postAdmin({ action: "finish_booking", id })
+    .then((r) => {
+      if (r.status === "ok") location.reload();
+      else alert("Gagal: " + (r.message || "Error"));
+    })
+    .catch(() => alert("Server error"));
+}
+
+function cancelQueue(id, name) {
+  if (!confirm(`Batalkan antrian "${name}"?`)) return;
+  postAdmin({ action: "queue_cancel", id })
+    .then(() => location.reload())
+    .catch(() => alert("Server error"));
+}
+
+document.getElementById("walkinForm")?.addEventListener("submit", function (e) {
+  e.preventDefault();
+  const params = Object.fromEntries(new FormData(this));
+  params.action = "walkin_join";
+  postAdmin(params)
+    .then((r) => {
+      if (r.status !== "ok") {
+        alert("Gagal: " + (r.message || "Error"));
+        return;
+      }
+      alert(r.assigned
+        ? `Ruangan tersedia: ${r.room}. Sesi dimulai sekarang (lunas).`
+        : `Semua ruangan penuh. Masuk antrian nomor ${r.position}.`);
+      location.reload();
+    })
+    .catch(() => alert("Server error"));
+});
+
+// Halaman antrian di-refresh berkala supaya antrian yang dapat ruangan terlihat,
+// kecuali admin sedang mengisi form walk-in.
+if (document.getElementById("walkinForm")) {
+  setInterval(() => {
+    const form = document.getElementById("walkinForm");
+    const typing = form.contains(document.activeElement) || form.elements.name.value !== "";
+    if (!typing) location.reload();
+  }, 20000);
+}
+
+// =====================
 // FIX OVERLAY SAAT LOGIN ADMIN
 // =====================
 document.addEventListener("DOMContentLoaded", () => {

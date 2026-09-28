@@ -9,18 +9,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   exit;
 }
 
-// ===== RATE LIMIT: max 3 percobaan per 15 menit =====
-$window = 900;
-$maxAttempts = 3;
-$_SESSION['fp_attempts'] = array_values(array_filter(
-  $_SESSION['fp_attempts'] ?? [],
-  fn($t) => time() - $t < $window
-));
-if (count($_SESSION['fp_attempts']) >= $maxAttempts) {
-  echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan. Coba lagi dalam 15 menit."]);
-  exit;
-}
-
 // ===== GANTI PASSWORD (verifikasi via password lama, bukan email/OTP) =====
 $username    = trim($_POST['username'] ?? '');
 $oldPassword = $_POST['old_password'] ?? '';
@@ -31,7 +19,11 @@ if ($username === '' || $oldPassword === '' || strlen($newPassword) < 6) {
   exit;
 }
 
-$_SESSION['fp_attempts'][] = time();
+// Max 3 percobaan per 15 menit per IP
+if (!checkRateLimit('forgot_password', 3, 900)) {
+  echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan. Coba lagi dalam 15 menit."]);
+  exit;
+}
 
 $stmt = $conn->prepare("SELECT id, password FROM users WHERE username = ?");
 $stmt->bind_param("s", $username);
@@ -50,8 +42,13 @@ $hashed = password_hash($newPassword, PASSWORD_DEFAULT);
 $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
 $stmt->bind_param("si", $hashed, $user['id']);
 $stmt->execute();
-$ok = $stmt->affected_rows >= 0;
+$ok = $stmt->affected_rows > 0;
 $stmt->close();
 
-unset($_SESSION['fp_attempts']);
+if (!$ok) {
+  echo json_encode(["status" => "error", "message" => "Gagal mengganti password. Coba lagi."]);
+  exit;
+}
+
+clearRateLimit('forgot_password');
 echo json_encode(["status" => "ok"]);
