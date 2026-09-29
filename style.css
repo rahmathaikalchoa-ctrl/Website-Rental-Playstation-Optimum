@@ -41,10 +41,11 @@ body {
 
 /* left brand */
 .brand {
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 900;
   color: var(--neon);
   flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* center area for search */

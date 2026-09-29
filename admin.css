@@ -30,7 +30,10 @@ body {
 /* ===== LOGIN ===== */
 .login-box {
   width: 340px;
+  max-width: calc(100% - 32px);
   margin: 100px auto;
+  /* body memakai flex; tanpa ini kotak login ikut memanjang setinggi layar */
+  align-self: flex-start;
   background: var(--panel);
   border-radius: 14px;
   padding: 32px;
@@ -77,6 +80,18 @@ body {
   text-align: center;
 }
 
+/* Label kecil di bawah nama brand (sidebar & login) */
+.brand-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-shadow: none;
+}
+
 /* ===== SIDEBAR ===== */
 .sidebar {
   width: 240px;
@@ -95,8 +110,9 @@ body {
   color: var(--neon);
   text-align: center;
   margin-bottom: 32px;
-  font-size: 22px;
-  letter-spacing: 1px;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: 0.5px;
   text-shadow: 0 0 10px rgba(0, 234, 255, 0.4);
 }
 
@@ -193,6 +209,15 @@ tr:hover td {
   background: rgba(0, 234, 255, 0.03);
 }
 
+@media (max-width: 1280px) {
+  th, td { padding-left: 12px; padding-right: 12px; }
+}
+@media (max-width: 1100px) {
+  th, td { padding-left: 8px; padding-right: 8px; }
+  td { font-size: 13px; }
+  main { padding: 28px 24px; }
+}
+
 /* Wrapper tabel: scroll horizontal di layar sempit, bukan meluber keluar halaman */
 .table-wrap {
   width: 100%;
@@ -215,7 +240,7 @@ tr:hover td {
 }
 .wrap-cell {
   white-space: normal;
-  min-width: 160px;
+  min-width: 120px;
 }
 .row-actions {
   display: flex;
@@ -1171,7 +1196,9 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   gap: 22px;
   align-items: start;
 }
-.split > form {
+/* Pakai id supaya menang atas max-width lama di #addGameForm / #addMenuForm */
+.split > #addGameForm,
+.split > #addMenuForm {
   max-width: none;
   margin-bottom: 0;
 }
@@ -1274,7 +1301,8 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 
 @media (max-width: 1200px) {
   .split { grid-template-columns: minmax(0, 1fr); }
-  .split > form { position: static; }
+  .split > #addGameForm,
+  .split > #addMenuForm { position: static; }
 }
 
 @media (max-width: 1100px) {
@@ -1303,8 +1331,10 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   }
   .sidebar h2 {
     margin: 0 10px 0 4px;
-    font-size: 18px;
+    font-size: 16px;
+    white-space: nowrap;
   }
+  .sidebar .brand-sub { display: none; }
   .sidebar a {
     margin: 0;
     padding: 8px 12px;

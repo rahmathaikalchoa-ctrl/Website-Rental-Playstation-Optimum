@@ -9,7 +9,7 @@ require __DIR__ . '/icons.php';
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>GameZone — Rental PlayStation Neon Biru</title>
+    <title>Optimum Playzone — Rental PlayStation</title>
 
     <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__ . '/style.css') ?>">
   </head>
@@ -18,7 +18,7 @@ require __DIR__ . '/icons.php';
     <header class="site-header">
       <div class="header-inner">
         <!-- left: brand -->
-        <div class="brand">GameZone</div>
+        <div class="brand">Optimum Playzone</div>
 
         <!-- center: search bar -->
         <div class="header-center" aria-hidden="false">
@@ -70,7 +70,7 @@ require __DIR__ . '/icons.php';
       <section id="view-home" class="view">
         <div class="hero">
           <div>
-            <h1>GameZone — Rental PlayStation Neon Biru</h1>
+            <h1>Optimum Playzone — Rental PlayStation</h1>
             <p class="muted">
               Rasakan pengalaman bermain dengan suasana neon biru, kursi gaming,
               & koleksi game lengkap.
@@ -376,7 +376,7 @@ require __DIR__ . '/icons.php';
 </section>
     </main>
 
-    <footer class="site-footer">© 2026 GameZone — Rahmat Haikal Choa</footer>
+    <footer class="site-footer">© 2026 Optimum Playzone — Rahmat Haikal Choa</footer>
 
 <!-- LOGIN MODAL -->
 <div id="loginModal" class="modal">

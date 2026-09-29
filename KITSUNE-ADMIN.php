@@ -63,14 +63,14 @@ $offset  = ($pageNum - 1) * $perPage;
 <html>
 <head>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Admin GameZone</title>
+  <title>Admin Optimum Playzone</title>
   <link rel="stylesheet" href="admin.css?v=<?= filemtime(__DIR__ . '/admin.css') ?>">
 </head>
 <body>
 
 <?php if (!$isAdmin): ?>
   <div class="login-box">
-    <h2>Admin Login</h2>
+    <h2>Optimum Playzone<span class="brand-sub">Login Admin</span></h2>
     <?php if (isset($error)): ?>
       <p class="error"><?= htmlspecialchars($error) ?></p>
     <?php endif; ?>
@@ -85,7 +85,7 @@ $offset  = ($pageNum - 1) * $perPage;
 <?php else: ?>
 
 <nav class="sidebar">
-  <h2>Admin</h2>
+  <h2>Optimum Playzone<span class="brand-sub">Panel Admin</span></h2>
   <?php foreach ($navItems as $key => $label): ?>
     <a href="?page=<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= $label ?></a>
   <?php endforeach; ?>
@@ -127,9 +127,9 @@ $offset  = ($pageNum - 1) * $perPage;
   </div>
   <div class="table-wrap">
     <table class="users-table">
-      <tr><th>Konsumen</th><th>Sumber</th><th>Ruangan</th><th>Jadwal</th><th>Durasi</th><th>Total</th><th>Status</th><th>Aksi</th></tr>
+      <tr><th>Konsumen</th><th>Ruangan</th><th>Jadwal</th><th>Total</th><th>Status</th><th>Aksi</th></tr>
       <?php if ($data->num_rows === 0): ?>
-        <tr><td colspan="8" class="empty-row">Belum ada data booking.</td></tr>
+        <tr><td colspan="6" class="empty-row">Belum ada data booking.</td></tr>
       <?php endif; ?>
       <?php while($b = $data->fetch_assoc()): ?>
       <?php
@@ -140,14 +140,13 @@ $offset  = ($pageNum - 1) * $perPage;
       ?>
       <tr class="<?= $isCancelled ? 'row-cancelled' : '' ?>">
         <td class="cell-main"><?= htmlspecialchars($b['customer_name']) ?>
-          <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?></span>
+          <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?> · <?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?></span>
         </td>
-        <td><span class="src-chip"><?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?></span></td>
         <td><?= htmlspecialchars($b['room_title'] ?? '-') ?></td>
-        <td><?= date('d M Y', intval($b['start_time'])) ?>
-          <span class="cell-sub"><?= date('H:i', intval($b['start_time'])) ?> – <?= date('H:i', intval($b['end_time'])) ?></span>
+        <?php $st = intval($b['start_time']); ?>
+        <td><?= date(date('Y', $st) === date('Y') ? 'd M' : 'd M Y', $st) ?>
+          <span class="cell-sub"><?= date('H:i', intval($b['start_time'])) ?> – <?= date('H:i', intval($b['end_time'])) ?> · <?= intval($b['duration']) ?> jam</span>
         </td>
-        <td><?= intval($b['duration']) ?> jam</td>
         <td>Rp<?= number_format(intval($b['total_price']), 0, ',', '.') ?></td>
         <td><span class="pay-badge <?= $pc ?>"><?= $pl ?></span></td>
         <td>
@@ -156,7 +155,7 @@ $offset  = ($pageNum - 1) * $perPage;
               <button class="btn-paid-sm" onclick="markPaid(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>, <?= intval($b['total_price']) ?>)">Lunas</button>
             <?php endif; ?>
             <?php if (!$isCancelled): ?>
-              <button class="btn-danger-sm" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>)">Batalkan</button>
+              <button class="btn-icon" title="Batalkan booking" aria-label="Batalkan booking" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>)"><?= icon('x') ?></button>
             <?php else: ?>
               <span class="muted-dash">—</span>
             <?php endif; ?>
@@ -526,7 +525,7 @@ $offset  = ($pageNum - 1) * $perPage;
       <?php while($r = mysqli_fetch_assoc($rooms)): ?>
       <?php $active = $r['status'] === 'available'; ?>
       <tr>
-        <td class="cell-main"><?= htmlspecialchars($r['title']) ?>
+        <td class="cell-main wrap-cell"><?= htmlspecialchars($r['title']) ?>
           <?php if ($r['description']): ?><span class="cell-sub"><?= htmlspecialchars($r['description']) ?></span><?php endif; ?>
         </td>
         <td><span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_type']) ?></span></td>
