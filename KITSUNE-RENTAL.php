@@ -105,7 +105,7 @@ require __DIR__ . '/icons.php';
           <div class="upcoming-banner-inner">
             <span class="upcoming-icon"><?= icon('gamepad') ?></span>
             <div class="upcoming-text">
-              <span class="upcoming-label">Booking Mendatang</span>
+              <span class="upcoming-label" id="upcomingLabel">Booking Mendatang</span>
               <span id="upcomingDetail"></span>
             </div>
             <button class="btn-ghost upcoming-btn" data-view="profile">Lihat Detail</button>
@@ -152,12 +152,18 @@ require __DIR__ . '/icons.php';
             <p class="muted" id="bookingWelcome"></p>
           </div>
 
+          <div class="booking-howto">
+            <div><strong>Mau main sekarang?</strong> Ambil antrian di bawah, ruangan diberikan sesuai urutan.</div>
+            <div><strong>Mau main di jam tertentu?</strong> Isi form Reservasi Jam Tertentu.</div>
+            <div>Pembayaran di kasir saat datang. Lapor ke kasir paling lambat 15 menit setelah jam mulai, lewat dari itu booking batal otomatis.</div>
+          </div>
+
           <!-- ANTRIAN MAIN SEKARANG -->
           <div class="booking-form-card queue-card" style="margin-bottom:18px">
             <h3 class="bsection-title"><?= icon('clock') ?> Main Sekarang — Ambil Antrian</h3>
             <p class="muted small" style="margin-bottom:12px">
-              Tanpa pilih jam: kamu masuk antrian bersama konsumen yang datang langsung,
-              dilayani sesuai urutan. Ruangan diberikan otomatis saat giliranmu.
+              Tanpa pilih jam: kamu masuk antrian bersama pengunjung yang datang langsung,
+              dilayani sesuai urutan. Saat giliranmu tiba, datang ke kasir dalam 15 menit.
             </p>
             <div id="queueJoinBox" class="brow">
               <div class="bfield">
@@ -186,6 +192,7 @@ require __DIR__ . '/icons.php';
 
             <!-- FORM CARD -->
             <div class="booking-form-card">
+              <h2 class="booking-form-title"><?= icon('clipboard') ?> Reservasi Jam Tertentu</h2>
               <form id="bookingForm" autocomplete="off">
 
                 <!-- Pemesan -->

@@ -26,10 +26,11 @@ function processQueue($conn, $now = null) {
     $rooms = $conn->query("SELECT id, console_type, price, status FROM rooms ORDER BY id FOR UPDATE")
                   ->fetch_all(MYSQLI_ASSOC);
 
-    // Konsumen online yang tidak datang dalam batas check-in: batalkan, ruangan bebas lagi
+    // Konsumen (antrian atau reservasi) yang tidak lapor ke kasir sampai batas
+    // check-in: batalkan supaya ruangan bebas lagi
     $stmt = $conn->prepare("
       UPDATE bookings SET payment_status = 'cancelled'
-      WHERE source = 'online' AND expires_at IS NOT NULL AND expires_at < ?
+      WHERE expires_at IS NOT NULL AND expires_at < ?
         AND payment_status <> 'cancelled'
     ");
     $stmt->bind_param("i", $now);

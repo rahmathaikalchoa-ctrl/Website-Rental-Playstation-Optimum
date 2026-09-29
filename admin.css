@@ -141,7 +141,8 @@ main {
   margin-left: 240px;
   padding: 32px 36px;
   flex: 1;
-  max-width: 100%;
+  /* min-width 0 supaya tabel lebar di-scroll di dalam .table-wrap, bukan melebarkan halaman */
+  min-width: 0;
 }
 
 main h2 {
@@ -164,17 +165,24 @@ table {
 th {
   background: rgba(0, 234, 255, 0.07);
   color: var(--neon);
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.4px;
-  padding: 12px 14px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 12px 16px;
   text-align: left;
+  white-space: nowrap;
 }
 
 td {
-  padding: 11px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   color: #d0dce8;
   font-size: 14px;
+  text-align: left;
+  vertical-align: middle;
+  /* Isi sel tidak dipecah; tabel lebar di-scroll dalam .table-wrap */
+  white-space: nowrap;
 }
 
 tr:last-child td {
@@ -185,10 +193,47 @@ tr:hover td {
   background: rgba(0, 234, 255, 0.03);
 }
 
-.users-table th,
-.users-table td {
-  text-align: center;
-  vertical-align: middle;
+/* Wrapper tabel: scroll horizontal di layar sempit, bukan meluber keluar halaman */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+.table-wrap table {
+  border-radius: 0;
+  min-width: 100%;
+}
+.cell-main { font-weight: 600; color: #e8eef8; }
+.cell-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.wrap-cell {
+  white-space: normal;
+  min-width: 160px;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chip-row {
+  display: flex;
+  gap: 4px;
+}
+.row-done td { opacity: 0.5; }
+.count-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: #ff6b6b;
+  color: #fff;
 }
 
 /* ===== STATUS BADGE ===== */
@@ -250,12 +295,9 @@ button.btn-danger {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 2fr auto;
   gap: 12px;
-  align-items: center;
-  margin-bottom: 28px;
-  background: var(--panel);
-  padding: 18px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
+  align-items: end;
+  margin-bottom: 24px;
+  position: static;
 }
 
 #addRoomForm input,
@@ -591,20 +633,9 @@ button.btn-danger {
   #addRoomForm button { grid-column: span 2; }
 }
 
-@media (max-width: 768px) {
-  .sidebar {
-    width: 200px;
-  }
-  main {
-    margin-left: 200px;
-    padding: 20px;
-  }
-  #addRoomForm {
-    grid-template-columns: 1fr;
-  }
-  #addRoomForm button {
-    grid-column: span 1;
-  }
+@media (max-width: 600px) {
+  #addRoomForm { grid-template-columns: 1fr; }
+  #addRoomForm button { grid-column: span 1; }
 }
 
 /* Ikon SVG inline */
@@ -1028,6 +1059,175 @@ button.btn-danger {
   opacity: 1;
 }
 
+/* Tab form Main Sekarang / Reservasi */
+.form-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--field-bg);
+  border: 1px solid var(--border);
+}
+.form-tab {
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 6px;
+  border-radius: 7px;
+}
+.form-tab.active {
+  background: rgba(0, 234, 255, 0.14);
+  color: var(--neon);
+  box-shadow: inset 0 0 0 1px rgba(0, 234, 255, 0.35);
+}
+.tab-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tab-form[hidden] { display: none; }
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.form-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: -6px;
+}
+.form-note:empty { display: none; }
+.field select option:disabled { color: #55606b; }
+
+/* Aksi di kartu ruangan */
+.tile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.btn-paid {
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(0, 255, 157, 0.12);
+  color: var(--neon-green);
+  border: 1px solid rgba(0, 255, 157, 0.45);
+  font-weight: 800;
+}
+.btn-paid:hover { background: rgba(0, 255, 157, 0.2); opacity: 1; }
+.extend-inline {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+.extend-inline select {
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--field-bg);
+  color: #fff;
+}
+.btn-ghost-sm {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--neon);
+  border: 1px solid rgba(0, 234, 255, 0.4);
+}
+.btn-ghost-sm:hover { background: rgba(0, 234, 255, 0.08); opacity: 1; }
+.room-who { flex-wrap: wrap; }
+td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
+
+/* Tombol kecil untuk aksi di tabel */
+.btn-danger-sm,
+.btn-warn-sm,
+.btn-paid-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.btn-ghost-sm { white-space: nowrap; height: 32px; }
+.btn-danger-sm { color: var(--danger); border: 1px solid rgba(255, 107, 107, 0.5); }
+.btn-danger-sm:hover { background: rgba(255, 107, 107, 0.12); opacity: 1; }
+.btn-warn-sm   { color: var(--warn); border: 1px solid rgba(255, 170, 0, 0.5); }
+.btn-warn-sm:hover { background: rgba(255, 170, 0, 0.1); opacity: 1; }
+.btn-paid-sm   { color: var(--neon-green); border: 1px solid rgba(0, 255, 157, 0.45); background: rgba(0, 255, 157, 0.08); }
+.btn-paid-sm:hover { background: rgba(0, 255, 157, 0.16); opacity: 1; }
+
+/* Layout form (kiri) + tabel (kanan) untuk halaman Game & Menu */
+.split {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.split > form {
+  max-width: none;
+  margin-bottom: 0;
+}
+
+/* Panah untuk select yang appearance-nya dimatikan */
+#addRoomForm select,
+#addGameForm select,
+#addMenuForm select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239fb4c2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+/* Modal edit konsol game */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.7);
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 0 40px rgba(0, 234, 255, 0.1);
+}
+.modal-chips {
+  display: flex;
+  gap: 10px;
+}
+.modal-chip {
+  padding: 8px 18px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.modal-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+.modal-actions .btn-ghost-sm { height: 44px; }
+
 /* Riwayat booking & tabel umum */
 .pay-badge {
   display: inline-block;
@@ -1072,9 +1272,59 @@ button.btn-danger {
   font-weight: 800;
 }
 
+@media (max-width: 1200px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .split > form { position: static; }
+}
+
 @media (max-width: 1100px) {
-  .booking-grid { grid-template-columns: 1fr; }
+  .booking-grid { grid-template-columns: minmax(0, 1fr); }
   .panel-card { position: static; }
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   .queue-grid { grid-template-columns: 1fr; }
+}
+
+/* Layar kecil: sidebar jadi bar navigasi horizontal di atas */
+@media (max-width: 900px) {
+  body { flex-direction: column; }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    width: 100%;
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar h2 {
+    margin: 0 10px 0 4px;
+    font-size: 18px;
+  }
+  .sidebar a {
+    margin: 0;
+    padding: 8px 12px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .sidebar a[href*="logout"] {
+    margin-top: 0;
+    margin-left: auto;
+  }
+  main {
+    margin-left: 0;
+    padding: 20px 16px;
+  }
+  .page-head { flex-wrap: wrap; }
+}
+
+@media (max-width: 520px) {
+  .stat-row { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-num { font-size: 22px; }
+  .room-grid { grid-template-columns: 1fr; }
+  .field-row { grid-template-columns: 1fr; }
 }

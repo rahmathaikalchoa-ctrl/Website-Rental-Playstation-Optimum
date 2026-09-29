@@ -4,6 +4,7 @@ session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 require __DIR__ . '/queue_lib.php';
+require __DIR__ . '/booking_lib.php';
 
 if (!isAdminSession($conn)) {
   echo json_encode(["status" => "unauthorized", "message" => "Sesi admin habis, silakan login ulang"]);
@@ -11,16 +12,108 @@ if (!isAdminSession($conn)) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-  echo json_encode(["status" => "error", "message" => "Invalid request"]);
+  echo json_encode(["status" => "error", "message" => "Permintaan tidak valid"]);
   exit;
 }
 
 $action = $_POST['action'] ?? '';
 
+// Validasi nama & HP konsumen offline. Return pesan error atau null.
+function offlineCustomerError($name, $phone) {
+  if ($name === '') return "Nama konsumen wajib diisi";
+  if ($phone !== '' && !preg_match('/^[0-9]{9,14}$/', $phone)) return "Nomor HP tidak valid (hanya angka, 9-14 digit)";
+  return null;
+}
+
+// Penjelasan kenapa walk-in masuk daftar tunggu padahal ada ruangan kosong:
+// ruangan kosong sekarang tapi ada reservasi sebelum durasi yang diminta selesai.
+function walkinHint($conn, $console, $duration, $now) {
+  $stmt = $conn->prepare("
+    SELECT r.title,
+      (SELECT MIN(b.start_time) FROM bookings b
+        WHERE b.room_id = r.id AND b.payment_status <> 'cancelled' AND b.start_time > ?) AS next_start
+    FROM rooms r
+    WHERE r.console_type = ? AND r.status = 'available'
+      AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = r.id AND b.payment_status <> 'cancelled'
+                      AND b.start_time <= ? AND b.end_time > ?)
+  ");
+  $stmt->bind_param("isii", $now, $console, $now, $now);
+  $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+
+  foreach ($rows as $r) {
+    if (!$r['next_start']) continue;
+    $maxHours = intdiv(intval($r['next_start']) - $now, 3600);
+    if ($maxHours < $duration) {
+      $at = date('H:i', intval($r['next_start']));
+      return $maxHours >= 1
+        ? "{$r['title']} kosong, tapi ada reservasi jam $at. Maksimal $maxHours jam, kurangi durasi atau tunggu."
+        : "{$r['title']} kosong, tapi ada reservasi jam $at.";
+    }
+  }
+  return null;
+}
+
+// ================= TANDAI LUNAS (bayar di kasir) =================
+if ($action === 'mark_paid') {
+  $id = intval($_POST['id'] ?? 0);
+  $now = time();
+  $stmt = $conn->prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ? WHERE id = ? AND payment_status IN ('unpaid', 'pending')");
+  $stmt->bind_param("ii", $now, $id);
+  $stmt->execute();
+  $ok = $stmt->affected_rows > 0;
+  $stmt->close();
+  echo json_encode($ok
+    ? ["status" => "ok"]
+    : ["status" => "error", "message" => "Booking sudah lunas atau sudah dibatalkan"]);
+  exit;
+}
+
+// ================= RESERVASI JAM TERTENTU UNTUK KONSUMEN OFFLINE =================
+if ($action === 'admin_reserve') {
+  $name  = trim($_POST['name'] ?? '');
+  $phone = trim($_POST['phone'] ?? '');
+  if ($err = offlineCustomerError($name, $phone)) {
+    echo json_encode(["status" => "error", "message" => $err]);
+    exit;
+  }
+  $slot = scheduledStart(trim($_POST['date'] ?? ''), trim($_POST['time'] ?? ''));
+  if (!$slot['ok']) {
+    echo json_encode(["status" => "error", "message" => $slot['message']]);
+    exit;
+  }
+  $res = createBooking($conn, [
+    'room_id'        => intval($_POST['room_id'] ?? 0),
+    'start'          => $slot['start'],
+    'duration'       => intval($_POST['duration'] ?? 0),
+    'customer_name'  => $name,
+    'phone'          => $phone,
+    'user_id'        => null,
+    'source'         => 'walkin',
+    'payment_status' => 'unpaid',
+    'expires_at'     => $slot['start'] + BOOKING_CHECKIN_SEC,
+  ]);
+  echo json_encode($res['ok']
+    ? ["status" => "ok"] + $res['booking']
+    : ["status" => "error", "message" => $res['message']]);
+  exit;
+}
+
+// ================= TAMBAH JAM SESI (oleh admin) =================
+if ($action === 'admin_extend') {
+  $res = extendBookingCore($conn, $_POST['id'] ?? 0, $_POST['hours'] ?? 0, null);
+  echo json_encode($res['ok']
+    ? ["status" => "ok", "new_end" => $res['new_end'], "extra_cost" => $res['extra_cost']]
+    : ["status" => "error", "message" => $res['message']]);
+  exit;
+}
+
 // ================= BATALKAN BOOKING (soft cancel, riwayat tetap tersimpan) =================
 if ($action === 'cancel_booking') {
   $id = intval($_POST['id'] ?? 0);
-  $stmt = $conn->prepare("UPDATE bookings SET payment_status = 'cancelled' WHERE id = ? AND payment_status <> 'cancelled'");
+  // expires_at dikosongkan supaya tidak terbaca sebagai "batal karena tidak hadir"
+  $stmt = $conn->prepare("UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL WHERE id = ? AND payment_status <> 'cancelled'");
   $stmt->bind_param("i", $id);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
@@ -54,22 +147,65 @@ if ($action === 'walkin_join') {
   $phone    = trim($_POST['phone'] ?? '');
   $console  = $_POST['console_type'] ?? '';
   $duration = intval($_POST['duration'] ?? 0);
+  $roomId   = intval($_POST['room_id'] ?? 0);
 
-  if ($name === '' || !in_array($console, QUEUE_CONSOLES, true) || $duration < 1 || $duration > 12) {
-    echo json_encode(["status" => "error", "message" => "Data walk-in tidak lengkap atau tidak valid"]);
+  if ($err = offlineCustomerError($name, $phone)) {
+    echo json_encode(["status" => "error", "message" => $err]);
     exit;
   }
-  if ($phone !== '' && !preg_match('/^[0-9]{9,14}$/', $phone)) {
-    echo json_encode(["status" => "error", "message" => "Format nomor HP tidak valid"]);
+  if ($duration < 1 || $duration > BOOKING_MAX_DURATION) {
+    echo json_encode(["status" => "error", "message" => "Durasi harus 1-" . BOOKING_MAX_DURATION . " jam"]);
     exit;
   }
   $now = time();
   if (intval(date('G', $now)) < QUEUE_OPEN_HOUR) {
-    echo json_encode(["status" => "error", "message" => "Antrian dibuka mulai jam 11:00"]);
+    echo json_encode(["status" => "error", "message" => "Belum jam buka. Layanan mulai jam 11:00"]);
     exit;
   }
   if ($now + $duration * 3600 > queueCloseLimit($now)) {
     echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (tengah malam)"]);
+    exit;
+  }
+
+  // Ruangan dipilih langsung: mulai sekarang di ruangan itu, tanpa lewat antrian
+  if ($roomId > 0) {
+    $stmt = $conn->prepare("
+      SELECT r.console_type,
+        (SELECT COUNT(*) FROM booking_queue q WHERE q.status = 'waiting' AND q.console_type = r.console_type) AS waiting
+      FROM rooms r WHERE r.id = ?
+    ");
+    $stmt->bind_param("i", $roomId);
+    $stmt->execute();
+    $info = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$info) {
+      echo json_encode(["status" => "error", "message" => "Ruangan tidak ditemukan"]);
+      exit;
+    }
+    // Jaga keadilan urutan: kalau ada yang menunggu konsol ini, jangan disalip
+    if (intval($info['waiting']) > 0) {
+      echo json_encode(["status" => "error", "message" => "Masih ada {$info['waiting']} konsumen menunggu {$info['console_type']}. Pilih ruangan \"Otomatis\" agar sesuai urutan."]);
+      exit;
+    }
+    $res = createBooking($conn, [
+      'room_id'        => $roomId,
+      'start'          => $now,
+      'duration'       => $duration,
+      'customer_name'  => $name,
+      'phone'          => $phone,
+      'user_id'        => null,
+      'source'         => 'walkin',
+      'payment_status' => 'paid',
+      'expires_at'     => null,
+    ]);
+    echo json_encode($res['ok']
+      ? ["status" => "ok", "assigned" => true, "room" => $res['booking']['room'], "total_price" => $res['booking']['total_price']]
+      : ["status" => "error", "message" => $res['message']]);
+    exit;
+  }
+
+  if (!in_array($console, QUEUE_CONSOLES, true)) {
+    echo json_encode(["status" => "error", "message" => "Pilih konsol terlebih dahulu"]);
     exit;
   }
 
@@ -99,7 +235,12 @@ if ($action === 'walkin_join') {
   } elseif ($entry['status'] === 'assigned') {
     echo json_encode(["status" => "ok", "assigned" => true, "room" => $entry['room_title']]);
   } else {
-    echo json_encode(["status" => "ok", "assigned" => false, "position" => queuePosition($conn, $entry)]);
+    echo json_encode([
+      "status"   => "ok",
+      "assigned" => false,
+      "position" => queuePosition($conn, $entry),
+      "hint"     => walkinHint($conn, $console, $duration, $now),
+    ]);
   }
   exit;
 }

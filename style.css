@@ -239,7 +239,86 @@ body {
 }
 /* ===== BOOKING FORM REDESIGN ===== */
 .booking-header {
-  margin-bottom: 22px;
+  margin-bottom: 16px;
+}
+
+/* Penjelasan singkat dua cara booking */
+.booking-howto {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(0, 234, 255, 0.05);
+  border: 1px solid rgba(0, 234, 255, 0.15);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.booking-howto strong { color: #e8eef8; }
+
+.booking-form-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--neon);
+  font-size: 18px;
+  margin-bottom: 18px;
+}
+
+/* Kartu konfirmasi setelah reservasi berhasil */
+.confirm-card { display: grid; gap: 10px; }
+.confirm-card .confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--neon-green);
+  font-weight: 800;
+}
+.confirm-code {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: var(--neon);
+}
+.confirm-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ffcf66;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 170, 0, 0.08);
+  border: 1px dashed rgba(255, 170, 0, 0.4);
+}
+
+/* Status bayar & info di riwayat booking profil */
+.booking-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pay-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+}
+.pay-chip.paid      { color: var(--neon-green); background: rgba(0, 255, 157, 0.08); border-color: rgba(0, 255, 157, 0.3); }
+.pay-chip.unpaid    { color: #ffaa00; background: rgba(255, 170, 0, 0.08); border-color: rgba(255, 170, 0, 0.3); }
+.code-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 20px;
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.checkin-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #ffaa00;
 }
 
 .booking-layout {

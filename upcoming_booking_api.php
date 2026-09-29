@@ -11,11 +11,13 @@ if (!isset($_SESSION['user_id'])) {
 
 $userId = intval($_SESSION['user_id']);
 
+// Sesi yang sedang berjalan atau booking terdekat yang belum selesai
 $stmt = $conn->prepare("
-  SELECT b.id, r.title AS room, b.start_time, b.end_time, b.duration, b.total_price, b.order_code
+  SELECT b.id, r.title AS room, b.start_time, b.end_time, b.duration, b.total_price,
+         b.order_code, b.expires_at, b.payment_status
   FROM bookings b
   JOIN rooms r ON r.id = b.room_id
-  WHERE b.user_id = ? AND b.start_time > UNIX_TIMESTAMP()
+  WHERE b.user_id = ? AND b.end_time > UNIX_TIMESTAMP()
     AND b.payment_status <> 'cancelled'
   ORDER BY b.start_time ASC
   LIMIT 1

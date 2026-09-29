@@ -3,6 +3,16 @@ const $ = (id) => document.getElementById(id);
 
 // Escape data sebelum dipasang lewat innerHTML, supaya judul/deskripsi/catatan
 // yang berisi karakter HTML tidak bisa mengeksekusi script (XSS).
+const NETWORK_ERROR = "Tidak dapat terhubung ke server. Periksa koneksi lalu coba lagi.";
+
+// Minta login, lalu setelah login berhasil user dibawa kembali ke halaman tujuan
+// (dan ruangan yang tadi dipilih, jika ada) — lihat onLoginSuccess.
+function requireLogin(message, view, roomId = null) {
+  window._pendingLogin = { view, roomId };
+  alert(message);
+  document.getElementById("loginModal").classList.add("show");
+}
+
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -278,7 +288,8 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="btn-ghost" data-action="back-to-rooms">Kembali ke list</button>
       </div>
       <div style="margin-top:24px">
-        <h3 style="color:var(--neon);margin-bottom:8px">Ketersediaan Hari Ini</h3>
+        <h3 style="color:var(--neon);margin-bottom:4px">Jadwal Hari Ini</h3>
+        <p class="muted small" style="margin-bottom:8px">Untuk besok atau lusa, cek jam yang tersedia di form booking.</p>
         <div id="roomTimeline" class="room-timeline"><span class="muted small">Memuat jadwal...</span></div>
       </div>
       <div style="margin-top:24px">
@@ -322,13 +333,12 @@ document.addEventListener("DOMContentLoaded", () => {
     roomsData.forEach((r) => {
       const op = document.createElement("option");
       op.value = r.id;
-      const st = statusConfig[r.currentStatus] || statusConfig.available;
-      op.textContent = r.currentStatus === "occupied"
-        ? `${r.title} — ${r.consoleType} [Sedang Terisi]`
-        : `${r.title} — ${r.consoleType} [${st.label}]`;
+      // Status "sedang dipakai" tidak relevan untuk jam/tanggal lain, jadi tidak ditampilkan.
+      // Ketersediaan jam dicek per slot lewat booked_slots_api.php.
+      op.textContent = `${r.title} — ${r.consoleType} · ${formatRup(r.price)}/jam`;
       if (r.currentStatus === "in_service") {
+        op.textContent += " (perawatan)";
         op.disabled = true;
-        op.style.color = "#555e6b";
       }
       sel.appendChild(op);
     });
@@ -341,7 +351,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (IS_LOGGED_IN && window.AUTH?.username) {
       const accountBadge = document.getElementById("bookingAccountName");
       if (accountBadge) accountBadge.textContent = window.AUTH.username;
-      if (welcome) welcome.textContent = `Halo, ${window.AUTH.username}! Lengkapi detail booking di bawah.`;
+      if (welcome) welcome.textContent = `Halo, ${window.AUTH.username}! Pilih cara booking di bawah.`;
+      const nameInput = $("name");
+      if (nameInput && !nameInput.value) nameInput.value = window.AUTH.username;
     }
   }
 
@@ -399,6 +411,30 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="sr-val">${formatRup(total)}</span>
       </div>
     `;
+  }
+
+  // Ganti isi kotak Ringkasan dengan bukti booking (kode, jadwal, total, cara bayar)
+  function showBookingConfirmation(b) {
+    const box = $("bookingSummary");
+    if (!box) return;
+    const start = new Date(b.start_time * 1000);
+    const fmtTime = (d) => d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    const dateText = start.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" });
+    const checkin = b.expires_at ? fmtTime(new Date(b.expires_at * 1000)) : null;
+    box.innerHTML = `
+      <div class="confirm-card">
+        <div class="confirm-head">${icon('check')} Booking berhasil</div>
+        <div>
+          <span class="sr-label">Kode booking</span>
+          <div class="confirm-code">${escapeHtml(b.order_code)}</div>
+        </div>
+        <div class="summary-row"><span class="sr-label">Ruangan</span><span class="sr-val">${escapeHtml(b.room)}</span></div>
+        <div class="summary-row"><span class="sr-label">Tanggal</span><span class="sr-val">${dateText}</span></div>
+        <div class="summary-row"><span class="sr-label">Sesi</span><span class="sr-val">${fmtTime(start)} – ${fmtTime(new Date(b.end_time * 1000))}</span></div>
+        <div class="summary-row total-row"><span class="sr-label">Total</span><span class="sr-val">${formatRup(b.total_price)}</span></div>
+        <p class="confirm-note">Tunjukkan kode ini dan bayar di kasir saat datang.${checkin ? ` Lapor paling lambat <strong>${checkin}</strong>, lewat dari itu booking batal otomatis.` : ""}</p>
+        <button type="button" class="btn-ghost" data-view="profile">Lihat di Profil</button>
+      </div>`;
   }
 
   // Update summary setiap kali room/durasi/waktu berubah
@@ -479,8 +515,7 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
 
       if (!IS_LOGGED_IN) {
-        alert("Silakan login terlebih dahulu untuk booking.");
-        document.getElementById("loginModal").classList.add("show");
+        requireLogin("Silakan login terlebih dahulu untuk booking.", "booking", bookBtn.dataset.book);
         return;
       }
 
@@ -520,8 +555,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (v === "consoles") renderAll();
       if (v === "booking") {
         if (!IS_LOGGED_IN) {
-          alert("Silakan login terlebih dahulu untuk melakukan booking.");
-          document.getElementById("loginModal").classList.add("show");
+          requireLogin("Silakan login terlebih dahulu untuk melakukan booking.", "booking");
           return;
         }
 
@@ -574,11 +608,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("bookingForm").addEventListener("submit", (e) => {
     e.preventDefault();
 
-    // BLOKIR PALING AWAL (SEBELUM KODE LAIN JALAN)
     if (!IS_LOGGED_IN) {
-      alert("Anda harus login untuk melakukan booking.");
-      document.getElementById("loginModal").classList.add("show");
-      return; // HENTIKAN FUNGSI DI SINI
+      requireLogin("Silakan login terlebih dahulu untuk melakukan booking.", "booking");
+      return;
     }
 
     const name = $("name").value.trim();
@@ -594,7 +626,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (!name || !roomId) {
-      alert("Lengkapi data!");
+      alert("Isi nama dan pilih ruangan terlebih dahulu.");
       return;
     }
 
@@ -626,7 +658,6 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((r) => r.json())
       .then((r) => {
         if (r.status === "success") {
-          alert("Booking BERHASIL!");
           loadUpcomingBooking();
           $("bookingForm").reset();
           generateDateOptions();
@@ -635,12 +666,12 @@ document.addEventListener("DOMContentLoaded", () => {
           // Form kembali ke "Pilih Ruangan": kosongkan slot & info ruangan sebelumnya
           fetchBookedSlots($("roomSelect").value);
           prefillBookingUser();
-          updateBookingSummary();
+          showBookingConfirmation(r);
         } else {
-          alert("ERROR: " + r.message);
+          alert("Booking gagal: " + (r.message || "Terjadi kesalahan"));
         }
       })
-      .catch(() => alert("SERVER ERROR"))
+      .catch(() => alert(NETWORK_ERROR))
       .finally(() => { if (submitBtn) submitBtn.disabled = false; });
   });
 
@@ -919,10 +950,19 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((data) => {
         // Bisa saja user logout saat request ini masih berjalan
         if (!data || !IS_LOGGED_IN) { banner.style.display = "none"; return; }
-        const time = new Date(data.start_time * 1000).toLocaleTimeString("id-ID", {
-          hour: "2-digit", minute: "2-digit",
-        });
-        if (detail) detail.textContent = `${data.room} — Jam ${time} (${data.duration} jam)`;
+        const fmt = (u) => new Date(u * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+        const now = Date.now() / 1000;
+        const label = document.getElementById("upcomingLabel");
+        const started = data.start_time <= now;
+        if (label) label.textContent = started ? "Sesi Sedang Berjalan" : "Booking Mendatang";
+        if (detail) {
+          const day = new Date(data.start_time * 1000).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short" });
+          let text = started
+            ? `${data.room} — selesai ${fmt(data.end_time)}`
+            : `${data.room} — ${day}, jam ${fmt(data.start_time)} (${data.duration} jam) · ${data.order_code}`;
+          if (data.expires_at) text += ` · lapor ke kasir sebelum ${fmt(data.expires_at)}`;
+          detail.textContent = text;
+        }
         banner.style.display = "block";
       })
       .catch(() => { banner.style.display = "none"; });
@@ -1038,7 +1078,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         })
         .catch(() => {
-          alert("Server error");
+          alert(NETWORK_ERROR);
           confirmBtn.disabled = false;
           confirmBtn.textContent = "Konfirmasi";
         });
@@ -1073,7 +1113,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         })
         .catch(() => {
-          alert("Server error");
+          alert(NETWORK_ERROR);
           cancelBookingBtn.disabled = false;
           cancelBookingBtn.textContent = "Batalkan";
         });
@@ -1153,7 +1193,7 @@ document.addEventListener("DOMContentLoaded", () => {
           alert("Gagal memesan: " + (res.message || "Error"));
         }
       })
-      .catch(() => alert("Server error"))
+      .catch(() => alert(NETWORK_ERROR))
       .finally(() => { btn.disabled = false; });
   });
 
@@ -1164,6 +1204,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   loginLink?.addEventListener("click", (e) => {
     e.preventDefault();
+    window._pendingLogin = null;
     resetLoginForm();
     loginModal.classList.add("show");
   });
@@ -1304,7 +1345,7 @@ document.addEventListener("DOMContentLoaded", () => {
           alert(res.message);
         }
       })
-      .catch(() => alert("Server error"))
+      .catch(() => alert(NETWORK_ERROR))
       .finally(() => { if (submitBtn) submitBtn.disabled = false; });
   });
 
@@ -1352,10 +1393,10 @@ document.addEventListener("DOMContentLoaded", () => {
               document.getElementById("registerModal").classList.remove("show");
               document.getElementById("loginModal").classList.add("show");
             } else {
-              alert("ERROR: " + r.message);
+              alert("Gagal: " + (r.message || "Terjadi kesalahan"));
             }
           })
-          .catch(() => alert("SERVER ERROR"))
+          .catch(() => alert(NETWORK_ERROR))
           .finally(() => { if (submitBtn) submitBtn.disabled = false; });
       },
     );
@@ -1426,8 +1467,20 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("loginModal").classList.remove("show");
     setLoggedIn(username);
 
+    // Kembali ke halaman yang tadi meminta login (mis. booking), bukan ke Beranda
+    const pending = window._pendingLogin;
+    window._pendingLogin = null;
+    const link = pending && document.querySelector(`.nav a[data-view="${pending.view}"]`);
+    if (link) {
+      link.click();
+      if (pending.roomId) {
+        $("roomSelect").value = pending.roomId;
+        fetchBookedSlots(pending.roomId);
+        updateBookingSummary();
+      }
+      return;
+    }
     showView("home");
-    setActiveNav("home");
   }
 
   // UPDATE ACTIVITY SEKETIKA
@@ -1561,9 +1614,15 @@ document.addEventListener("DOMContentLoaded", () => {
               const isUpcoming = !isCancelled && now < start;
               const isDone     = !isCancelled && now >= end;
 
+              // expires_at terisi = belum lapor ke kasir (belum check-in)
+              const notCheckedIn = !isCancelled && b.expires_at && (isUpcoming || isActive);
+              const fmtTime = (u) => new Date(u * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
               let statusHtml;
               if (isCancelled) {
-                statusHtml = `<span class="booking-status cancelled">Dibatalkan</span>`;
+                statusHtml = `<span class="booking-status cancelled">${b.expires_at ? "Batal · tidak hadir" : "Dibatalkan"}</span>`;
+              } else if (isActive && notCheckedIn) {
+                statusHtml = `<span class="booking-status upcoming">Menunggu kedatanganmu</span>`;
               } else if (isUpcoming) {
                 statusHtml = `<span class="booking-status upcoming">Menunggu mulai</span>`;
               } else if (isDone) {
@@ -1572,7 +1631,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 statusHtml = `<span class="booking-status active" id="status-${b.id}">Sisa: <span id="countdown-${b.id}">--:--:--</span></span>`;
               }
 
-              const cancelHtml = isUpcoming ? `
+              const payHtml = isCancelled ? "" : b.payment_status === "paid"
+                ? `<span class="pay-chip paid">Lunas</span>`
+                : `<span class="pay-chip unpaid">Belum bayar · bayar di kasir</span>`;
+              const metaHtml = `<div class="booking-meta">
+                  ${b.order_code ? `<span class="code-chip">${escapeHtml(b.order_code)}</span>` : ""}${payHtml}
+                </div>`;
+              const checkinHtml = notCheckedIn
+                ? `<p class="checkin-note">Lapor ke kasir sebelum ${fmtTime(b.expires_at)}, lewat dari itu booking batal otomatis.</p>`
+                : "";
+
+              const cancelHtml = (isUpcoming || notCheckedIn) && b.payment_status !== "paid" ? `
                 <div style="margin-top:8px">
                   <button class="btn-ghost cancel-booking-btn" data-bid="${b.id}" data-room="${escapeHtml(b.room)}"
                     style="font-size:0.78rem;padding:4px 10px;color:#ff6b6b;border-color:#ff6b6b44">
@@ -1588,7 +1657,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   </button>
                 </div>` : '';
 
-              const extendHtml = isActive ? `
+              const extendHtml = isActive && !notCheckedIn ? `
                 <div style="margin-top:8px">
                   <button class="btn-ghost extend-btn"
                     data-bid="${b.id}" data-roomid="${b.room_id}"
@@ -1618,8 +1687,10 @@ document.addEventListener("DOMContentLoaded", () => {
               box.innerHTML += `
                 <div class="booking-item">
                   <strong>${escapeHtml(b.room)}</strong><br>
-                  <span class="small muted">Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam</span><br>
+                  <span class="small muted">${new Date(start * 1000).toLocaleDateString("id-ID", { day: "numeric", month: "short" })} &bull; Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam &bull; ${formatRup(b.total_price)}</span><br>
                   ${statusHtml}
+                  ${metaHtml}
+                  ${checkinHtml}
                   ${extendHtml}
                   ${cancelHtml}
                   ${reorderHtml}
@@ -1734,7 +1805,7 @@ function generateDateOptions() {
     const iso = toLocalISODate(d);
     const opt = document.createElement("option");
     opt.value = iso;
-    opt.textContent = labels[i];
+    opt.textContent = `${labels[i]} · ${d.toLocaleDateString("id-ID", { day: "numeric", month: "short" })}`;
     sel.appendChild(opt);
   }
 }
@@ -1953,7 +2024,10 @@ function renderQueueEntry(entry) {
   // Kalau giliran sudah batal, user boleh ambil antrian lagi
   joinBox.style.display = ended ? "" : "none";
   statusBox.style.display = "";
-  cancelBtn.style.display = entry.state === "waiting" ? "" : "none";
+  // Giliran yang sudah didapat tapi belum lapor ke kasir juga boleh dibatalkan
+  const canCancelTurn = entry.state === "assigned" && !!entry.checkin_until;
+  cancelBtn.style.display = entry.state === "waiting" || canCancelTurn ? "" : "none";
+  cancelBtn.textContent = canCancelTurn ? "Batalkan Giliran" : "Batalkan Antrian";
 
   if (entry.state === "waiting") {
     text.innerHTML = `Antrian <strong>${escapeHtml(entry.console_type)}</strong> · ${Number(entry.duration)} jam — posisi kamu: <strong>#${Number(entry.position)}</strong>`;
@@ -1995,8 +2069,7 @@ function postQueue(params) {
 
   $("queueJoinBtn")?.addEventListener("click", () => {
     if (!IS_LOGGED_IN) {
-      alert("Silakan login terlebih dahulu untuk mengambil antrian.");
-      document.getElementById("loginModal").classList.add("show");
+      requireLogin("Silakan login terlebih dahulu untuk mengambil antrian.", "booking");
       return;
     }
     const btn = $("queueJoinBtn");
@@ -2007,12 +2080,12 @@ function postQueue(params) {
         renderQueueEntry(res.entry);
         if (res.entry?.state === "assigned") alert(`Ruangan tersedia! Silakan ke ${res.entry.room}.`);
       })
-      .catch(() => alert("Server error"))
+      .catch(() => alert(NETWORK_ERROR))
       .finally(() => { btn.disabled = false; });
   });
 
   $("queueCancelBtn")?.addEventListener("click", () => {
-    if (!confirm("Batalkan antrian?")) return;
+    if (!confirm(`${$("queueCancelBtn").textContent}? Posisi/ruanganmu akan diberikan ke orang berikutnya.`)) return;
     const btn = $("queueCancelBtn");
     btn.disabled = true;
     postQueue({ action: "cancel" })
@@ -2020,7 +2093,7 @@ function postQueue(params) {
         if (res.status !== "ok") alert(res.message || "Gagal membatalkan antrian");
         refreshQueue();
       })
-      .catch(() => alert("Server error"))
+      .catch(() => alert(NETWORK_ERROR))
       .finally(() => { btn.disabled = false; });
   });
 

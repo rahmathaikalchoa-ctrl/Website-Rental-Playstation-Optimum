@@ -6,7 +6,7 @@ require __DIR__ . '/db.php';
 require __DIR__ . '/queue_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
-  echo json_encode(["status" => "error", "message" => "Belum login"]);
+  echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
 }
 
@@ -88,8 +88,27 @@ if ($action === 'cancel' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $stmt = $conn->prepare("UPDATE booking_queue SET status = 'cancelled' WHERE user_id = ? AND status = 'waiting'");
   $stmt->bind_param("i", $userId);
   $stmt->execute();
+  $cancelled = $stmt->affected_rows > 0;
   $stmt->close();
-  echo json_encode(["status" => "ok"]);
+
+  // Sudah dapat giliran tapi belum lapor ke kasir: batalkan booking-nya juga
+  if (!$cancelled) {
+    $stmt = $conn->prepare("
+      UPDATE booking_queue q JOIN bookings b ON b.id = q.booking_id
+      SET q.status = 'cancelled', b.payment_status = 'cancelled', b.expires_at = NULL
+      WHERE q.user_id = ? AND q.status = 'assigned'
+        AND b.expires_at IS NOT NULL AND b.payment_status = 'unpaid'
+    ");
+    $stmt->bind_param("i", $userId);
+    $stmt->execute();
+    $cancelled = $stmt->affected_rows > 0;
+    $stmt->close();
+    if ($cancelled) processQueue($conn);
+  }
+
+  echo json_encode($cancelled
+    ? ["status" => "ok"]
+    : ["status" => "error", "message" => "Tidak ada antrian yang bisa dibatalkan"]);
   exit;
 }
 

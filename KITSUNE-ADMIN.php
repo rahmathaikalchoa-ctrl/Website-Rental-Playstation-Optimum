@@ -3,6 +3,7 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/db.php';
 require __DIR__ . '/queue_lib.php';
+require __DIR__ . '/booking_lib.php';
 require __DIR__ . '/icons.php';
 
 // Nilai aman untuk argumen JS di atribut onclick. htmlspecialchars saja tidak cukup:
@@ -118,36 +119,53 @@ $offset  = ($pageNum - 1) * $perPage;
       'cancelled' => ['Dibatalkan', 'pay-cancelled'],
     ];
   ?>
-  <h2>Riwayat Booking (<?= $totalRow ?> total)</h2>
-  <table class="users-table">
-    <tr><th>Kode</th><th>Nama</th><th>Sumber</th><th>Ruangan</th><th>Jadwal</th><th>Durasi</th><th>Total</th><th>Status</th><th>Aksi</th></tr>
-    <?php if ($data->num_rows === 0): ?>
-      <tr><td colspan="9" class="empty-row">Belum ada data booking.</td></tr>
-    <?php endif; ?>
-    <?php while($b = $data->fetch_assoc()): ?>
-    <?php
-      $isCancelled = $b['payment_status'] === 'cancelled';
-      [$pl, $pc] = $payLabel[$b['payment_status']] ?? [$b['payment_status'], 'pay-unpaid'];
-    ?>
-    <tr class="<?= $isCancelled ? 'row-cancelled' : '' ?>">
-      <td><?= htmlspecialchars($b['order_code'] ?? '-') ?></td>
-      <td><?= htmlspecialchars($b['customer_name']) ?></td>
-      <td><?= $b['source'] === 'walkin' ? 'Walk-in' : 'Online' ?></td>
-      <td><?= htmlspecialchars($b['room_title'] ?? '-') ?></td>
-      <td><?= date('d M Y H:i', intval($b['start_time'])) ?></td>
-      <td><?= intval($b['duration']) ?> jam</td>
-      <td>Rp<?= number_format(intval($b['total_price']), 0, ',', '.') ?></td>
-      <td><span class="pay-badge <?= $pc ?>"><?= $pl ?></span></td>
-      <td>
-        <?php if (!$isCancelled): ?>
-          <button class="btn-danger" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>)">Batalkan</button>
-        <?php else: ?>
-          <span class="muted-dash">—</span>
-        <?php endif; ?>
-      </td>
-    </tr>
-    <?php endwhile; ?>
-  </table>
+  <div class="page-head">
+    <div>
+      <h2>Riwayat Booking</h2>
+      <p class="page-sub"><?= $totalRow ?> booking tercatat. Booking yang dibatalkan tetap disimpan untuk arsip.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="users-table">
+      <tr><th>Konsumen</th><th>Sumber</th><th>Ruangan</th><th>Jadwal</th><th>Durasi</th><th>Total</th><th>Status</th><th>Aksi</th></tr>
+      <?php if ($data->num_rows === 0): ?>
+        <tr><td colspan="8" class="empty-row">Belum ada data booking.</td></tr>
+      <?php endif; ?>
+      <?php while($b = $data->fetch_assoc()): ?>
+      <?php
+        $isCancelled = $b['payment_status'] === 'cancelled';
+        [$pl, $pc] = $payLabel[$b['payment_status']] ?? [$b['payment_status'], 'pay-unpaid'];
+        // expires_at masih terisi pada booking batal = batal otomatis karena tidak hadir
+        if ($isCancelled && $b['expires_at'] !== null) $pl = 'Batal · tidak hadir';
+      ?>
+      <tr class="<?= $isCancelled ? 'row-cancelled' : '' ?>">
+        <td class="cell-main"><?= htmlspecialchars($b['customer_name']) ?>
+          <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?></span>
+        </td>
+        <td><span class="src-chip"><?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?></span></td>
+        <td><?= htmlspecialchars($b['room_title'] ?? '-') ?></td>
+        <td><?= date('d M Y', intval($b['start_time'])) ?>
+          <span class="cell-sub"><?= date('H:i', intval($b['start_time'])) ?> – <?= date('H:i', intval($b['end_time'])) ?></span>
+        </td>
+        <td><?= intval($b['duration']) ?> jam</td>
+        <td>Rp<?= number_format(intval($b['total_price']), 0, ',', '.') ?></td>
+        <td><span class="pay-badge <?= $pc ?>"><?= $pl ?></span></td>
+        <td>
+          <div class="row-actions">
+            <?php if (!$isCancelled && $b['payment_status'] !== 'paid'): ?>
+              <button class="btn-paid-sm" onclick="markPaid(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>, <?= intval($b['total_price']) ?>)">Lunas</button>
+            <?php endif; ?>
+            <?php if (!$isCancelled): ?>
+              <button class="btn-danger-sm" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>)">Batalkan</button>
+            <?php else: ?>
+              <span class="muted-dash">—</span>
+            <?php endif; ?>
+          </div>
+        </td>
+      </tr>
+      <?php endwhile; ?>
+    </table>
+  </div>
 
   <?php if ($totalPages > 1): ?>
   <div class="pagination">
@@ -161,7 +179,7 @@ $offset  = ($pageNum - 1) * $perPage;
   </div>
   <?php endif; ?>
 
-  <!-- BOOKING (layanan operator: konsumen datang langsung + daftar tunggu) -->
+  <!-- BOOKING (layanan operator: konsumen offline + daftar tunggu) -->
 <?php elseif ($page === 'booking'): ?>
   <?php
     processQueue($conn);
@@ -169,16 +187,17 @@ $offset  = ($pageNum - 1) * $perPage;
     $dayEnd = strtotime(date('Y-m-d', $now)) + 24 * 3600;
 
     $curStmt  = $conn->prepare("
-      SELECT id, customer_name, source, start_time, end_time, expires_at FROM bookings
+      SELECT id, customer_name, source, start_time, end_time, expires_at, payment_status, total_price FROM bookings
       WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time <= ? AND end_time > ? LIMIT 1
     ");
     $nextStmt = $conn->prepare("
-      SELECT start_time, customer_name FROM bookings
+      SELECT id, start_time, customer_name, expires_at FROM bookings
       WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time > ? AND start_time < ?
       ORDER BY start_time LIMIT 1
     ");
 
     $rooms = [];
+    $roomOptions = [];
     $minPrice = [];
     $stat = ['kosong' => 0, 'dipakai' => 0, 'service' => 0];
     $roomRes = mysqli_query($conn, "SELECT id, title, console_type, price, status FROM rooms ORDER BY console_type, id");
@@ -199,6 +218,8 @@ $offset  = ($pageNum - 1) * $perPage;
       $ct = $r['console_type'];
       if ($r['status'] === 'available') {
         $minPrice[$ct] = min($minPrice[$ct] ?? PHP_INT_MAX, intval($r['price']));
+        $roomOptions[] = ['id' => $rid, 'title' => $r['title'], 'console' => $ct,
+                          'price' => intval($r['price']), 'free' => $r['state'] === 'kosong'];
       }
       $rooms[] = $r;
     }
@@ -211,11 +232,20 @@ $offset  = ($pageNum - 1) * $perPage;
     $totalWaiting = array_sum(array_map('count', $queueBy));
 
     $stateLabel = ['kosong' => 'Kosong', 'dipakai' => 'Dipakai', 'service' => 'In Service'];
+    $srcLabel   = fn($s) => $s === 'walkin' ? 'Offline' : 'Online';
+
+    // Pilihan tanggal reservasi: hari ini s/d lusa, tampil dengan tanggal asli
+    $bulan = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    $dateOptions = [];
+    foreach (['Hari ini', 'Besok', 'Lusa'] as $i => $lbl) {
+      $ts = strtotime("+$i day", $now);
+      $dateOptions[date('Y-m-d', $ts)] = $lbl . ' · ' . date('j', $ts) . ' ' . $bulan[intval(date('n', $ts)) - 1];
+    }
   ?>
   <div class="page-head">
     <div>
       <h2>Booking Ruangan</h2>
-      <p class="page-sub">Input konsumen yang datang langsung. Jika ruangan penuh, konsumen masuk daftar tunggu sesuai urutan kedatangan.</p>
+      <p class="page-sub">Layani konsumen yang datang langsung atau menelepon. Jika ruangan penuh, konsumen masuk daftar tunggu sesuai urutan kedatangan.</p>
     </div>
     <span class="clock-chip"><?= icon('clock') ?> <?= date('H:i') ?></span>
   </div>
@@ -228,58 +258,133 @@ $offset  = ($pageNum - 1) * $perPage;
   </div>
 
   <div class="booking-grid">
-    <form id="walkinForm" class="panel-card" data-prices="<?= htmlspecialchars(json_encode($minPrice), ENT_QUOTES) ?>">
+    <div class="panel-card" id="offlinePanel"
+         data-rooms="<?= htmlspecialchars(json_encode($roomOptions), ENT_QUOTES) ?>"
+         data-prices="<?= htmlspecialchars(json_encode($minPrice), ENT_QUOTES) ?>">
       <h3 class="panel-title"><?= icon('user') ?> Data Konsumen</h3>
 
-      <label class="field">
-        <span>Nama</span>
-        <input name="name" placeholder="Nama konsumen" maxlength="100" autocomplete="off" required>
-      </label>
-      <label class="field">
-        <span>No. HP <em>(opsional)</em></span>
-        <input name="phone" placeholder="08xxxxxxxxxx" inputmode="numeric" pattern="[0-9]{9,14}" maxlength="14" autocomplete="off">
-      </label>
+      <div class="form-tabs" role="tablist">
+        <button type="button" class="form-tab active" data-tab="walkinForm">Main Sekarang</button>
+        <button type="button" class="form-tab" data-tab="reserveForm">Reservasi Jam Tertentu</button>
+      </div>
 
-      <div class="field">
-        <span>Konsol</span>
-        <div class="console-pick">
-          <?php foreach (['PS3', 'PS4', 'PS5'] as $i => $c): ?>
-            <label class="console-opt c-<?= strtolower($c) ?>">
-              <input type="radio" name="console_type" value="<?= $c ?>" <?= $i === 2 ? 'checked' : '' ?> required>
-              <span><?= $c ?></span>
-            </label>
-          <?php endforeach; ?>
+      <!-- MAIN SEKARANG -->
+      <form id="walkinForm" class="tab-form">
+        <label class="field">
+          <span>Nama</span>
+          <input name="name" placeholder="Nama konsumen" maxlength="100" autocomplete="off" required>
+        </label>
+        <label class="field">
+          <span>No. HP <em>(opsional)</em></span>
+          <input name="phone" placeholder="08xxxxxxxxxx" inputmode="numeric" pattern="[0-9]{9,14}" maxlength="14" autocomplete="off">
+        </label>
+
+        <div class="field">
+          <span>Konsol</span>
+          <div class="console-pick">
+            <?php foreach (QUEUE_CONSOLES as $i => $c): ?>
+              <label class="console-opt c-<?= strtolower($c) ?>">
+                <input type="radio" name="console_type" value="<?= $c ?>" <?= $i === 2 ? 'checked' : '' ?> required>
+                <span><?= $c ?></span>
+              </label>
+            <?php endforeach; ?>
+          </div>
         </div>
-      </div>
 
-      <label class="field">
-        <span>Durasi</span>
-        <select name="duration" required>
-          <?php for ($i = 1; $i <= 12; $i++): ?>
-            <option value="<?= $i ?>"><?= $i ?> jam</option>
-          <?php endfor; ?>
-        </select>
-      </label>
+        <label class="field">
+          <span>Ruangan</span>
+          <select name="room_id">
+            <option value="0">Otomatis (sesuai urutan)</option>
+            <?php foreach ($roomOptions as $o): ?>
+              <option value="<?= $o['id'] ?>" data-console="<?= $o['console'] ?>" <?= $o['free'] ? '' : 'disabled' ?>>
+                <?= htmlspecialchars($o['title']) ?> — Rp<?= number_format($o['price'], 0, ',', '.') ?>/jam<?= $o['free'] ? '' : ' (dipakai)' ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </label>
 
-      <div class="estimate">
-        <span>Estimasi biaya</span>
-        <strong id="walkinEstimate">-</strong>
-      </div>
+        <label class="field">
+          <span>Durasi</span>
+          <select name="duration" required>
+            <?php for ($i = 1; $i <= 12; $i++): ?>
+              <option value="<?= $i ?>"><?= $i ?> jam</option>
+            <?php endfor; ?>
+          </select>
+        </label>
 
-      <button type="submit" class="btn-primary"><?= icon('check') ?> Booking</button>
-    </form>
+        <div class="estimate">
+          <span>Estimasi biaya</span>
+          <strong data-estimate>-</strong>
+        </div>
+        <p class="form-note">Mulai sekarang dan langsung ditandai lunas.</p>
+
+        <button type="submit" class="btn-primary"><?= icon('check') ?> Booking Sekarang</button>
+      </form>
+
+      <!-- RESERVASI JAM TERTENTU -->
+      <form id="reserveForm" class="tab-form" hidden>
+        <label class="field">
+          <span>Nama</span>
+          <input name="name" placeholder="Nama konsumen" maxlength="100" autocomplete="off" required>
+        </label>
+        <label class="field">
+          <span>No. HP <em>(opsional)</em></span>
+          <input name="phone" placeholder="08xxxxxxxxxx" inputmode="numeric" pattern="[0-9]{9,14}" maxlength="14" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Ruangan</span>
+          <select name="room_id" required>
+            <?php foreach ($roomOptions as $o): ?>
+              <option value="<?= $o['id'] ?>"><?= htmlspecialchars($o['title']) ?> (<?= $o['console'] ?>) — Rp<?= number_format($o['price'], 0, ',', '.') ?>/jam</option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Tanggal</span>
+            <select name="date" required>
+              <?php foreach ($dateOptions as $val => $lbl): ?>
+                <option value="<?= $val ?>"><?= $lbl ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
+          <label class="field">
+            <span>Jam mulai</span>
+            <select name="time" required></select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Durasi</span>
+          <select name="duration" required></select>
+        </label>
+        <p class="form-note" data-booked></p>
+
+        <div class="estimate">
+          <span>Estimasi biaya</span>
+          <strong data-estimate>-</strong>
+        </div>
+        <p class="form-note">Bayar di kasir saat datang. Batal otomatis jika tidak lapor sampai 15 menit setelah jam mulai.</p>
+
+        <button type="submit" class="btn-primary"><?= icon('clock') ?> Simpan Reservasi</button>
+      </form>
+    </div>
 
     <div>
       <h3 class="section-title"><?= icon('gamepad') ?> Status Ruangan</h3>
       <div class="room-grid">
         <?php foreach ($rooms as $r): ?>
         <?php
-          $cur = $r['cur'];
+          $cur  = $r['cur'];
+          $next = $r['next'];
           $progress = 0;
           if ($cur) {
             $span = max(1, intval($cur['end_time']) - intval($cur['start_time']));
             $progress = min(100, round(($now - intval($cur['start_time'])) / $span * 100));
           }
+          $waitingArrival = $cur && $cur['expires_at'] !== null;
+          // Konsumen reservasi berikutnya boleh check-in lebih awal (15 menit sebelum mulai)
+          $nextEarly = !$cur && $next && $next['expires_at'] !== null
+                       && intval($next['start_time']) - $now <= BOOKING_CHECKIN_SEC;
         ?>
         <div class="room-tile state-<?= $r['state'] ?>">
           <div class="room-tile-head">
@@ -291,14 +396,17 @@ $offset  = ($pageNum - 1) * $perPage;
           <?php if ($cur): ?>
             <p class="room-who">
               <?= htmlspecialchars($cur['customer_name']) ?>
-              <span class="src-chip"><?= $cur['source'] === 'walkin' ? 'Walk-in' : 'Online' ?></span>
+              <span class="src-chip"><?= $srcLabel($cur['source']) ?></span>
+              <span class="pay-badge <?= $cur['payment_status'] === 'paid' ? 'pay-paid' : 'pay-unpaid' ?>">
+                <?= $cur['payment_status'] === 'paid' ? 'Lunas' : 'Belum bayar' ?>
+              </span>
             </p>
-            <?php if ($cur['expires_at'] !== null): ?>
+            <?php if ($waitingArrival): ?>
               <p class="checkin-wait">Menunggu kedatangan s/d <?= date('H:i', intval($cur['expires_at'])) ?></p>
             <?php else: ?>
               <div class="progress"><div style="width:<?= $progress ?>%"></div></div>
             <?php endif; ?>
-            <p class="room-meta">Selesai <?= date('H:i', intval($cur['end_time'])) ?></p>
+            <p class="room-meta">Selesai <?= date('H:i', intval($cur['end_time'])) ?> · Rp<?= number_format(intval($cur['total_price']), 0, ',', '.') ?></p>
           <?php elseif ($r['state'] === 'kosong'): ?>
             <p class="room-meta">Siap dipakai</p>
           <?php else: ?>
@@ -307,13 +415,33 @@ $offset  = ($pageNum - 1) * $perPage;
 
           <p class="room-next">
             <?= icon('clock') ?>
-            <?= $r['next'] ? 'Reservasi ' . date('H:i', intval($r['next']['start_time'])) . ' — ' . htmlspecialchars($r['next']['customer_name']) : 'Tidak ada reservasi' ?>
+            <?= $next ? 'Reservasi ' . date('H:i', intval($next['start_time'])) . ' — ' . htmlspecialchars($next['customer_name']) : 'Tidak ada reservasi' ?>
           </p>
 
-          <?php if ($cur && $cur['expires_at'] !== null): ?>
-            <button class="btn-checkin" onclick="checkinBooking(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)"><?= icon('check') ?> Hadir</button>
-          <?php elseif ($cur): ?>
-            <button class="btn-outline" onclick="finishBooking(<?= intval($cur['id']) ?>)">Selesaikan Sesi</button>
+          <?php if ($nextEarly): ?>
+            <button class="btn-checkin" onclick="checkinBooking(<?= intval($next['id']) ?>, <?= jsArg($next['customer_name']) ?>)"><?= icon('check') ?> Hadir (reservasi <?= date('H:i', intval($next['start_time'])) ?>)</button>
+          <?php endif; ?>
+
+          <?php if ($cur): ?>
+            <div class="tile-actions">
+              <?php if ($waitingArrival): ?>
+                <button class="btn-checkin" onclick="checkinBooking(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)"><?= icon('check') ?> Hadir</button>
+              <?php endif; ?>
+              <?php if ($cur['payment_status'] !== 'paid'): ?>
+                <button class="btn-paid" onclick="markPaid(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>, <?= intval($cur['total_price']) ?>)">Lunas</button>
+              <?php endif; ?>
+              <?php if (!$waitingArrival): ?>
+                <div class="extend-inline">
+                  <select aria-label="Tambah jam" id="extendSel<?= intval($cur['id']) ?>">
+                    <?php for ($i = 1; $i <= BOOKING_EXTEND_MAX; $i++): ?>
+                      <option value="<?= $i ?>">+<?= $i ?> jam</option>
+                    <?php endfor; ?>
+                  </select>
+                  <button class="btn-ghost-sm" onclick="adminExtend(<?= intval($cur['id']) ?>)">Tambah</button>
+                </div>
+                <button class="btn-outline" onclick="finishBooking(<?= intval($cur['id']) ?>)">Selesaikan Sesi</button>
+              <?php endif; ?>
+            </div>
           <?php endif; ?>
         </div>
         <?php endforeach; ?>
@@ -336,17 +464,15 @@ $offset  = ($pageNum - 1) * $perPage;
         <p class="queue-empty">Tidak ada yang menunggu</p>
       <?php endif; ?>
       <?php foreach ($list as $i => $q): ?>
-      <?php $tooLate = $now + intval($q['duration']) * 3600 > $dayEnd; ?>
       <div class="queue-item<?= $i === 0 ? ' is-next' : '' ?>">
         <span class="queue-no"><?= $i + 1 ?></span>
         <div class="queue-info">
           <strong><?= htmlspecialchars($q['customer_name']) ?></strong>
           <span>
             <?= intval($q['duration']) ?> jam · masuk <?= date('H:i', strtotime($q['created_at'])) ?>
-            · <?= $q['source'] === 'walkin' ? 'Walk-in' : 'Online' ?>
+            · <?= $srcLabel($q['source']) ?>
             <?= $q['phone'] ? ' · ' . htmlspecialchars($q['phone']) : '' ?>
           </span>
-          <?php if ($tooLate): ?><em class="queue-warn">Durasi melewati jam tutup</em><?php endif; ?>
         </div>
         <button class="btn-icon" title="Hapus dari daftar tunggu" aria-label="Hapus dari daftar tunggu"
           onclick="cancelQueue(<?= intval($q['id']) ?>, <?= jsArg($q['customer_name']) ?>)"><?= icon('x') ?></button>
@@ -358,255 +484,233 @@ $offset  = ($pageNum - 1) * $perPage;
 
   <!-- ROOMS -->
 <?php elseif ($page === 'room'): ?>
-  <?php $rooms = mysqli_query($conn, "SELECT * FROM rooms"); ?>
-  <h2>Manajemen Room</h2>
+  <?php $rooms = mysqli_query($conn, "SELECT * FROM rooms ORDER BY console_type, id"); ?>
+  <div class="page-head">
+    <div>
+      <h2>Manajemen Room</h2>
+      <p class="page-sub">Tambah ruangan baru atau nonaktifkan ruangan yang sedang perawatan.</p>
+    </div>
+  </div>
 
-  <form id="addRoomForm">
-    <input type="text" name="title" placeholder="Nama Room" required>
-
-    <select name="console" required>
-      <option value="">Pilih Console</option>
-      <option value="PS3">PS3</option>
-      <option value="PS4">PS4</option>
-      <option value="PS5">PS5</option>
-    </select>
-
-    <input type="number" name="price" placeholder="Harga" min="1" required>
-    <input type="text" name="description" placeholder="Detail Console / Ruangan">
-    <button type="submit">Tambah Room</button>
+  <form id="addRoomForm" class="panel-card form-inline">
+    <label class="field">
+      <span>Nama room</span>
+      <input type="text" name="title" placeholder="mis. VIP - Room 4" required>
+    </label>
+    <label class="field">
+      <span>Konsol</span>
+      <select name="console" required>
+        <option value="">Pilih</option>
+        <?php foreach (QUEUE_CONSOLES as $c): ?>
+          <option value="<?= $c ?>"><?= $c ?></option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+    <label class="field">
+      <span>Harga / jam</span>
+      <input type="number" name="price" placeholder="25000" min="1" required>
+    </label>
+    <label class="field">
+      <span>Keterangan</span>
+      <input type="text" name="description" placeholder="mis. Ruangan 4 orang">
+    </label>
+    <button type="submit" class="btn-primary"><?= icon('check') ?> Tambah</button>
   </form>
 
-  <table class="users-table">
-    <tr>
-      <th>Room</th>
-      <th>Console</th>
-      <th>Harga</th>
-      <th>Status</th>
-      <th>Aksi</th>
-    </tr>
-    <?php if (mysqli_num_rows($rooms) === 0): ?>
-      <tr><td colspan="5" class="empty-row">Belum ada ruangan.</td></tr>
-    <?php endif; ?>
-    <?php while($r = mysqli_fetch_assoc($rooms)): ?>
-    <tr>
-      <td><?= htmlspecialchars($r['title']) ?></td>
-      <td><?= htmlspecialchars($r['console_type']) ?></td>
-      <td>Rp <?= number_format($r['price'], 0, ',', '.') ?></td>
-      <td><?= $r['status'] === 'available' ? 'Aktif' : 'In Service' ?></td>
-      <td><button onclick="toggleRoom(<?= intval($r['id']) ?>)">Toggle</button></td>
-    </tr>
-    <?php endwhile; ?>
-  </table>
+  <div class="table-wrap">
+    <table class="users-table">
+      <tr><th>Room</th><th>Konsol</th><th>Harga / jam</th><th>Status</th><th>Aksi</th></tr>
+      <?php if (mysqli_num_rows($rooms) === 0): ?>
+        <tr><td colspan="5" class="empty-row">Belum ada ruangan.</td></tr>
+      <?php endif; ?>
+      <?php while($r = mysqli_fetch_assoc($rooms)): ?>
+      <?php $active = $r['status'] === 'available'; ?>
+      <tr>
+        <td class="cell-main"><?= htmlspecialchars($r['title']) ?>
+          <?php if ($r['description']): ?><span class="cell-sub"><?= htmlspecialchars($r['description']) ?></span><?php endif; ?>
+        </td>
+        <td><span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_type']) ?></span></td>
+        <td>Rp<?= number_format($r['price'], 0, ',', '.') ?></td>
+        <td><span class="pay-badge <?= $active ? 'pay-paid' : 'pay-unpaid' ?>"><?= $active ? 'Aktif' : 'Perawatan' ?></span></td>
+        <td>
+          <div class="row-actions">
+            <button class="<?= $active ? 'btn-warn-sm' : 'btn-ghost-sm' ?>" onclick="toggleRoom(<?= intval($r['id']) ?>)"><?= $active ? 'Set Perawatan' : 'Aktifkan' ?></button>
+          </div>
+        </td>
+      </tr>
+      <?php endwhile; ?>
+    </table>
+  </div>
 
   <!-- AKUN -->
 <?php elseif ($page === 'akun'): ?>
   <?php $users = mysqli_query($conn, "SELECT id, username, role, created_at, last_activity FROM users ORDER BY role DESC, created_at ASC"); ?>
-  <h2>Data Akun User</h2>
-  <table class="users-table">
-    <tr><th>ID</th><th>Username</th><th>Role</th><th>Status</th><th>Dibuat</th><th>Aksi</th></tr>
-    <?php if (mysqli_num_rows($users) === 0): ?>
-      <tr><td colspan="6" class="empty-row">Belum ada akun.</td></tr>
-    <?php endif; ?>
-    <?php while($u = mysqli_fetch_assoc($users)): ?>
-    <?php
-      $online  = !empty($u['last_activity']) && (time() - strtotime($u['last_activity'])) <= 300;
-      $isAdmin = $u['role'] === 'admin';
-    ?>
-    <tr>
-      <td><?= intval($u['id']) ?></td>
-      <td><?= htmlspecialchars($u['username']) ?></td>
-      <td>
-        <span class="role-badge <?= $isAdmin ? 'role-admin' : 'role-user' ?>">
-          <?= $isAdmin ? 'Admin' : 'User' ?>
-        </span>
-      </td>
-      <td>
-        <?php if ($online): ?>
-          <span class="status online">● Online</span>
-        <?php else: ?>
-          <span class="status offline">● Offline</span>
-        <?php endif; ?>
-      </td>
-      <td><?= htmlspecialchars($u['created_at']) ?></td>
-      <td>
-        <button onclick="toggleRole(<?= intval($u['id']) ?>, <?= jsArg($u['username']) ?>)">
-          <?= $isAdmin ? 'Jadikan User' : 'Jadikan Admin' ?>
-        </button>
-      </td>
-    </tr>
-    <?php endwhile; ?>
-  </table>
+  <div class="page-head">
+    <div>
+      <h2>Data Akun</h2>
+      <p class="page-sub">Status online dihitung dari aktivitas 5 menit terakhir.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="users-table">
+      <tr><th>Username</th><th>Role</th><th>Status</th><th>Terdaftar</th><th>Aksi</th></tr>
+      <?php if (mysqli_num_rows($users) === 0): ?>
+        <tr><td colspan="5" class="empty-row">Belum ada akun.</td></tr>
+      <?php endif; ?>
+      <?php while($u = mysqli_fetch_assoc($users)): ?>
+      <?php
+        $online  = !empty($u['last_activity']) && (time() - strtotime($u['last_activity'])) <= 300;
+        $isAdmin = $u['role'] === 'admin';
+        $isSelf  = intval($u['id']) === intval($_SESSION['admin_id']);
+      ?>
+      <tr>
+        <td class="cell-main"><?= htmlspecialchars($u['username']) ?><?= $isSelf ? ' <span class="cell-sub">(akun kamu)</span>' : '' ?></td>
+        <td><span class="role-badge <?= $isAdmin ? 'role-admin' : 'role-user' ?>"><?= $isAdmin ? 'Admin' : 'User' ?></span></td>
+        <td><span class="status <?= $online ? 'online' : 'offline' ?>">● <?= $online ? 'Online' : 'Offline' ?></span></td>
+        <td><?= date('d M Y', strtotime($u['created_at'])) ?></td>
+        <td>
+          <div class="row-actions">
+            <?php if ($isSelf): ?>
+              <span class="muted-dash">—</span>
+            <?php else: ?>
+              <button class="btn-ghost-sm" onclick="toggleRole(<?= intval($u['id']) ?>, <?= jsArg($u['username']) ?>)">
+                <?= $isAdmin ? 'Jadikan User' : 'Jadikan Admin' ?>
+              </button>
+            <?php endif; ?>
+          </div>
+        </td>
+      </tr>
+      <?php endwhile; ?>
+    </table>
+  </div>
 
 <!-- GAMES -->
 <?php elseif ($page === 'game'): ?>
-<h2>Manajemen Game</h2>
-<form id="addGameForm" enctype="multipart/form-data">
-  <input name="title" placeholder="Nama Game" required>
-  <select id="genreSelect" name="genre" required>
-    <option value="">Pilih Genre</option>
-    <?php
-    $existingGenres = mysqli_query($conn, "SELECT DISTINCT genre FROM games ORDER BY genre");
-    $defaultGenres  = ['Action','Sports','Racing','Fighting','Adventure'];
-    $shownGenres    = $defaultGenres;
-    while ($g = mysqli_fetch_assoc($existingGenres)) {
-      if (!in_array($g['genre'], $shownGenres)) $shownGenres[] = $g['genre'];
-    }
-    foreach ($shownGenres as $genre):
-    ?>
-    <option value="<?= htmlspecialchars($genre) ?>"><?= htmlspecialchars($genre) ?></option>
-    <?php endforeach; ?>
-    <option value="__custom__" style="color:#00eaff;font-weight:700">+ Tambah genre baru...</option>
-  </select>
-  <div id="customGenreWrap" class="custom-genre-wrap" style="display:none">
-    <input type="text" id="customGenreInput" placeholder="Nama genre baru (mis. Horror, Puzzle...)" autocomplete="off">
-    <button type="button" id="cancelCustomGenre" class="btn-cancel-genre" aria-label="Batal"><?= icon('x') ?></button>
-  </div>
-
-  <div class="checkbox-group">
-    <label><input type="checkbox" name="consoles[]" value="PS3"> PS3</label>
-    <label><input type="checkbox" name="consoles[]" value="PS4"> PS4</label>
-    <label><input type="checkbox" name="consoles[]" value="PS5"> PS5</label>
-  </div>
-
-  <label class="file-upload-zone">
-    <input type="file" name="cover_image" accept="image/*">
-    <img class="file-upload-preview" style="display:none" alt="preview">
-    <div class="file-upload-inner">
-      <span class="file-upload-icon"><?= icon('image') ?></span>
-      <span class="file-upload-label">Klik atau drag & drop foto cover game</span>
-      <span class="file-upload-name">Belum ada file dipilih</span>
-    </div>
-  </label>
-  <button type="submit">Simpan</button>
-</form>
-
 <?php
 $games = mysqli_query($conn, "
   SELECT g.id, g.title, g.genre,
-  GROUP_CONCAT(gc.console_type) AS consoles
+  GROUP_CONCAT(gc.console_type ORDER BY gc.console_type) AS consoles
   FROM games g
   LEFT JOIN game_consoles gc ON g.id = gc.game_id
   GROUP BY g.id
+  ORDER BY g.title
 ");
 ?>
+<div class="page-head">
+  <div>
+    <h2>Manajemen Game</h2>
+    <p class="page-sub">Game yang tampil di website beserta konsol yang mendukung.</p>
+  </div>
+</div>
 
-<table class="users-table">
-  <tr>
-    <th>Nama Game</th>
-    <th>Genre</th>
-    <th>Console</th>
-    <th>Aksi</th>
-  </tr>
-  <?php if (mysqli_num_rows($games) === 0): ?>
-    <tr><td colspan="4" class="empty-row">Belum ada game.</td></tr>
-  <?php endif; ?>
-  <?php while ($g = mysqli_fetch_assoc($games)): ?>
-  <?php $consolesArr = $g['consoles'] ? explode(',', $g['consoles']) : []; ?>
-  <tr>
-    <td><?= htmlspecialchars($g['title']) ?></td>
-    <td><?= htmlspecialchars($g['genre']) ?></td>
-    <td><?= htmlspecialchars($g['consoles'] ?? '-') ?></td>
-    <td style="display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="openEditGame(<?= intval($g['id']) ?>, <?= jsArg($g['title']) ?>, <?= jsArg($consolesArr) ?>)">Edit Console</button>
-      <button class="btn-danger" onclick="deleteGame(<?= intval($g['id']) ?>, <?= jsArg($g['title']) ?>)">Hapus</button>
-    </td>
-  </tr>
-  <?php endwhile; ?>
-</table>
+<div class="split">
+  <form id="addGameForm" class="panel-card" enctype="multipart/form-data">
+    <h3 class="panel-title"><?= icon('gamepad') ?> Tambah Game</h3>
+    <label class="field">
+      <span>Nama game</span>
+      <input name="title" placeholder="mis. EA FC 26" required>
+    </label>
+    <label class="field">
+      <span>Genre</span>
+      <select id="genreSelect" name="genre" required>
+        <option value="">Pilih genre</option>
+        <?php
+        $existingGenres = mysqli_query($conn, "SELECT DISTINCT genre FROM games ORDER BY genre");
+        $shownGenres    = ['Action','Sports','Racing','Fighting','Adventure'];
+        while ($g = mysqli_fetch_assoc($existingGenres)) {
+          if (!in_array($g['genre'], $shownGenres)) $shownGenres[] = $g['genre'];
+        }
+        foreach ($shownGenres as $genre):
+        ?>
+        <option value="<?= htmlspecialchars($genre) ?>"><?= htmlspecialchars($genre) ?></option>
+        <?php endforeach; ?>
+        <option value="__custom__">+ Tambah genre baru...</option>
+      </select>
+    </label>
+    <div id="customGenreWrap" class="custom-genre-wrap" style="display:none">
+      <input type="text" id="customGenreInput" placeholder="Nama genre baru (mis. Horror)" autocomplete="off">
+      <button type="button" id="cancelCustomGenre" class="btn-cancel-genre" aria-label="Batal"><?= icon('x') ?></button>
+    </div>
+
+    <div class="field">
+      <span>Konsol</span>
+      <div class="checkbox-group">
+        <?php foreach (QUEUE_CONSOLES as $c): ?>
+          <label><input type="checkbox" name="consoles[]" value="<?= $c ?>"> <?= $c ?></label>
+        <?php endforeach; ?>
+      </div>
+    </div>
+
+    <label class="file-upload-zone">
+      <input type="file" name="cover_image" accept="image/*">
+      <img class="file-upload-preview" style="display:none" alt="preview">
+      <div class="file-upload-inner">
+        <span class="file-upload-icon"><?= icon('image') ?></span>
+        <span class="file-upload-label">Klik atau drag & drop foto cover</span>
+        <span class="file-upload-name">Belum ada file dipilih</span>
+      </div>
+    </label>
+    <button type="submit" class="btn-primary"><?= icon('check') ?> Simpan Game</button>
+  </form>
+
+  <div class="table-wrap">
+    <table class="users-table">
+      <tr><th>Nama Game</th><th>Genre</th><th>Konsol</th><th>Aksi</th></tr>
+      <?php if (mysqli_num_rows($games) === 0): ?>
+        <tr><td colspan="4" class="empty-row">Belum ada game.</td></tr>
+      <?php endif; ?>
+      <?php while ($g = mysqli_fetch_assoc($games)): ?>
+      <?php $consolesArr = $g['consoles'] ? explode(',', $g['consoles']) : []; ?>
+      <tr>
+        <td class="cell-main wrap-cell"><?= htmlspecialchars($g['title']) ?></td>
+        <td><?= htmlspecialchars($g['genre']) ?></td>
+        <td>
+          <div class="chip-row">
+            <?php foreach ($consolesArr as $c): ?>
+              <span class="console-chip c-<?= strtolower(htmlspecialchars($c)) ?>"><?= htmlspecialchars($c) ?></span>
+            <?php endforeach; ?>
+            <?php if (!$consolesArr): ?><span class="muted-dash">—</span><?php endif; ?>
+          </div>
+        </td>
+        <td>
+          <div class="row-actions">
+            <button class="btn-ghost-sm" onclick="openEditGame(<?= intval($g['id']) ?>, <?= jsArg($g['title']) ?>, <?= jsArg($consolesArr) ?>)">Edit Konsol</button>
+            <button class="btn-danger-sm" onclick="deleteGame(<?= intval($g['id']) ?>, <?= jsArg($g['title']) ?>)">Hapus</button>
+          </div>
+        </td>
+      </tr>
+      <?php endwhile; ?>
+    </table>
+  </div>
+</div>
 
 <!-- MODAL EDIT CONSOLE GAME -->
-<div id="editGameModal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center">
-  <div style="background:#181b22;border:1px solid rgba(0,234,255,0.2);border-radius:14px;padding:28px;min-width:320px;box-shadow:0 0 40px rgba(0,234,255,0.1)">
-    <h3 style="color:#00eaff;margin-bottom:6px">Edit Console</h3>
-    <p id="editGameTitle" style="color:#9fb4c2;font-size:13px;margin-bottom:18px"></p>
+<div id="editGameModal" class="modal-backdrop" style="display:none">
+  <div class="modal-card">
+    <h3 class="panel-title">Edit Konsol</h3>
+    <p id="editGameTitle" class="page-sub"></p>
     <input type="hidden" id="editGameId">
-    <div style="display:flex;gap:10px;margin-bottom:20px">
-      <label id="editLabelPS3" style="padding:8px 18px;border-radius:20px;cursor:pointer;font-weight:700;font-size:13px;border:1px solid rgba(255,107,107,0.5);color:#ff6b6b;user-select:none">
-        <input type="checkbox" id="editPS3" value="PS3" style="display:none"> PS3
-      </label>
-      <label id="editLabelPS4" style="padding:8px 18px;border-radius:20px;cursor:pointer;font-weight:700;font-size:13px;border:1px solid rgba(77,166,255,0.5);color:#4da6ff;user-select:none">
-        <input type="checkbox" id="editPS4" value="PS4" style="display:none"> PS4
-      </label>
-      <label id="editLabelPS5" style="padding:8px 18px;border-radius:20px;cursor:pointer;font-weight:700;font-size:13px;border:1px solid rgba(178,107,255,0.5);color:#b26bff;user-select:none">
-        <input type="checkbox" id="editPS5" value="PS5" style="display:none"> PS5
-      </label>
+    <div class="modal-chips">
+      <?php foreach (['PS3' => 'rgba(255,107,107,0.5)', 'PS4' => 'rgba(77,166,255,0.5)', 'PS5' => 'rgba(178,107,255,0.5)'] as $c => $border): ?>
+        <label id="editLabel<?= $c ?>" class="modal-chip" style="border-color:<?= $border ?>">
+          <input type="checkbox" id="edit<?= $c ?>" value="<?= $c ?>" hidden> <?= $c ?>
+        </label>
+      <?php endforeach; ?>
     </div>
-    <div style="display:flex;gap:10px">
-      <button id="saveEditGame" style="flex:1;height:40px;border-radius:8px;background:linear-gradient(135deg,#00eaff,#00ff9d);color:#000;font-weight:700">Simpan</button>
-      <button onclick="closeEditGame()" style="height:40px;padding:0 16px;border-radius:8px;background:rgba(255,255,255,0.06);color:#9fb4c2;border:1px solid rgba(255,255,255,0.1)">Batal</button>
+    <div class="modal-actions">
+      <button id="saveEditGame" class="btn-primary">Simpan</button>
+      <button onclick="closeEditGame()" class="btn-ghost-sm">Batal</button>
     </div>
   </div>
 </div>
 
 <!-- MENU -->
 <?php elseif ($page === 'menu'): ?>
-<h2>Manajemen Menu Makanan & Minuman</h2>
-
-<form id="addMenuForm" enctype="multipart/form-data">
-  <input name="name" placeholder="Nama Item (mis. Indomie Goreng)" required>
-
-  <select name="category" required>
-    <option value="">Pilih Kategori</option>
-    <option value="makanan">Makanan</option>
-    <option value="minuman">Minuman</option>
-  </select>
-
-  <input type="number" name="price" placeholder="Harga (Rp)" min="1" required>
-  <input type="text" name="description" placeholder="Deskripsi singkat">
-  <label class="file-upload-zone">
-    <input type="file" name="item_image" accept="image/*">
-    <img class="file-upload-preview" style="display:none" alt="preview">
-    <div class="file-upload-inner">
-      <span class="file-upload-icon"><?= icon('image') ?></span>
-      <span class="file-upload-label">Klik atau drag & drop foto item menu</span>
-      <span class="file-upload-name">Belum ada file dipilih</span>
-    </div>
-  </label>
-  <button type="submit">Tambah Item</button>
-</form>
-
 <?php
 $menuItems = mysqli_query($conn, "SELECT * FROM menu_items ORDER BY category, name");
-?>
-<table class="users-table" style="margin-top:18px">
-  <tr>
-    <th>Nama</th>
-    <th>Kategori</th>
-    <th>Harga</th>
-    <th>Status</th>
-    <th>Aksi</th>
-  </tr>
-  <?php if (mysqli_num_rows($menuItems) === 0): ?>
-    <tr><td colspan="5" class="empty-row">Belum ada item menu.</td></tr>
-  <?php endif; ?>
-  <?php while ($item = mysqli_fetch_assoc($menuItems)): ?>
-  <tr>
-    <td><?= htmlspecialchars($item['name']) ?></td>
-    <td style="text-transform:capitalize"><?= htmlspecialchars($item['category']) ?></td>
-    <td>Rp <?= number_format($item['price'], 0, ',', '.') ?></td>
-    <td>
-      <?php if ($item['is_available']): ?>
-        <span style="color:#00ff9d;font-weight:600">● Tersedia</span>
-      <?php else: ?>
-        <span style="color:#ff6b6b;font-weight:600">● Stok Habis</span>
-      <?php endif; ?>
-    </td>
-    <td style="display:flex;gap:8px">
-      <button onclick="toggleMenuItem(<?= intval($item['id']) ?>)">
-        <?= $item['is_available'] ? 'Tutup Stok' : 'Buka Stok' ?>
-      </button>
-      <button class="btn-danger" onclick="deleteMenuItem(<?= intval($item['id']) ?>, <?= jsArg($item['name']) ?>)">Hapus</button>
-    </td>
-  </tr>
-  <?php endwhile; ?>
-</table>
-
-<!-- PESANAN MASUK -->
-<?php
 $pendingCount = mysqli_fetch_assoc(mysqli_query($conn,
     "SELECT COUNT(*) AS n FROM menu_orders WHERE status = 'pending'"
 ))['n'];
-
 $orders = mysqli_query($conn, "
     SELECT mo.id, mo.quantity, mo.note, mo.status, mo.created_at,
            mi.name AS item_name, mi.price,
@@ -618,53 +722,111 @@ $orders = mysqli_query($conn, "
     LIMIT 50
 ");
 ?>
-<h2 style="margin-top:36px;border-top:1px solid rgba(0,234,255,0.15);padding-top:24px">
-  Pesanan Masuk
-  <?php if ($pendingCount > 0): ?>
-    <span style="background:#ff6b6b;color:#fff;font-size:13px;padding:2px 10px;border-radius:20px;margin-left:8px;vertical-align:middle"><?= $pendingCount ?> baru</span>
-  <?php endif; ?>
-</h2>
+<div class="page-head">
+  <div>
+    <h2>Menu Makanan &amp; Minuman</h2>
+    <p class="page-sub">Kelola item menu dan pantau pesanan dari pengunjung.</p>
+  </div>
+</div>
 
-<table class="users-table" style="margin-top:14px">
-  <tr>
-    <th>User</th>
-    <th>Item</th>
-    <th>Qty</th>
-    <th>Total</th>
-    <th>Catatan</th>
-    <th>Waktu</th>
-    <th>Status</th>
-    <th>Aksi</th>
-  </tr>
-  <?php if (mysqli_num_rows($orders) === 0): ?>
-    <tr><td colspan="8" class="empty-row">Belum ada pesanan.</td></tr>
-  <?php endif; ?>
-  <?php while ($o = mysqli_fetch_assoc($orders)): ?>
-  <?php $isDone = $o['status'] === 'selesai'; ?>
-  <tr style="<?= $isDone ? 'opacity:0.5' : '' ?>">
-    <td><?= htmlspecialchars($o['username']) ?></td>
-    <td><?= htmlspecialchars($o['item_name']) ?></td>
-    <td><?= intval($o['quantity']) ?>x</td>
-    <td>Rp <?= number_format($o['price'] * $o['quantity'], 0, ',', '.') ?></td>
-    <td><?= $o['note'] ? htmlspecialchars($o['note']) : '<span style="color:#555">-</span>' ?></td>
-    <td style="font-size:13px"><?= date('d M H:i', strtotime($o['created_at'])) ?></td>
-    <td>
-      <?php if ($isDone): ?>
-        <span style="color:#00ff9d;font-weight:600"><?= icon('check') ?> Selesai</span>
-      <?php else: ?>
-        <span style="color:#ffe600;font-weight:600"><?= icon('clock') ?> Diproses</span>
+<h3 class="section-title">
+  <?= icon('clipboard') ?> Pesanan Masuk
+  <?php if ($pendingCount > 0): ?><span class="count-pill"><?= $pendingCount ?> baru</span><?php endif; ?>
+</h3>
+<div class="table-wrap" style="margin-bottom:32px">
+  <table class="users-table">
+    <tr><th>Pemesan</th><th>Item</th><th>Qty</th><th>Total</th><th>Catatan</th><th>Waktu</th><th>Status</th><th>Aksi</th></tr>
+    <?php if (mysqli_num_rows($orders) === 0): ?>
+      <tr><td colspan="8" class="empty-row">Belum ada pesanan.</td></tr>
+    <?php endif; ?>
+    <?php while ($o = mysqli_fetch_assoc($orders)): ?>
+    <?php $isDone = $o['status'] === 'selesai'; ?>
+    <tr class="<?= $isDone ? 'row-done' : '' ?>">
+      <td class="cell-main"><?= htmlspecialchars($o['username']) ?></td>
+      <td><?= htmlspecialchars($o['item_name']) ?></td>
+      <td><?= intval($o['quantity']) ?>x</td>
+      <td>Rp<?= number_format($o['price'] * $o['quantity'], 0, ',', '.') ?></td>
+      <td class="wrap-cell"><?= $o['note'] ? htmlspecialchars($o['note']) : '<span class="muted-dash">—</span>' ?></td>
+      <td><?= date('d M H:i', strtotime($o['created_at'])) ?></td>
+      <td>
+        <span class="pay-badge <?= $isDone ? 'pay-paid' : 'pay-unpaid' ?>"><?= $isDone ? 'Selesai' : 'Diproses' ?></span>
+      </td>
+      <td>
+        <div class="row-actions">
+          <?php if (!$isDone): ?>
+            <button class="btn-paid-sm" onclick="markOrderDone(<?= intval($o['id']) ?>)"><?= icon('check') ?> Sudah Sampai</button>
+          <?php else: ?>
+            <span class="muted-dash">—</span>
+          <?php endif; ?>
+        </div>
+      </td>
+    </tr>
+    <?php endwhile; ?>
+  </table>
+</div>
+
+<div class="split">
+  <form id="addMenuForm" class="panel-card" enctype="multipart/form-data">
+    <h3 class="panel-title"><?= icon('clipboard') ?> Tambah Item</h3>
+    <label class="field">
+      <span>Nama item</span>
+      <input name="name" placeholder="mis. Indomie Goreng" required>
+    </label>
+    <div class="field-row">
+      <label class="field">
+        <span>Kategori</span>
+        <select name="category" required>
+          <option value="">Pilih</option>
+          <option value="makanan">Makanan</option>
+          <option value="minuman">Minuman</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Harga</span>
+        <input type="number" name="price" placeholder="12000" min="1" required>
+      </label>
+    </div>
+    <label class="field">
+      <span>Deskripsi <em>(opsional)</em></span>
+      <input type="text" name="description" placeholder="Deskripsi singkat">
+    </label>
+    <label class="file-upload-zone">
+      <input type="file" name="item_image" accept="image/*">
+      <img class="file-upload-preview" style="display:none" alt="preview">
+      <div class="file-upload-inner">
+        <span class="file-upload-icon"><?= icon('image') ?></span>
+        <span class="file-upload-label">Klik atau drag & drop foto item</span>
+        <span class="file-upload-name">Belum ada file dipilih</span>
+      </div>
+    </label>
+    <button type="submit" class="btn-primary"><?= icon('check') ?> Tambah Item</button>
+  </form>
+
+  <div class="table-wrap">
+    <table class="users-table">
+      <tr><th>Nama</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Aksi</th></tr>
+      <?php if (mysqli_num_rows($menuItems) === 0): ?>
+        <tr><td colspan="5" class="empty-row">Belum ada item menu.</td></tr>
       <?php endif; ?>
-    </td>
-    <td>
-      <?php if (!$isDone): ?>
-        <button onclick="markOrderDone(<?= intval($o['id']) ?>)"><?= icon('check') ?> Sudah Sampai</button>
-      <?php else: ?>
-        <span style="color:#555e6b;font-size:13px">—</span>
-      <?php endif; ?>
-    </td>
-  </tr>
-  <?php endwhile; ?>
-</table>
+      <?php while ($item = mysqli_fetch_assoc($menuItems)): ?>
+      <tr>
+        <td class="cell-main wrap-cell"><?= htmlspecialchars($item['name']) ?></td>
+        <td style="text-transform:capitalize"><?= htmlspecialchars($item['category']) ?></td>
+        <td>Rp<?= number_format($item['price'], 0, ',', '.') ?></td>
+        <td><span class="pay-badge <?= $item['is_available'] ? 'pay-paid' : 'pay-cancelled' ?>"><?= $item['is_available'] ? 'Tersedia' : 'Habis' ?></span></td>
+        <td>
+          <div class="row-actions">
+            <button class="<?= $item['is_available'] ? 'btn-warn-sm' : 'btn-ghost-sm' ?>" onclick="toggleMenuItem(<?= intval($item['id']) ?>)">
+              <?= $item['is_available'] ? 'Tandai Habis' : 'Tandai Tersedia' ?>
+            </button>
+            <button class="btn-danger-sm" onclick="deleteMenuItem(<?= intval($item['id']) ?>, <?= jsArg($item['name']) ?>)">Hapus</button>
+          </div>
+        </td>
+      </tr>
+      <?php endwhile; ?>
+    </table>
+  </div>
+</div>
 
 <?php endif; ?>
 </main>

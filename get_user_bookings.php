@@ -24,7 +24,9 @@ $sql = "
     b.end_time,
     b.total_price,
     b.order_code,
-    b.payment_status
+    b.payment_status,
+    b.expires_at,
+    b.source
   FROM bookings b
   JOIN rooms r ON b.room_id = r.id
   WHERE b.user_id = ?
@@ -51,6 +53,8 @@ while ($row = $res->fetch_assoc()) {
     'total_price'    => $row['total_price'],
     'order_code'     => $row['order_code'],
     'payment_status' => $row['payment_status'],
+    'expires_at'     => $row['expires_at'] !== null ? (int) $row['expires_at'] : null,
+    'source'         => $row['source'],
   ];
 }
 

@@ -6,12 +6,12 @@ require __DIR__ . '/db.php';
 require __DIR__ . '/queue_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
-  echo json_encode(["status" => "error", "message" => "Belum login"]);
+  echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-  echo json_encode(["status" => "error", "message" => "Invalid request"]);
+  echo json_encode(["status" => "error", "message" => "Permintaan tidak valid"]);
   exit;
 }
 
@@ -23,11 +23,11 @@ if ($bookingId <= 0) {
   exit;
 }
 
-// Pastikan booking milik user ini dan belum dimulai
+// Boleh batal jika belum mulai, atau sudah mulai tapi belum lapor ke kasir (belum check-in)
 $stmt = $conn->prepare("
-  SELECT id FROM bookings
-  WHERE id = ? AND user_id = ? AND start_time > UNIX_TIMESTAMP()
-    AND payment_status <> 'cancelled'
+  SELECT payment_status FROM bookings
+  WHERE id = ? AND user_id = ? AND payment_status <> 'cancelled'
+    AND (start_time > UNIX_TIMESTAMP() OR expires_at IS NOT NULL)
   LIMIT 1
 ");
 $stmt->bind_param("ii", $bookingId, $userId);
@@ -36,12 +36,17 @@ $found = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
 if (!$found) {
-  echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan atau sudah dimulai"]);
+  echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan atau sesi sudah berjalan"]);
+  exit;
+}
+if ($found['payment_status'] === 'paid') {
+  echo json_encode(["status" => "error", "message" => "Booking sudah dibayar. Hubungi kasir untuk pembatalan."]);
   exit;
 }
 
-// Soft cancel: data tetap tersimpan di riwayat
-$stmt = $conn->prepare("UPDATE bookings SET payment_status = 'cancelled' WHERE id = ?");
+// Soft cancel: data tetap tersimpan di riwayat. expires_at dikosongkan supaya
+// tidak terbaca sebagai "batal karena tidak hadir".
+$stmt = $conn->prepare("UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL WHERE id = ?");
 $stmt->bind_param("i", $bookingId);
 $stmt->execute();
 $ok = $stmt->affected_rows > 0;
