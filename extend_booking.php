@@ -1,8 +1,8 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
-require __DIR__ . '/db.php';
 header('Content-Type: application/json');
+require __DIR__ . '/db.php';
 
 if (!isset($_SESSION['user_id'])) {
   echo json_encode(["status" => "error", "message" => "Belum login"]);
@@ -63,7 +63,7 @@ try {
   $stmt = $conn->prepare("
     SELECT id, start_time, end_time, duration
     FROM bookings
-    WHERE id = ? AND user_id = ? AND room_id = ?
+    WHERE id = ? AND user_id = ? AND room_id = ? AND payment_status <> 'cancelled'
     LIMIT 1 FOR UPDATE
   ");
   $stmt->bind_param("iii", $bookingId, $userId, $roomId);
@@ -107,6 +107,7 @@ try {
     SELECT id FROM bookings
     WHERE room_id = ?
       AND id != ?
+      AND payment_status <> 'cancelled'
       AND start_time < ?
       AND end_time > ?
     LIMIT 1

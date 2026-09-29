@@ -5,6 +5,8 @@
 
 const QUEUE_OPEN_HOUR = 11;
 const QUEUE_CONSOLES  = ['PS3', 'PS4', 'PS5'];
+// Batas waktu konsumen online datang setelah dapat giliran
+const QUEUE_CHECKIN_SEC = 15 * 60;
 
 function queueCloseLimit($now) {
   return strtotime(date('Y-m-d', $now)) + 24 * 3600;
@@ -13,8 +15,8 @@ function queueCloseLimit($now) {
 // Assign antrian terdepan ke ruangan kosong. Return jumlah antrian yang di-assign.
 function processQueue($conn, $now = null) {
   $now = $now ?? time();
-  if (intval(date('G', $now)) < QUEUE_OPEN_HOUR) return 0;
-  $closeLimit = queueCloseLimit($now);
+  $dayStart   = strtotime(date('Y-m-d', $now));
+  $closeLimit = $dayStart + 24 * 3600;
   $assigned = 0;
 
   try {
@@ -23,14 +25,44 @@ function processQueue($conn, $now = null) {
     // Kunci semua room (urut id) supaya serial dengan apikr.php & extend_booking.php
     $rooms = $conn->query("SELECT id, console_type, price, status FROM rooms ORDER BY id FOR UPDATE")
                   ->fetch_all(MYSQLI_ASSOC);
+
+    // Konsumen online yang tidak datang dalam batas check-in: batalkan, ruangan bebas lagi
+    $stmt = $conn->prepare("
+      UPDATE bookings SET payment_status = 'cancelled'
+      WHERE source = 'online' AND expires_at IS NOT NULL AND expires_at < ?
+        AND payment_status <> 'cancelled'
+    ");
+    $stmt->bind_param("i", $now);
+    $stmt->execute();
+    $stmt->close();
+
+    // Antrian dari hari sebelumnya atau yang durasinya sudah tidak muat sebelum tutup
+    $stmt = $conn->prepare("
+      UPDATE booking_queue SET status = 'cancelled'
+      WHERE status = 'waiting'
+        AND (created_at < FROM_UNIXTIME(?) OR ? + duration * 3600 > ?)
+    ");
+    $stmt->bind_param("iii", $dayStart, $now, $closeLimit);
+    $stmt->execute();
+    $stmt->close();
+
+    if (intval(date('G', $now)) < QUEUE_OPEN_HOUR) {
+      $conn->commit();
+      return 0;
+    }
+
     $queue = $conn->query("SELECT * FROM booking_queue WHERE status = 'waiting' ORDER BY created_at, id FOR UPDATE")
                   ->fetch_all(MYSQLI_ASSOC);
 
-    $conflict = $conn->prepare("SELECT 1 FROM bookings WHERE room_id = ? AND start_time < ? AND end_time > ? LIMIT 1");
+    $conflict = $conn->prepare("
+      SELECT 1 FROM bookings
+      WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time < ? AND end_time > ?
+      LIMIT 1
+    ");
     $insert = $conn->prepare("
       INSERT INTO bookings
-      (customer_name, phone, room_id, duration, start_time, end_time, user_id, total_price, payment_status, source, paid_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (customer_name, phone, room_id, duration, start_time, end_time, user_id, total_price, payment_status, source, paid_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $setCode = $conn->prepare("UPDATE bookings SET order_code = ? WHERE id = ?");
     $markQ   = $conn->prepare("UPDATE booking_queue SET status = 'assigned', booking_id = ?, assigned_at = NOW() WHERE id = ?");
@@ -45,8 +77,6 @@ function processQueue($conn, $now = null) {
 
       $duration = intval($q['duration']);
       $end = $now + $duration * 3600;
-      // Tidak muat sebelum tutup: lewati tanpa memblokir, admin yang memutuskan
-      if ($end > $closeLimit) continue;
 
       $room = null;
       foreach ($rooms as $r) {
@@ -64,12 +94,14 @@ function processQueue($conn, $now = null) {
       $isWalk  = $q['source'] === 'walkin';
       $payStat = $isWalk ? 'paid' : 'unpaid';
       $paidAt  = $isWalk ? $now : null;
+      // Walk-in sudah di tempat; online harus datang dalam batas check-in
+      $expires = $isWalk ? null : $now + QUEUE_CHECKIN_SEC;
       $userId  = $q['user_id'] !== null ? intval($q['user_id']) : null;
       $source  = $q['source'];
 
-      $insert->bind_param("ssiiiiiissi",
+      $insert->bind_param("ssiiiiiissii",
         $q['customer_name'], $q['phone'], $roomId, $duration, $now, $end,
-        $userId, $price, $payStat, $source, $paidAt
+        $userId, $price, $payStat, $source, $paidAt, $expires
       );
       $insert->execute();
       $bookingId = $insert->insert_id;

@@ -21,11 +21,8 @@ set_exception_handler(function ($e) {
 });
 
 $conn = new mysqli("localhost", "root", "", "gamezone");
-
-if ($conn->connect_error) {
-  error_log("DB connection failed: " . $conn->connect_error);
-  die("Database connection error");
-}
+// Samakan zona waktu NOW()/TIMESTAMP MySQL dengan PHP (WIB)
+$conn->query("SET time_zone = '+07:00'");
 
 function updateUserActivity($conn, $userId) {
   $stmt = $conn->prepare("UPDATE users SET last_activity = NOW() WHERE id = ?");
@@ -44,6 +41,8 @@ function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300) {
   $stmt->bind_param("si", $key, $windowSec);
   $stmt->execute();
   $stmt->close();
+  // Buang sisa percobaan lama dari IP/aksi lain supaya tabel tidak tumbuh terus
+  $conn->query("DELETE FROM rate_limits WHERE created_at < (NOW() - INTERVAL 1 DAY)");
 
   $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM rate_limits WHERE rl_key = ?");
   $stmt->bind_param("s", $key);
@@ -60,6 +59,20 @@ function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300) {
   $stmt->execute();
   $stmt->close();
   return true;
+}
+
+// Sesi admin valid hanya jika akunnya masih ber-role admin di DB
+// (admin yang sudah diturunkan langsung kehilangan akses).
+function isAdminSession($conn) {
+  if (empty($_SESSION['admin']) || empty($_SESSION['admin_id'])) return false;
+  $id = intval($_SESSION['admin_id']);
+  $stmt = $conn->prepare("SELECT 1 FROM users WHERE id = ? AND role = 'admin'");
+  $stmt->bind_param("i", $id);
+  $stmt->execute();
+  $ok = (bool) $stmt->get_result()->fetch_row();
+  $stmt->close();
+  if (!$ok) unset($_SESSION['admin'], $_SESSION['admin_id'], $_SESSION['admin_username']);
+  return $ok;
 }
 
 function clearRateLimit($action) {

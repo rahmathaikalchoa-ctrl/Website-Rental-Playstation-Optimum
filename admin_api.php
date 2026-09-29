@@ -1,13 +1,12 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
+header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 require __DIR__ . '/queue_lib.php';
 
-header('Content-Type: application/json');
-
-if (!isset($_SESSION['admin'])) {
-  echo json_encode(["status" => "unauthorized"]);
+if (!isAdminSession($conn)) {
+  echo json_encode(["status" => "unauthorized", "message" => "Sesi admin habis, silakan login ulang"]);
   exit;
 }
 
@@ -18,15 +17,34 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $action = $_POST['action'] ?? '';
 
-// ================= DELETE BOOKING =================
-if ($action === 'delete_booking') {
+// ================= BATALKAN BOOKING (soft cancel, riwayat tetap tersimpan) =================
+if ($action === 'cancel_booking') {
   $id = intval($_POST['id'] ?? 0);
-  $stmt = $conn->prepare("DELETE FROM bookings WHERE id = ?");
+  $stmt = $conn->prepare("UPDATE bookings SET payment_status = 'cancelled' WHERE id = ? AND payment_status <> 'cancelled'");
   $stmt->bind_param("i", $id);
   $stmt->execute();
+  $ok = $stmt->affected_rows > 0;
   $stmt->close();
+  if (!$ok) {
+    echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan atau sudah dibatalkan"]);
+    exit;
+  }
   processQueue($conn);
   echo json_encode(["status" => "ok"]);
+  exit;
+}
+
+// ================= KONSUMEN ONLINE SUDAH DATANG (CHECK-IN) =================
+if ($action === 'checkin_booking') {
+  $id = intval($_POST['id'] ?? 0);
+  $stmt = $conn->prepare("UPDATE bookings SET expires_at = NULL WHERE id = ? AND expires_at IS NOT NULL AND payment_status <> 'cancelled'");
+  $stmt->bind_param("i", $id);
+  $stmt->execute();
+  $ok = $stmt->affected_rows > 0;
+  $stmt->close();
+  echo json_encode($ok
+    ? ["status" => "ok"]
+    : ["status" => "error", "message" => "Booking sudah check-in atau sudah dibatalkan"]);
   exit;
 }
 
@@ -76,7 +94,9 @@ if ($action === 'walkin_join') {
   $entry = $stmt->get_result()->fetch_assoc();
   $stmt->close();
 
-  if ($entry['status'] === 'assigned') {
+  if (!$entry) {
+    echo json_encode(["status" => "error", "message" => "Gagal memproses antrian"]);
+  } elseif ($entry['status'] === 'assigned') {
     echo json_encode(["status" => "ok", "assigned" => true, "room" => $entry['room_title']]);
   } else {
     echo json_encode(["status" => "ok", "assigned" => false, "position" => queuePosition($conn, $entry)]);
@@ -100,8 +120,13 @@ if ($action === 'queue_cancel') {
 if ($action === 'finish_booking') {
   $id  = intval($_POST['id'] ?? 0);
   $now = time();
-  $stmt = $conn->prepare("UPDATE bookings SET end_time = ? WHERE id = ? AND start_time <= ? AND end_time > ?");
-  $stmt->bind_param("iiii", $now, $id, $now, $now);
+  // Biaya tetap; durasi dicatat sesuai jam main aktual (dibulatkan ke atas)
+  $stmt = $conn->prepare("
+    UPDATE bookings
+    SET end_time = ?, duration = GREATEST(1, CEIL((? - start_time) / 3600)), expires_at = NULL
+    WHERE id = ? AND start_time <= ? AND end_time > ? AND payment_status <> 'cancelled'
+  ");
+  $stmt->bind_param("iiiii", $now, $now, $id, $now, $now);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();
@@ -121,8 +146,7 @@ if ($action === 'add_room') {
   $price       = intval($_POST['price'] ?? 0);
   $description = trim($_POST['description'] ?? '');
 
-  $allowedConsoles = ['PS3', 'PS4', 'PS5'];
-  if ($title === '' || !in_array($console, $allowedConsoles, true) || $price <= 0) {
+  if ($title === '' || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
     echo json_encode(["status" => "error", "message" => "Data room tidak lengkap atau tidak valid"]);
     exit;
   }
@@ -156,6 +180,26 @@ if ($action === 'toggle_room') {
 // ================= TOGGLE ROLE =================
 if ($action === 'toggle_role') {
   $id = intval($_POST['id'] ?? 0);
+  if ($id === intval($_SESSION['admin_id'])) {
+    echo json_encode(["status" => "error", "message" => "Tidak bisa mengubah role akun sendiri"]);
+    exit;
+  }
+  $stmt = $conn->prepare("SELECT role FROM users WHERE id = ?");
+  $stmt->bind_param("i", $id);
+  $stmt->execute();
+  $target = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$target) {
+    echo json_encode(["status" => "error", "message" => "Akun tidak ditemukan"]);
+    exit;
+  }
+  if ($target['role'] === 'admin') {
+    $adminCount = intval($conn->query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'")->fetch_assoc()['n']);
+    if ($adminCount <= 1) {
+      echo json_encode(["status" => "error", "message" => "Minimal harus ada satu admin"]);
+      exit;
+    }
+  }
   $stmt = $conn->prepare("UPDATE users SET role = IF(role='user','admin','user') WHERE id = ?");
   $stmt->bind_param("i", $id);
   $stmt->execute();
@@ -168,8 +212,8 @@ if ($action === 'toggle_role') {
 if ($action === 'add_game') {
   $title   = trim($_POST['title'] ?? '');
   $genre   = trim($_POST['genre'] ?? '');
-  $consoles = array_filter($_POST['consoles'] ?? [], function($c) {
-    return in_array($c, ['PS3', 'PS4', 'PS5'], true);
+  $consoles = array_filter((array) ($_POST["consoles"] ?? []), function($c) {
+    return in_array($c, QUEUE_CONSOLES, true);
   });
 
   if ($title === '' || $genre === '' || empty($consoles)) {
@@ -236,7 +280,7 @@ if ($action === 'delete_game') {
 // ================= UPDATE GAME CONSOLES =================
 if ($action === 'update_game_consoles') {
     $id = intval($_POST['id'] ?? 0);
-    $consoles = array_filter($_POST['consoles'] ?? [], fn($c) => in_array($c, ['PS3','PS4','PS5'], true));
+    $consoles = array_filter((array) ($_POST["consoles"] ?? []), fn($c) => in_array($c, QUEUE_CONSOLES, true));
 
     if ($id <= 0 || empty($consoles)) {
         echo json_encode(["status" => "error", "message" => "Data tidak valid"]);

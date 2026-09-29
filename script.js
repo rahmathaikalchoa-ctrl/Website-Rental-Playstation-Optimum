@@ -93,11 +93,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     })
     .catch(() => {
-      IS_LOGGED_IN = false;
-      setLoggedOut();
+      // Gangguan jaringan: pertahankan status dari PHP, jangan paksa logout
+      if (IS_LOGGED_IN) setLoggedIn(window.AUTH.username);
+      else setLoggedOut();
     });
 
-  // rooms data (images provided via example URLs; ganti jika perlu)
   let roomsData = [];
 
   // games data
@@ -109,7 +109,6 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
-  // create room card (with image + buttons; "Detail" is grayish/green as requested earlier)
   const statusConfig = {
     available:  { label: "Kosong",     cls: "status-available" },
     occupied:   { label: "Ada Orang",  cls: "status-occupied"  },
@@ -295,12 +294,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const tl = document.getElementById("roomTimeline");
         if (!tl) return;
         const hours = [];
+        const midnight = new Date();
+        midnight.setHours(0, 0, 0, 0);
+        const dayStart = midnight.getTime() / 1000;
         for (let h = 11; h <= 23; h++) {
-          const booked = slots.some((s) => {
-            const sh = new Date(s.start_time * 1000).getHours();
-            const eh = new Date(s.end_time   * 1000).getHours();
-            return h >= sh && h < eh;
-          });
+          // Bandingkan timestamp (bukan getHours) supaya sesi berakhir 24:00
+          // atau mulai di menit ganjil (dari antrian) tetap terdeteksi
+          const hs = dayStart + h * 3600;
+          const booked = slots.some((s) => hs < s.end_time && hs + 3600 > s.start_time);
           hours.push(
             `<div class="tl-hour ${booked ? "tl-booked" : "tl-free"}" title="${h}:00 — ${booked ? "Terpesan" : "Kosong"}">
                <span>${h}</span>
@@ -314,8 +315,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (tl) tl.innerHTML = "<span class='muted small'>Gagal memuat jadwal.</span>";
       });
   }
-
-  // bookings storage (with countdown endTime)
 
   function populateSelect() {
     const sel = $("roomSelect");
@@ -404,7 +403,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Update summary setiap kali room/durasi/waktu berubah
   document.addEventListener("change", (e) => {
-    if (e.target.id === "roomSelect" || e.target.id === "duration" || e.target.id === "timeStart") {
+    if (["roomSelect", "duration", "timeStart", "bookingDate"].includes(e.target.id)) {
       updateBookingSummary();
     }
 
@@ -495,11 +494,6 @@ document.addEventListener("DOMContentLoaded", () => {
       fetchBookedSlots(bookBtn.dataset.book);
       updateBookingSummary();
       showView("booking");
-      return;
-    }
-
-    // JANGAN TUTUP DROPDOWN SAAT KLIK DI DALAMNYA
-    if (e.target.closest("#profileToggle")) {
       return;
     }
 
@@ -638,6 +632,9 @@ document.addEventListener("DOMContentLoaded", () => {
           generateDateOptions();
           generateTimeOptions();
           updateDurationOptions();
+          // Form kembali ke "Pilih Ruangan": kosongkan slot & info ruangan sebelumnya
+          fetchBookedSlots($("roomSelect").value);
+          prefillBookingUser();
           updateBookingSummary();
         } else {
           alert("ERROR: " + r.message);
@@ -655,6 +652,7 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("Masukkan kata kunci pencarian.");
       return;
     }
+    stopMenuRefresh();
     const roomFound = roomsData.find((r) =>
       (r.title + " " + r.desc).toLowerCase().includes(q),
     );
@@ -669,16 +667,12 @@ document.addEventListener("DOMContentLoaded", () => {
           gameFound.title
         } — bisa dimainkan di: ${gameFound.platforms.join(", ")}`,
       );
+      loadGamesFromDB();
       showView("game");
       return;
     }
     alert("Tidak ditemukan hasil untuk: " + q);
   });
-
-  // initial
-  renderPreview();
-  populateSelect();
-  renderGames();
 
   // load data dari database SETELAH UI SIAP
   loadRoomsFromDB();
@@ -776,7 +770,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function formatRupMenu(n) {
+  function formatRup(n) {
     return "Rp " + (Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   }
 
@@ -827,7 +821,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <h3 style="color:var(--neon)">${escapeHtml(item.name)}</h3>
           <p class="muted small">${escapeHtml(item.description || '')}</p>
           <div class="room-meta" style="margin-top:10px">
-            <strong>${formatRupMenu(item.price)}</strong>
+            <strong>${formatRup(item.price)}</strong>
             ${btnPesan}
           </div>
         </div>
@@ -877,7 +871,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         box.innerHTML = data.map(o => {
-          const total = formatRupMenu(o.price * o.quantity);
+          const total = formatRup(o.price * o.quantity);
           const statusCls = o.status === 'selesai' ? 'order-done' : 'order-pending';
           const statusLabel = o.status === 'selesai' ? `${icon('check')} Sudah Sampai` : `${icon('clock')} Diproses`;
           const tgl = new Date(o.created_at).toLocaleString('id-ID', {
@@ -923,7 +917,8 @@ document.addEventListener("DOMContentLoaded", () => {
     fetch("upcoming_booking_api.php")
       .then((r) => r.json())
       .then((data) => {
-        if (!data) { banner.style.display = "none"; return; }
+        // Bisa saja user logout saat request ini masih berjalan
+        if (!data || !IS_LOGGED_IN) { banner.style.display = "none"; return; }
         const time = new Date(data.start_time * 1000).toLocaleTimeString("id-ID", {
           hour: "2-digit", minute: "2-digit",
         });
@@ -1118,7 +1113,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn) return;
     $("orderItemId").value   = btn.dataset.id;
     $("orderItemName").textContent = btn.dataset.name;
-    $("orderItemPrice").textContent = formatRupMenu(btn.dataset.price) + " / item";
+    $("orderItemPrice").textContent = formatRup(btn.dataset.price) + " / item";
     $("orderQty").value  = 1;
     $("orderNote").value = "";
     document.getElementById("orderModal").classList.add("show");
@@ -1305,10 +1300,6 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((res) => {
         if (res.status === "success") {
           onLoginSuccess(res.username);
-        } else if (res.status === "not_found") {
-          alert(res.message);
-          document.getElementById("loginModal").classList.remove("show");
-          document.getElementById("registerModal").classList.add("show");
         } else {
           alert(res.message);
         }
@@ -1317,7 +1308,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .finally(() => { if (submitBtn) submitBtn.disabled = false; });
   });
 
-  // ===== REGISTER (FIX FINAL) =====
+  // ===== REGISTER =====
   const registerForm = document.getElementById("registerForm");
 
   if (registerForm) {
@@ -1325,7 +1316,6 @@ document.addEventListener("DOMContentLoaded", () => {
       "submit",
       (e) => {
         e.preventDefault();
-        e.stopPropagation(); // ini KUNCI
 
         const username = document.getElementById("regUsername").value.trim();
         const password = document.getElementById("regPassword").value.trim();
@@ -1368,7 +1358,6 @@ document.addEventListener("DOMContentLoaded", () => {
           .catch(() => alert("SERVER ERROR"))
           .finally(() => { if (submitBtn) submitBtn.disabled = false; });
       },
-      true, // INI WAJIB ADA
     );
   }
 
@@ -1377,24 +1366,22 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("authArea").style.display = "none";
     document.getElementById("profileMenu").style.display = "block";
     document.getElementById("profileName").textContent = username;
-    document.body.classList.add("logged-in");
     const menuLink = document.getElementById("menuNavLink");
     if (menuLink) menuLink.style.display = "block";
-    const userMenu = document.querySelector(".user-menu-name");
-    if (userMenu) userMenu.textContent = username;
     loadUpcomingBooking();
   }
 
   function setLoggedOut() {
     document.getElementById("authArea").style.display = "block";
     document.getElementById("profileMenu").style.display = "none";
-    document.body.classList.remove("logged-in");
     const menuLink = document.getElementById("menuNavLink");
     if (menuLink) menuLink.style.display = "none";
 
     window.AUTH = null;
     window._notifiedSessions = new Set();
     stopMenuRefresh();
+    queueWaiting = false;
+    renderQueueEntry(null);
     if (window._bookingCountdownInterval) {
       clearInterval(window._bookingCountdownInterval);
       window._bookingCountdownInterval = null;
@@ -1425,8 +1412,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (profileUsername) profileUsername.textContent = "-";
     const profileBookingList = document.getElementById("profileBookingList");
     if (profileBookingList) profileBookingList.innerHTML = '<p class="muted small">Belum ada booking.</p>';
-    const bookingsContainer = document.getElementById("bookingsContainer");
-    if (bookingsContainer) bookingsContainer.innerHTML = "";
     const myOrdersList = document.getElementById("myOrdersList");
     if (myOrdersList) myOrdersList.innerHTML = "";
   }
@@ -1446,7 +1431,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // UPDATE ACTIVITY SEKETIKA
-  fetch("update_activity.php");
+  fetch("update_activity.php").catch(() => {});
 
   /* LOGOUT */
   function doLogout() {
@@ -1492,16 +1477,6 @@ document.addEventListener("DOMContentLoaded", () => {
       inp.value = "";
       inp.blur();
     });
-  }
-
-  // SEHABIS LOGIN/LOGOUT KEMBALI HAL UTAMA
-  function setActiveNav(view) {
-    document.querySelectorAll(".nav a").forEach((a) => {
-      a.classList.remove("active");
-    });
-
-    const activeLink = document.querySelector(`.nav a[data-view="${view}"]`);
-    if (activeLink) activeLink.classList.add("active");
   }
 
   /* ===== PROFILE DROPDOWN TOGGLE ===== */
@@ -1573,7 +1548,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const now = Math.floor(Date.now() / 1000);
 
             const totalHours = data
-              .filter(b => parseInt(b.end_time) <= now)
+              .filter(b => parseInt(b.end_time) <= now && b.payment_status !== "cancelled")
               .reduce((sum, b) => sum + parseInt(b.duration), 0);
             const totalEl = document.getElementById("profileTotalHours");
             if (totalEl) totalEl.textContent = totalHours + " jam";
@@ -1581,12 +1556,15 @@ document.addEventListener("DOMContentLoaded", () => {
             data.forEach((b) => {
               const start = parseInt(b.start_time);
               const end   = parseInt(b.end_time);
-              const isActive   = now >= start && now < end;
-              const isUpcoming = now < start;
-              const isDone     = now >= end;
+              const isCancelled = b.payment_status === "cancelled";
+              const isActive   = !isCancelled && now >= start && now < end;
+              const isUpcoming = !isCancelled && now < start;
+              const isDone     = !isCancelled && now >= end;
 
               let statusHtml;
-              if (isUpcoming) {
+              if (isCancelled) {
+                statusHtml = `<span class="booking-status cancelled">Dibatalkan</span>`;
+              } else if (isUpcoming) {
                 statusHtml = `<span class="booking-status upcoming">Menunggu mulai</span>`;
               } else if (isDone) {
                 statusHtml = `<span class="booking-status done">Selesai</span>`;
@@ -1700,6 +1678,7 @@ document.addEventListener("DOMContentLoaded", () => {
       fetch("profile_status.php")
         .then((r) => r.json())
         .then((d) => {
+          if (d.error) return;
           if (uname) uname.textContent = d.username || "User";
 
           if (statusEl) {
@@ -1827,10 +1806,7 @@ function updateDurationOptions() {
     return;
   }
 
-  // WAJIB: pilih default durasi
-  if (durationSelect.options.length > 0) {
-    durationSelect.value = durationSelect.options[0].value;
-  }
+  durationSelect.value = durationSelect.options[0].value;
 }
 
 let bookedSlots = [];
@@ -1845,22 +1821,28 @@ document.getElementById("bookingDate")?.addEventListener("change", () => {
   updateDurationOptions();
   const roomId = document.getElementById("roomSelect")?.value;
   if (roomId) fetchBookedSlots(roomId);
-  updateBookingSummary();
+  // Ringkasan diperbarui oleh listener "change" di dalam DOMContentLoaded
 });
 
 // ===== BOOKED SLOTS =====
 
+// Nomor request terakhir: respons lama (ganti ruangan/tanggal cepat) diabaikan
+let bookedSlotsReq = 0;
+
 function fetchBookedSlots(roomId) {
   const infoEl = document.getElementById("bookedSlotsInfo");
   const date = document.getElementById("bookingDate")?.value || getTodayISO();
+  const reqId = ++bookedSlotsReq;
   if (!roomId) {
     bookedSlots = [];
+    if (infoEl) infoEl.textContent = "";
     applyBookedSlots();
     return;
   }
-  fetch(`booked_slots_api.php?room_id=${roomId}&date=${date}`)
+  fetch(`booked_slots_api.php?room_id=${encodeURIComponent(roomId)}&date=${date}`)
     .then((r) => r.json())
     .then((data) => {
+      if (reqId !== bookedSlotsReq) return;
       bookedSlots = data;
       applyBookedSlots();
       if (infoEl) {
@@ -1880,6 +1862,7 @@ function fetchBookedSlots(roomId) {
       }
     })
     .catch(() => {
+      if (reqId !== bookedSlotsReq) return;
       bookedSlots = [];
       applyBookedSlots();
     });
@@ -1917,14 +1900,14 @@ function applyBookedSlots() {
   } else {
     timeSelect.value = currentVal;
   }
-  updateDurationOptions();
+  // Picu "change" supaya durasi dan ringkasan booking ikut diperbarui
+  timeSelect.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 document.getElementById("roomSelect")?.addEventListener("change", (e) => {
   fetchBookedSlots(e.target.value);
 });
 
-// PROFILE DETAIL PAGE FUNCTION
 function showView(v) {
   Object.values(views).forEach((id) => {
     const el = document.getElementById(id);
@@ -1935,9 +1918,16 @@ function showView(v) {
   if (target) target.style.display = "block";
 
   if (v === "booking") refreshQueue();
+  setActiveNav(v);
 
   // reset scroll & state
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function setActiveNav(view) {
+  document.querySelectorAll(".nav a").forEach((a) => {
+    a.classList.toggle("active", a.dataset.view === view);
+  });
 }
 
 // ===== ANTRIAN FIFO (MAIN SEKARANG) =====
@@ -1958,17 +1948,25 @@ function renderQueueEntry(entry) {
     statusBox.style.display = "none";
     return;
   }
-  joinBox.style.display = "none";
+  const fmt = (unix) => new Date(unix * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  const ended = entry.state === "expired" || entry.state === "cancelled";
+  // Kalau giliran sudah batal, user boleh ambil antrian lagi
+  joinBox.style.display = ended ? "" : "none";
   statusBox.style.display = "";
+  cancelBtn.style.display = entry.state === "waiting" ? "" : "none";
 
   if (entry.state === "waiting") {
     text.innerHTML = `Antrian <strong>${escapeHtml(entry.console_type)}</strong> · ${Number(entry.duration)} jam — posisi kamu: <strong>#${Number(entry.position)}</strong>`;
-    cancelBtn.style.display = "";
+  } else if (entry.state === "expired") {
+    text.innerHTML = `${icon('alert')} Giliranmu di <strong>${escapeHtml(entry.room)}</strong> dibatalkan karena tidak datang dalam 15 menit.`;
+  } else if (entry.state === "cancelled") {
+    text.innerHTML = `${icon('alert')} Booking dari antrian di <strong>${escapeHtml(entry.room)}</strong> dibatalkan admin.`;
   } else {
-    const end = new Date(entry.end_time * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    text.innerHTML = `${icon('check')} Giliranmu! Silakan ke <strong>${escapeHtml(entry.room)}</strong> — sesi s/d ${end}.`;
-    cancelBtn.style.display = "none";
-    if (wasWaiting) alert(`Giliranmu! Silakan ke ${entry.room}.`);
+    const checkin = entry.checkin_until
+      ? ` Datang dan lapor ke kasir sebelum <strong>${fmt(entry.checkin_until)}</strong>, lewat dari itu giliran batal otomatis.`
+      : "";
+    text.innerHTML = `${icon('check')} Giliranmu! Silakan ke <strong>${escapeHtml(entry.room)}</strong> — sesi s/d ${fmt(entry.end_time)}.${checkin}`;
+    if (wasWaiting) alert(`Giliranmu! Silakan ke ${entry.room} dalam 15 menit.`);
   }
 }
 
@@ -2015,7 +2013,15 @@ function postQueue(params) {
 
   $("queueCancelBtn")?.addEventListener("click", () => {
     if (!confirm("Batalkan antrian?")) return;
-    postQueue({ action: "cancel" }).then(refreshQueue).catch(() => alert("Server error"));
+    const btn = $("queueCancelBtn");
+    btn.disabled = true;
+    postQueue({ action: "cancel" })
+      .then((res) => {
+        if (res.status !== "ok") alert(res.message || "Gagal membatalkan antrian");
+        refreshQueue();
+      })
+      .catch(() => alert("Server error"))
+      .finally(() => { btn.disabled = false; });
   });
 
   // Polling: saat di halaman booking, atau selama masih menunggu giliran

@@ -1,4 +1,5 @@
 <?php
+header('Content-Type: application/json');
 require 'db.php';
 
 $sql = "
@@ -9,6 +10,7 @@ $sql = "
       WHEN EXISTS (
         SELECT 1 FROM bookings b
         WHERE b.room_id = r.id
+          AND b.payment_status <> 'cancelled'
           AND UNIX_TIMESTAMP() >= b.start_time AND UNIX_TIMESTAMP() < b.end_time
       ) THEN 'occupied'
       ELSE 'available'
@@ -25,5 +27,4 @@ while ($row = mysqli_fetch_assoc($result)) {
   $rooms[] = $row;
 }
 
-header('Content-Type: application/json');
 echo json_encode($rooms);

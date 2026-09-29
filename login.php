@@ -1,8 +1,8 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
-require __DIR__ . "/db.php";
 header("Content-Type: application/json");
+require __DIR__ . "/db.php";
 
 if (!checkRateLimit('login_attempts', 5, 300)) {
   echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit."]);
@@ -29,6 +29,7 @@ try {
     exit;
   }
 
+  clearRateLimit('login_attempts');
   session_regenerate_id(true);
   $_SESSION['user_id'] = $user['id'];
   $_SESSION['username'] = $user['username'];

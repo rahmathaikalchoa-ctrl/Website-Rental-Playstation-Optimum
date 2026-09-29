@@ -1,6 +1,6 @@
 <?php
-require 'db.php';
 header('Content-Type: application/json');
+require 'db.php';
 
 $sql = "
   SELECT

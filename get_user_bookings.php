@@ -1,8 +1,8 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
-require __DIR__ . '/db.php';
 header('Content-Type: application/json');
+require __DIR__ . '/db.php';
 header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Pragma: no-cache');
 

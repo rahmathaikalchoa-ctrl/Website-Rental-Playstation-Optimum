@@ -9,6 +9,16 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
   exit;
 }
 
+if (!isset($_SESSION['user_id'])) {
+  echo json_encode(["status" => "error", "message" => "Belum login"]);
+  exit;
+}
+
+if (!checkRateLimit('booking', 20, 300)) {
+  echo json_encode(["status" => "error", "message" => "Terlalu banyak permintaan booking. Coba lagi dalam beberapa menit."]);
+  exit;
+}
+
 $customer = trim($_POST["name"] ?? "");
 $email    = trim($_POST["email"] ?? "");
 $phone    = trim($_POST["phone"] ?? "");
@@ -24,7 +34,7 @@ if (!in_array($date, $allowed, true)) {
   exit;
 }
 
-$user_id = $_SESSION['user_id'] ?? null;
+$user_id = intval($_SESSION['user_id']);
 
 $maxDuration = 12; // sesuai rentang jam operasional (11:00-23:00)
 if ($customer === "" || $roomId <= 0 || $time === "" || $duration <= 0 || $duration > $maxDuration) {
@@ -104,6 +114,7 @@ try {
   $stmt = $conn->prepare("
     SELECT id FROM bookings
     WHERE room_id = ?
+      AND payment_status <> 'cancelled'
       AND start_time < ?
       AND end_time > ?
     LIMIT 1

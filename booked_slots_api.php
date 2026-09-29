@@ -1,6 +1,6 @@
 <?php
-require 'db.php';
 header('Content-Type: application/json');
+require 'db.php';
 
 $roomId = intval($_GET['room_id'] ?? 0);
 if ($roomId <= 0) {
@@ -20,6 +20,7 @@ $stmt = $conn->prepare("
   SELECT start_time, end_time
   FROM bookings
   WHERE room_id = ?
+    AND payment_status <> 'cancelled'
     AND end_time > ?
     AND start_time < ?
   ORDER BY start_time ASC

@@ -1,9 +1,9 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
+header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 require __DIR__ . '/queue_lib.php';
-header('Content-Type: application/json');
 
 if (!isset($_SESSION['user_id'])) {
   echo json_encode(["status" => "error", "message" => "Belum login"]);
@@ -15,7 +15,7 @@ $action = $_POST['action'] ?? $_GET['action'] ?? 'status';
 
 function myLatestEntry($conn, $userId) {
   $stmt = $conn->prepare("
-    SELECT q.*, r.title AS room_title, b.end_time
+    SELECT q.*, r.title AS room_title, b.end_time, b.expires_at, b.payment_status
     FROM booking_queue q
     LEFT JOIN bookings b ON b.id = q.booking_id
     LEFT JOIN rooms r    ON r.id = b.room_id
@@ -47,13 +47,31 @@ if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
   }
 
-  $stmt = $conn->prepare("SELECT id FROM booking_queue WHERE user_id = ? AND status = 'waiting' LIMIT 1");
+  // Kunci baris user supaya dua request join bersamaan tidak sama-sama lolos cek
+  $conn->begin_transaction();
+  $stmt = $conn->prepare("SELECT id FROM users WHERE id = ? FOR UPDATE");
   $stmt->bind_param("i", $userId);
+  $stmt->execute();
+  $stmt->close();
+
+  // Tolak kalau masih menunggu, atau sudah dapat ruangan yang sesinya belum selesai
+  $stmt = $conn->prepare("
+    SELECT q.status FROM booking_queue q
+    LEFT JOIN bookings b ON b.id = q.booking_id
+    WHERE q.user_id = ?
+      AND (q.status = 'waiting'
+        OR (q.status = 'assigned' AND b.payment_status <> 'cancelled' AND b.end_time > ?))
+    LIMIT 1
+  ");
+  $stmt->bind_param("ii", $userId, $now);
   $stmt->execute();
   $exists = $stmt->get_result()->fetch_assoc();
   $stmt->close();
   if ($exists) {
-    echo json_encode(["status" => "error", "message" => "Kamu sudah ada di antrian"]);
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => $exists['status'] === 'waiting'
+      ? "Kamu sudah ada di antrian"
+      : "Kamu masih punya sesi dari antrian yang belum selesai"]);
     exit;
   }
 
@@ -62,6 +80,7 @@ if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $stmt->bind_param("issi", $userId, $name, $console, $duration);
   $stmt->execute();
   $stmt->close();
+  $conn->commit();
   $action = 'status';
 }
 
@@ -95,6 +114,12 @@ if ($action === 'status') {
   } else {
     $out['room']     = $e['room_title'];
     $out['end_time'] = intval($e['end_time']);
+    if ($e['payment_status'] === 'cancelled') {
+      // expires_at masih terisi = dibatalkan otomatis karena tidak datang
+      $out['state'] = $e['expires_at'] !== null ? 'expired' : 'cancelled';
+    } elseif ($e['expires_at'] !== null) {
+      $out['checkin_until'] = intval($e['expires_at']);
+    }
   }
   echo json_encode(["status" => "ok", "entry" => $out]);
   exit;

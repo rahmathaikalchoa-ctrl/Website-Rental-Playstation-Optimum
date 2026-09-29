@@ -1,20 +1,75 @@
-function hapusBooking(id) {
-  if (!confirm("Hapus booking?")) return;
+// =====================
+// AKSI ADMIN
+// =====================
+// true selama ada request aksi berjalan, supaya auto-refresh tidak memotongnya
+let adminBusy = false;
 
-  fetch("admin_api.php", {
+function postAdmin(params) {
+  return fetch("admin_api.php", {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "action=delete_booking&id=" + id,
-  })
-    .then((res) => res.json())
-    .then((res) => {
-      if (res.status === "ok") {
+    body: new URLSearchParams(params),
+  }).then((r) => r.json());
+}
+
+// Kirim aksi; reload kalau sukses, tampilkan pesan dari server kalau gagal
+function adminAction(params, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  adminBusy = true;
+  postAdmin(params)
+    .then((r) => {
+      if (r.status === "ok") {
+        location.reload();
+      } else if (r.status === "unauthorized") {
+        alert(r.message || "Sesi admin habis, silakan login ulang");
         location.reload();
       } else {
-        alert("Gagal menghapus booking");
+        alert("Gagal: " + (r.message || "Terjadi kesalahan"));
       }
     })
-    .catch(() => alert("Server error"));
+    .catch(() => alert("Server error"))
+    .finally(() => { adminBusy = false; });
+}
+
+function cancelBooking(id, name) {
+  adminAction({ action: "cancel_booking", id },
+    `Batalkan booking "${name}"? Data tetap tersimpan di riwayat.`);
+}
+
+function finishBooking(id) {
+  adminAction({ action: "finish_booking", id },
+    "Selesaikan sesi ini sekarang? Ruangan akan diberikan ke konsumen berikutnya di daftar tunggu.");
+}
+
+function checkinBooking(id, name) {
+  adminAction({ action: "checkin_booking", id }, `Konfirmasi "${name}" sudah datang?`);
+}
+
+function cancelQueue(id, name) {
+  adminAction({ action: "queue_cancel", id }, `Hapus "${name}" dari daftar tunggu?`);
+}
+
+function deleteGame(id, title) {
+  adminAction({ action: "delete_game", id }, `Hapus game "${title}"?`);
+}
+
+function markOrderDone(id) {
+  adminAction({ action: "mark_order_done", id }, "Tandai pesanan ini sudah sampai ke user?");
+}
+
+function toggleMenuItem(id) {
+  adminAction({ action: "toggle_menu_item", id });
+}
+
+function deleteMenuItem(id, name) {
+  adminAction({ action: "delete_menu_item", id }, `Hapus item "${name}"?`);
+}
+
+function toggleRole(id, username) {
+  adminAction({ action: "toggle_role", id }, `Ubah role akun "${username}"?`);
+}
+
+function toggleRoom(id) {
+  adminAction({ action: "toggle_room", id });
 }
 
 // =====================
@@ -43,20 +98,6 @@ document
       })
       .catch(() => alert("Server error"));
   });
-
-// =====================
-// DELETE GAME
-// =====================
-function deleteGame(id, title) {
-  if (!confirm(`Hapus game "${title}"?`)) return;
-  fetch("admin_api.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "action=delete_game&id=" + id,
-  })
-    .then(() => location.reload())
-    .catch(() => alert("Server error"));
-}
 
 // =====================
 // EDIT CONSOLE GAME
@@ -135,100 +176,8 @@ document.getElementById("editGameModal")?.addEventListener("click", function(e) 
 });
 
 // =====================
-// MARK ORDER DONE
-// =====================
-function markOrderDone(id) {
-  if (!confirm("Tandai pesanan ini sudah sampai ke user?")) return;
-  fetch("admin_api.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "action=mark_order_done&id=" + id,
-  })
-    .then(() => location.reload())
-    .catch(() => alert("Server error"));
-}
-
-// =====================
-// TOGGLE MENU ITEM
-// =====================
-function toggleMenuItem(id) {
-  fetch("admin_api.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "action=toggle_menu_item&id=" + id,
-  })
-    .then(() => location.reload())
-    .catch(() => alert("Server error"));
-}
-
-// =====================
-// DELETE MENU ITEM
-// =====================
-function deleteMenuItem(id, name) {
-  if (!confirm(`Hapus item "${name}"?`)) return;
-  fetch("admin_api.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "action=delete_menu_item&id=" + id,
-  })
-    .then(() => location.reload())
-    .catch(() => alert("Server error"));
-}
-
-// =====================
-// TOGGLE ROLE
-// =====================
-function toggleRole(id, username) {
-  if (!confirm(`Ubah role akun "${username}"?`)) return;
-  fetch("admin_api.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "action=toggle_role&id=" + id,
-  })
-    .then(() => location.reload())
-    .catch(() => alert("Server error"));
-}
-
-// =====================
-// TOGGLE ROOM
-// =====================
-function toggleRoom(id) {
-  fetch("admin_api.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: "action=toggle_room&id=" + id,
-  })
-    .then(() => location.reload())
-    .catch(() => alert("Server error"));
-}
-
-// =====================
 // BOOKING OPERATOR (KONSUMEN DATANG LANGSUNG)
 // =====================
-function postAdmin(params) {
-  return fetch("admin_api.php", {
-    method: "POST",
-    body: new URLSearchParams(params),
-  }).then((r) => r.json());
-}
-
-function finishBooking(id) {
-  if (!confirm("Selesaikan sesi ini sekarang? Ruangan akan diberikan ke konsumen berikutnya di daftar tunggu.")) return;
-  postAdmin({ action: "finish_booking", id })
-    .then((r) => {
-      if (r.status === "ok") location.reload();
-      else alert("Gagal: " + (r.message || "Error"));
-    })
-    .catch(() => alert("Server error"));
-}
-
-function cancelQueue(id, name) {
-  if (!confirm(`Hapus "${name}" dari daftar tunggu?`)) return;
-  postAdmin({ action: "queue_cancel", id })
-    .then(() => location.reload())
-    .catch(() => alert("Server error"));
-}
-
 const walkinForm = document.getElementById("walkinForm");
 
 // Estimasi pakai harga ruangan termurah untuk konsol terpilih
@@ -251,10 +200,12 @@ walkinForm?.addEventListener("submit", function (e) {
   params.action = "walkin_join";
   const btn = this.querySelector("button[type=submit]");
   btn.disabled = true;
+  adminBusy = true;
   postAdmin(params)
     .then((r) => {
       if (r.status !== "ok") {
-        alert("Gagal: " + (r.message || "Error"));
+        alert("Gagal: " + (r.message || "Terjadi kesalahan"));
+        if (r.status === "unauthorized") location.reload();
         return;
       }
       alert(r.assigned
@@ -263,34 +214,29 @@ walkinForm?.addEventListener("submit", function (e) {
       location.reload();
     })
     .catch(() => alert("Server error"))
-    .finally(() => { btn.disabled = false; });
+    .finally(() => { btn.disabled = false; adminBusy = false; });
 });
 
-// Refresh berkala supaya daftar tunggu yang sudah dapat ruangan terlihat,
-// kecuali admin sedang mengisi form.
-if (document.getElementById("walkinForm")) {
+// Form berubah dari nilai awal (nama, HP, konsol, atau durasi)
+function isFormDirty(form) {
+  return Array.from(form.elements).some((el) => {
+    if (el.type === "radio" || el.type === "checkbox") return el.checked !== el.defaultChecked;
+    if (el.tagName === "SELECT") return Array.from(el.options).some((o) => o.selected !== o.defaultSelected);
+    if ("defaultValue" in el) return el.value !== el.defaultValue;
+    return false;
+  });
+}
+
+// Refresh berkala supaya status ruangan & daftar tunggu terbaru terlihat,
+// kecuali admin sedang mengisi form atau ada aksi yang berjalan.
+if (walkinForm) {
   setInterval(() => {
-    const form = document.getElementById("walkinForm");
-    const typing = form.contains(document.activeElement) || form.elements.name.value !== "";
-    if (!typing) location.reload();
+    const busy = adminBusy || walkinForm.contains(document.activeElement) || isFormDirty(walkinForm);
+    if (!busy) location.reload();
   }, 20000);
 }
 
-// =====================
-// FIX OVERLAY SAAT LOGIN ADMIN
-// =====================
 document.addEventListener("DOMContentLoaded", () => {
-  const overlays = document.querySelectorAll(
-    ".modal, .overlay, .notifModal, #notifModal"
-  );
-
-  overlays.forEach((el) => {
-    el.style.display = "none";
-    el.classList.remove("show", "active");
-  });
-
-  document.body.style.overflow = "auto";
-
   // =====================
   // CUSTOM FILE UPLOAD ZONES
   // =====================

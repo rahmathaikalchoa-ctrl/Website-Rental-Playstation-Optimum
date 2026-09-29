@@ -5,6 +5,12 @@
   --panel: #181b22;
   --muted: #9fb4c2;
   --border: rgba(0, 234, 255, 0.18);
+  --ps3: #ff6b6b;
+  --ps4: #4da6ff;
+  --ps5: #b26bff;
+  --warn: #ffaa00;
+  --danger: #ff6b6b;
+  --field-bg: #0b0f14;
 }
 
 * {
@@ -333,7 +339,8 @@ button.btn-danger {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.custom-genre-wrap input {
+/* Pakai #addGameForm supaya menang atas #addGameForm input[type="text"] */
+#addGameForm .custom-genre-wrap input {
   flex: 1;
   height: 42px;
   padding: 0 14px;
@@ -580,12 +587,8 @@ button.btn-danger {
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1100px) {
-  #addRoomForm {
-    grid-template-columns: 1fr 1fr;
-  }
-  #addRoomForm button {
-    grid-column: span 2;
-  }
+  #addRoomForm { grid-template-columns: 1fr 1fr; }
+  #addRoomForm button { grid-column: span 2; }
 }
 
 @media (max-width: 768px) {
@@ -618,15 +621,6 @@ button.btn-danger {
 }
 
 /* ===== HALAMAN BOOKING (OPERATOR) ===== */
-:root {
-  --ps3: #ff6b6b;
-  --ps4: #4da6ff;
-  --ps5: #b26bff;
-  --warn: #ffaa00;
-  --danger: #ff6b6b;
-  --field-bg: #0b0f14;
-}
-
 .page-head {
   display: flex;
   justify-content: space-between;
@@ -1032,6 +1026,50 @@ button.btn-danger {
   color: var(--danger);
   border-color: rgba(255, 107, 107, 0.5);
   opacity: 1;
+}
+
+/* Riwayat booking & tabel umum */
+.pay-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.pay-paid      { color: var(--neon-green); background: rgba(0, 255, 157, 0.1);  border-color: rgba(0, 255, 157, 0.35); }
+.pay-unpaid    { color: var(--warn);       background: rgba(255, 170, 0, 0.1);  border-color: rgba(255, 170, 0, 0.35); }
+.pay-cancelled { color: #8a96a3;           background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.12); }
+
+.row-cancelled td { opacity: 0.5; }
+.row-cancelled td:nth-child(2) { text-decoration: line-through; }
+
+.empty-row {
+  color: var(--muted);
+  padding: 22px 14px;
+}
+.muted-dash { color: #555e6b; font-size: 13px; }
+
+/* Konsumen online dapat giliran, belum datang */
+.checkin-wait {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warn);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 170, 0, 0.08);
+  border: 1px dashed rgba(255, 170, 0, 0.4);
+}
+.btn-checkin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--neon), var(--neon-green));
+  color: #000;
+  font-weight: 800;
 }
 
 @media (max-width: 1100px) {

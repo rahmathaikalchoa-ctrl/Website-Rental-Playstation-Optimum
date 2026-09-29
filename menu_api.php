@@ -1,6 +1,6 @@
 <?php
-require 'db.php';
 header('Content-Type: application/json');
+require 'db.php';
 
 $result = $conn->query("SELECT * FROM menu_items ORDER BY category ASC, name ASC");
 $items = [];

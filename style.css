@@ -102,14 +102,6 @@ body {
   text-decoration: none;
   font-size: 15px;
 }
-.profile-btn {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  color: var(--muted);
-  padding: 8px 10px;
-  border-radius: 8px;
-}
-
 /* buttons */
 .btn {
   background: var(--neon);
@@ -213,6 +205,7 @@ body {
   display: block;
 }
 .room-media {
+  position: relative;
   height: 160px;
   background: #0f1216;
   background-size: cover;
@@ -533,30 +526,6 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-/* game cover */
-.game-cover {
-    width: 100%;
-    height: 220px; /* tinggi seragam */
-    object-fit: cover; /* crop otomatis */
-    border-radius: 10px;
-    margin-bottom: 10px;
-}
-
-.game-card .game-cover {
-    width: 100%;
-    height: 220px;
-    object-fit: cover;
-}
-
-/* ===== GAME COVER (SAFE AREA) ===== */
-.game-list .game-card img.game-cover {
-    width: 100%;
-    height: 180px;
-    object-fit: cover;
-    border-radius: 10px;
-    margin-bottom: 10px;
-}
-
 @media (max-width: 920px) {
   .header-inner {
     padding: 0 12px;
@@ -566,9 +535,6 @@ body {
     width: 60%;
   }
   .hero {
-    grid-template-columns: 1fr;
-  }
-  .form-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -679,10 +645,6 @@ body {
   gap: 6px;
 }
 
-.profile-btn:hover {
-  color: var(--neon);
-}
-
 /* DROPDOWN */
 .profile-dropdown {
   position: absolute;
@@ -721,10 +683,6 @@ body {
   font-size: 15px;
 }
 
-#authArea a:hover {
-  color: var(--neon);
-}
-
 /* ===== BOOKING STATUS COUNTDOWN ===== */
 .booking-status {
   display: inline-block;
@@ -749,26 +707,13 @@ body {
   color: var(--neon-yellow);
   border: 1px solid rgba(255, 230, 0, 0.25);
 }
+.booking-status.cancelled {
+  background: rgba(255, 107, 107, 0.08);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
 
 /* ===== PROFILE DETAIL PAGE ===== */
-.profile-card {
-  margin-top: 20px;
-  background: var(--panel);
-  border-radius: 12px;
-  padding: 20px;
-  max-width: 420px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.profile-card p {
-  margin-bottom: 10px;
-}
-
-.status-online {
-  color: var(--neon-green);
-  font-weight: 600;
-}
-
 .status-online {
   color: var(--neon-green);
   font-weight: 600;
@@ -776,15 +721,6 @@ body {
 
 .booking-list {
   margin-top: 10px;
-}
-
-.booking-item {
-  padding: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.booking-item:last-child {
-  border-bottom: none;
 }
 
 /* ===== MENU MAKANAN & MINUMAN ===== */
@@ -974,10 +910,6 @@ body {
 .tl-booked { background: rgba(255, 107, 107, 0.12); color: #ff6b6b; border: 1px solid #ff6b6b33; }
 
 /* ===== ROOM STATUS BADGE ===== */
-.room-media {
-  position: relative;
-}
-
 .room-status-badge {
   position: absolute;
   top: 10px;

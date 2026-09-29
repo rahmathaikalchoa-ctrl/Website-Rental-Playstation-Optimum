@@ -1,8 +1,8 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
-require __DIR__ . '/db.php';
 header('Content-Type: application/json');
+require __DIR__ . '/db.php';
 
 if (!isset($_SESSION['user_id'])) {
   echo json_encode(null);
@@ -16,6 +16,7 @@ $stmt = $conn->prepare("
   FROM bookings b
   JOIN rooms r ON r.id = b.room_id
   WHERE b.user_id = ? AND b.start_time > UNIX_TIMESTAMP()
+    AND b.payment_status <> 'cancelled'
   ORDER BY b.start_time ASC
   LIMIT 1
 ");

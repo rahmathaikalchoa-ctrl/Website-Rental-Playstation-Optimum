@@ -1,8 +1,8 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
-require 'db.php';
 header('Content-Type: application/json');
+require 'db.php';
 
 $action = $_REQUEST['action'] ?? '';
 
@@ -59,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     $bk = $conn->prepare("
         SELECT id FROM bookings
         WHERE user_id = ? AND start_time <= ? AND end_time > ?
+          AND payment_status <> 'cancelled'
         ORDER BY start_time DESC LIMIT 1
     ");
     $bk->bind_param("iii", $uid, $now, $now);

@@ -1,8 +1,8 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
-require __DIR__ . '/db.php';
 header('Content-Type: application/json');
+require __DIR__ . '/db.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   echo json_encode(["status" => "error"]);
@@ -11,8 +11,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 // ===== GANTI PASSWORD (verifikasi via password lama, bukan email/OTP) =====
 $username    = trim($_POST['username'] ?? '');
-$oldPassword = $_POST['old_password'] ?? '';
-$newPassword = $_POST['new_password'] ?? '';
+// Di-trim sama seperti login.php/register.php supaya hash konsisten
+$oldPassword = trim($_POST['old_password'] ?? '');
+$newPassword = trim($_POST['new_password'] ?? '');
 
 if ($username === '' || $oldPassword === '' || strlen($newPassword) < 6) {
   echo json_encode(["status" => "error", "message" => "Lengkapi semua kolom. Password baru minimal 6 karakter."]);

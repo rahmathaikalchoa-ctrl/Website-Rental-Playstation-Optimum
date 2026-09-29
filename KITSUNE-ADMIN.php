@@ -16,7 +16,8 @@ if (isset($_POST['login'])) {
     $error = "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit.";
   } else {
     $inputUser = trim($_POST['username'] ?? '');
-    $inputPass = $_POST['password'] ?? '';
+    // Di-trim seperti login.php karena hash dibuat dari password yang sudah di-trim
+    $inputPass = trim($_POST['password'] ?? '');
 
     $stmt = $conn->prepare("SELECT id, password FROM users WHERE username = ? AND role = 'admin'");
     $stmt->bind_param("s", $inputUser);
@@ -25,8 +26,10 @@ if (isset($_POST['login'])) {
     $stmt->close();
 
     if ($adminUser && password_verify($inputPass, $adminUser['password'])) {
+      clearRateLimit('admin_login_attempts');
       session_regenerate_id(true);
       $_SESSION['admin']          = true;
+      $_SESSION['admin_id']       = intval($adminUser['id']);
       $_SESSION['admin_username'] = $inputUser;
       header("Location: KITSUNE-ADMIN.php");
       exit;
@@ -37,13 +40,19 @@ if (isset($_POST['login'])) {
 }
 
 if (isset($_GET['logout'])) {
-  session_unset();
-  session_destroy();
+  // Hanya keluarkan sesi admin; login user di browser yang sama tetap jalan
+  unset($_SESSION['admin'], $_SESSION['admin_id'], $_SESSION['admin_username']);
+  session_regenerate_id(true);
   header("Location: KITSUNE-ADMIN.php");
   exit;
 }
 
+$isAdmin = isAdminSession($conn);
+
+$navItems = ['booking' => 'Booking', 'riwayat' => 'Riwayat Booking', 'room' => 'Room',
+             'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
 $page    = $_GET['page'] ?? 'booking';
+if (!isset($navItems[$page])) $page = 'booking';
 $perPage = 20;
 $pageNum = max(1, intval($_GET['p'] ?? 1));
 $offset  = ($pageNum - 1) * $perPage;
@@ -58,7 +67,7 @@ $offset  = ($pageNum - 1) * $perPage;
 </head>
 <body>
 
-<?php if (!isset($_SESSION['admin'])): ?>
+<?php if (!$isAdmin): ?>
   <div class="login-box">
     <h2>Admin Login</h2>
     <?php if (isset($error)): ?>
@@ -76,10 +85,6 @@ $offset  = ($pageNum - 1) * $perPage;
 
 <nav class="sidebar">
   <h2>Admin</h2>
-  <?php
-    $navItems = ['booking' => 'Booking', 'riwayat' => 'Riwayat Booking', 'room' => 'Room',
-                 'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
-  ?>
   <?php foreach ($navItems as $key => $label): ?>
     <a href="?page=<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= $label ?></a>
   <?php endforeach; ?>
@@ -95,24 +100,51 @@ $offset  = ($pageNum - 1) * $perPage;
     $pageNum = min($pageNum, $totalPages);
     $offset  = ($pageNum - 1) * $perPage;
 
-    $stmt = $conn->prepare("SELECT * FROM bookings ORDER BY created_at DESC LIMIT ? OFFSET ?");
+    $stmt = $conn->prepare("
+      SELECT b.*, r.title AS room_title
+      FROM bookings b
+      LEFT JOIN rooms r ON r.id = b.room_id
+      ORDER BY b.created_at DESC LIMIT ? OFFSET ?
+    ");
     $stmt->bind_param("ii", $perPage, $offset);
     $stmt->execute();
     $data = $stmt->get_result();
     $stmt->close();
+
+    $payLabel = [
+      'unpaid'    => ['Belum bayar', 'pay-unpaid'],
+      'pending'   => ['Menunggu', 'pay-unpaid'],
+      'paid'      => ['Lunas', 'pay-paid'],
+      'cancelled' => ['Dibatalkan', 'pay-cancelled'],
+    ];
   ?>
   <h2>Riwayat Booking (<?= $totalRow ?> total)</h2>
   <table class="users-table">
-    <tr><th>Nama</th><th>Sumber</th><th>Room</th><th>Durasi</th><th>Total</th><th>Status Bayar</th><th>Aksi</th></tr>
+    <tr><th>Kode</th><th>Nama</th><th>Sumber</th><th>Ruangan</th><th>Jadwal</th><th>Durasi</th><th>Total</th><th>Status</th><th>Aksi</th></tr>
+    <?php if ($data->num_rows === 0): ?>
+      <tr><td colspan="9" class="empty-row">Belum ada data booking.</td></tr>
+    <?php endif; ?>
     <?php while($b = $data->fetch_assoc()): ?>
-    <tr>
+    <?php
+      $isCancelled = $b['payment_status'] === 'cancelled';
+      [$pl, $pc] = $payLabel[$b['payment_status']] ?? [$b['payment_status'], 'pay-unpaid'];
+    ?>
+    <tr class="<?= $isCancelled ? 'row-cancelled' : '' ?>">
+      <td><?= htmlspecialchars($b['order_code'] ?? '-') ?></td>
       <td><?= htmlspecialchars($b['customer_name']) ?></td>
       <td><?= $b['source'] === 'walkin' ? 'Walk-in' : 'Online' ?></td>
-      <td><?= intval($b['room_id']) ?></td>
+      <td><?= htmlspecialchars($b['room_title'] ?? '-') ?></td>
+      <td><?= date('d M Y H:i', intval($b['start_time'])) ?></td>
       <td><?= intval($b['duration']) ?> jam</td>
       <td>Rp<?= number_format(intval($b['total_price']), 0, ',', '.') ?></td>
-      <td><?= htmlspecialchars($b['payment_status']) ?></td>
-      <td><button onclick="hapusBooking(<?= intval($b['id']) ?>)">Hapus</button></td>
+      <td><span class="pay-badge <?= $pc ?>"><?= $pl ?></span></td>
+      <td>
+        <?php if (!$isCancelled): ?>
+          <button class="btn-danger" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>)">Batalkan</button>
+        <?php else: ?>
+          <span class="muted-dash">—</span>
+        <?php endif; ?>
+      </td>
     </tr>
     <?php endwhile; ?>
   </table>
@@ -136,8 +168,15 @@ $offset  = ($pageNum - 1) * $perPage;
     $now = time();
     $dayEnd = strtotime(date('Y-m-d', $now)) + 24 * 3600;
 
-    $curStmt  = $conn->prepare("SELECT id, customer_name, source, start_time, end_time FROM bookings WHERE room_id = ? AND start_time <= ? AND end_time > ? LIMIT 1");
-    $nextStmt = $conn->prepare("SELECT start_time, customer_name FROM bookings WHERE room_id = ? AND start_time > ? AND start_time < ? ORDER BY start_time LIMIT 1");
+    $curStmt  = $conn->prepare("
+      SELECT id, customer_name, source, start_time, end_time, expires_at FROM bookings
+      WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time <= ? AND end_time > ? LIMIT 1
+    ");
+    $nextStmt = $conn->prepare("
+      SELECT start_time, customer_name FROM bookings
+      WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time > ? AND start_time < ?
+      ORDER BY start_time LIMIT 1
+    ");
 
     $rooms = [];
     $minPrice = [];
@@ -254,7 +293,11 @@ $offset  = ($pageNum - 1) * $perPage;
               <?= htmlspecialchars($cur['customer_name']) ?>
               <span class="src-chip"><?= $cur['source'] === 'walkin' ? 'Walk-in' : 'Online' ?></span>
             </p>
-            <div class="progress"><div style="width:<?= $progress ?>%"></div></div>
+            <?php if ($cur['expires_at'] !== null): ?>
+              <p class="checkin-wait">Menunggu kedatangan s/d <?= date('H:i', intval($cur['expires_at'])) ?></p>
+            <?php else: ?>
+              <div class="progress"><div style="width:<?= $progress ?>%"></div></div>
+            <?php endif; ?>
             <p class="room-meta">Selesai <?= date('H:i', intval($cur['end_time'])) ?></p>
           <?php elseif ($r['state'] === 'kosong'): ?>
             <p class="room-meta">Siap dipakai</p>
@@ -267,11 +310,16 @@ $offset  = ($pageNum - 1) * $perPage;
             <?= $r['next'] ? 'Reservasi ' . date('H:i', intval($r['next']['start_time'])) . ' — ' . htmlspecialchars($r['next']['customer_name']) : 'Tidak ada reservasi' ?>
           </p>
 
-          <?php if ($cur): ?>
+          <?php if ($cur && $cur['expires_at'] !== null): ?>
+            <button class="btn-checkin" onclick="checkinBooking(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)"><?= icon('check') ?> Hadir</button>
+          <?php elseif ($cur): ?>
             <button class="btn-outline" onclick="finishBooking(<?= intval($cur['id']) ?>)">Selesaikan Sesi</button>
           <?php endif; ?>
         </div>
         <?php endforeach; ?>
+        <?php if (!$rooms): ?>
+          <p class="queue-empty">Belum ada ruangan. Tambahkan di menu Room.</p>
+        <?php endif; ?>
       </div>
     </div>
   </div>
@@ -336,12 +384,15 @@ $offset  = ($pageNum - 1) * $perPage;
       <th>Status</th>
       <th>Aksi</th>
     </tr>
+    <?php if (mysqli_num_rows($rooms) === 0): ?>
+      <tr><td colspan="5" class="empty-row">Belum ada ruangan.</td></tr>
+    <?php endif; ?>
     <?php while($r = mysqli_fetch_assoc($rooms)): ?>
     <tr>
       <td><?= htmlspecialchars($r['title']) ?></td>
       <td><?= htmlspecialchars($r['console_type']) ?></td>
       <td>Rp <?= number_format($r['price'], 0, ',', '.') ?></td>
-      <td><?= htmlspecialchars($r['status']) ?></td>
+      <td><?= $r['status'] === 'available' ? 'Aktif' : 'In Service' ?></td>
       <td><button onclick="toggleRoom(<?= intval($r['id']) ?>)">Toggle</button></td>
     </tr>
     <?php endwhile; ?>
@@ -353,6 +404,9 @@ $offset  = ($pageNum - 1) * $perPage;
   <h2>Data Akun User</h2>
   <table class="users-table">
     <tr><th>ID</th><th>Username</th><th>Role</th><th>Status</th><th>Dibuat</th><th>Aksi</th></tr>
+    <?php if (mysqli_num_rows($users) === 0): ?>
+      <tr><td colspan="6" class="empty-row">Belum ada akun.</td></tr>
+    <?php endif; ?>
     <?php while($u = mysqli_fetch_assoc($users)): ?>
     <?php
       $online  = !empty($u['last_activity']) && (time() - strtotime($u['last_activity'])) <= 300;
@@ -386,10 +440,7 @@ $offset  = ($pageNum - 1) * $perPage;
 <!-- GAMES -->
 <?php elseif ($page === 'game'): ?>
 <h2>Manajemen Game</h2>
-<?php if (isset($_GET['success']) && $_GET['success'] === 'game_added'): ?>
-  <script>alert("Game berhasil ditambahkan");</script>
-<?php endif; ?>
-<form class="admin-form" id="addGameForm" enctype="multipart/form-data">
+<form id="addGameForm" enctype="multipart/form-data">
   <input name="title" placeholder="Nama Game" required>
   <select id="genreSelect" name="genre" required>
     <option value="">Pilih Genre</option>
@@ -446,6 +497,9 @@ $games = mysqli_query($conn, "
     <th>Console</th>
     <th>Aksi</th>
   </tr>
+  <?php if (mysqli_num_rows($games) === 0): ?>
+    <tr><td colspan="4" class="empty-row">Belum ada game.</td></tr>
+  <?php endif; ?>
   <?php while ($g = mysqli_fetch_assoc($games)): ?>
   <?php $consolesArr = $g['consoles'] ? explode(',', $g['consoles']) : []; ?>
   <tr>
@@ -522,6 +576,9 @@ $menuItems = mysqli_query($conn, "SELECT * FROM menu_items ORDER BY category, na
     <th>Status</th>
     <th>Aksi</th>
   </tr>
+  <?php if (mysqli_num_rows($menuItems) === 0): ?>
+    <tr><td colspan="5" class="empty-row">Belum ada item menu.</td></tr>
+  <?php endif; ?>
   <?php while ($item = mysqli_fetch_assoc($menuItems)): ?>
   <tr>
     <td><?= htmlspecialchars($item['name']) ?></td>
@@ -579,6 +636,9 @@ $orders = mysqli_query($conn, "
     <th>Status</th>
     <th>Aksi</th>
   </tr>
+  <?php if (mysqli_num_rows($orders) === 0): ?>
+    <tr><td colspan="8" class="empty-row">Belum ada pesanan.</td></tr>
+  <?php endif; ?>
   <?php while ($o = mysqli_fetch_assoc($orders)): ?>
   <?php $isDone = $o['status'] === 'selesai'; ?>
   <tr style="<?= $isDone ? 'opacity:0.5' : '' ?>">

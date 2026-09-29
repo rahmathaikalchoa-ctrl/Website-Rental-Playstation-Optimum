@@ -1,4 +1,5 @@
 <?php
+session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/icons.php';
 ?>
@@ -412,7 +413,7 @@ require __DIR__ . '/icons.php';
   <div class="modal-content" onclick="event.stopPropagation()">
     <h2>Register User</h2>
 
-    <form id="registerForm" data-ignore-global autocomplete="off">
+    <form id="registerForm" autocomplete="off">
       <label>
         Username
         <input type="text" id="regUsername" required autocomplete="new-password" />
