@@ -3,10 +3,9 @@
 // Reservasi terjadwal (apikr.php) tetap prioritas di jamnya: antrian hanya
 // mendapat ruangan yang kosong mulai sekarang sampai durasi selesai.
 
-const QUEUE_OPEN_HOUR = 11;
-const QUEUE_CONSOLES  = ['PS3', 'PS4', 'PS5'];
-// Batas waktu konsumen online datang setelah dapat giliran
-const QUEUE_CHECKIN_SEC = 15 * 60;
+require_once __DIR__ . '/booking_lib.php';
+
+const QUEUE_CONSOLES = ['PS3', 'PS4', 'PS5'];
 
 function queueCloseLimit($now) {
   return strtotime(date('Y-m-d', $now)) + 24 * 3600;
@@ -26,16 +25,8 @@ function processQueue($conn, $now = null) {
     $rooms = $conn->query("SELECT id, console_type, price, status FROM rooms ORDER BY id FOR UPDATE")
                   ->fetch_all(MYSQLI_ASSOC);
 
-    // Konsumen (antrian atau reservasi) yang tidak lapor ke kasir sampai batas
-    // check-in: batalkan supaya ruangan bebas lagi
-    $stmt = $conn->prepare("
-      UPDATE bookings SET payment_status = 'cancelled'
-      WHERE expires_at IS NOT NULL AND expires_at < ?
-        AND payment_status <> 'cancelled'
-    ");
-    $stmt->bind_param("i", $now);
-    $stmt->execute();
-    $stmt->close();
+    // Konsumen yang tidak lapor ke kasir sampai batas check-in: ruangan bebas lagi
+    releaseNoShows($conn, $now);
 
     // Antrian dari hari sebelumnya atau yang durasinya sudah tidak muat sebelum tutup
     $stmt = $conn->prepare("
@@ -47,7 +38,7 @@ function processQueue($conn, $now = null) {
     $stmt->execute();
     $stmt->close();
 
-    if (intval(date('G', $now)) < QUEUE_OPEN_HOUR) {
+    if (intval(date('G', $now)) < BOOKING_OPEN_HOUR) {
       $conn->commit();
       return 0;
     }
@@ -96,7 +87,7 @@ function processQueue($conn, $now = null) {
       $payStat = $isWalk ? 'paid' : 'unpaid';
       $paidAt  = $isWalk ? $now : null;
       // Walk-in sudah di tempat; online harus datang dalam batas check-in
-      $expires = $isWalk ? null : $now + QUEUE_CHECKIN_SEC;
+      $expires = $isWalk ? null : $now + BOOKING_CHECKIN_SEC;
       $userId  = $q['user_id'] !== null ? intval($q['user_id']) : null;
       $source  = $q['source'];
 

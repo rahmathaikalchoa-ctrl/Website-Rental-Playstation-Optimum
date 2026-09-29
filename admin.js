@@ -202,6 +202,7 @@ function adminExtend(id) {
         location.reload();
       } else {
         alert("Gagal: " + (r.message || "Terjadi kesalahan"));
+        if (r.status === "unauthorized") location.reload();
       }
     })
     .catch(() => alert("Server error"))
@@ -333,6 +334,11 @@ function loadReserveSlots() {
   const f = reserveForm.elements;
   const info = reserveForm.querySelector("[data-booked]");
   const reqId = ++reserveReq;
+  // Tampilkan jam untuk tanggal/ruangan baru segera (jam lampau langsung hilang),
+  // slot terpesan menyusul setelah data dari server datang.
+  reserveSlots = [];
+  info.textContent = "";
+  renderReserveTimes();
   if (!f.room_id.value) return;
   fetch(`booked_slots_api.php?room_id=${encodeURIComponent(f.room_id.value)}&date=${f.date.value}`)
     .then((r) => r.json())
@@ -343,7 +349,9 @@ function loadReserveSlots() {
       info.textContent = slots.length ? "Terpesan: " + slots.map((s) => `${fmt(s.start_time)}–${fmt(s.end_time)}`).join(", ") : "";
       renderReserveTimes();
     })
-    .catch(() => { info.textContent = "Gagal memuat jadwal ruangan."; });
+    .catch(() => {
+      if (reqId === reserveReq) info.textContent = "Gagal memuat jadwal ruangan. Jam terpesan belum ditandai.";
+    });
 }
 
 if (reserveForm) {
@@ -352,7 +360,6 @@ if (reserveForm) {
     else if (e.target.name === "time") renderReserveDurations();
     else updateReserveEstimate();
   });
-  renderReserveTimes();
   loadReserveSlots();
 
   reserveForm.addEventListener("submit", function (e) {
@@ -389,19 +396,27 @@ if (reserveForm) {
 function isFormDirty(form) {
   return Array.from(form.elements).some((el) => {
     if (el.type === "radio" || el.type === "checkbox") return el.checked !== el.defaultChecked;
-    if (el.tagName === "SELECT") return Array.from(el.options).some((o) => o.selected !== o.defaultSelected);
+    if (el.tagName === "SELECT") {
+      // Select tanpa atribut "selected" default-nya opsi aktif pertama (dipilih otomatis browser)
+      const opts = Array.from(el.options);
+      let def = opts.findIndex((o) => o.defaultSelected);
+      if (def < 0) def = opts.findIndex((o) => !o.disabled);
+      return el.selectedIndex !== def;
+    }
     if ("defaultValue" in el) return el.value !== el.defaultValue;
     return false;
   });
 }
 
 // Refresh berkala supaya status ruangan & daftar tunggu terbaru terlihat,
-// kecuali admin sedang mengisi form atau ada aksi yang berjalan.
+// kecuali admin sedang mengisi form, memilih "+jam", atau ada aksi yang berjalan.
 if (offlinePanel) {
   setInterval(() => {
+    const active = document.activeElement;
+    const editing = active?.matches("input, select, textarea")
+      && (offlinePanel.contains(active) || active.closest(".room-tile"));
     const forms = [walkinForm, reserveForm].filter(Boolean);
-    const busy = adminBusy || offlinePanel.contains(document.activeElement) || forms.some(isFormDirty);
-    if (!busy) location.reload();
+    if (!adminBusy && !editing && !forms.some(isFormDirty)) location.reload();
   }, 20000);
 }
 

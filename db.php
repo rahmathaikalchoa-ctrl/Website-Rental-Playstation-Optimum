@@ -31,11 +31,18 @@ function updateUserActivity($conn, $userId) {
   $stmt->close();
 }
 
-// Rate limit per IP, disimpan di DB (bukan session) supaya tidak bisa
-// dilewati dengan membuang cookie session di tiap request.
-function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300) {
-  global $conn;
+// Key rate limit: per IP, ditambah username bila diberikan ($subject) supaya
+// pengunjung yang berbagi satu WiFi tidak saling memblokir saat login.
+function rateLimitKey($action, $subject = '') {
   $key = $action . ':' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+  return $subject === '' ? $key : $key . ':' . mb_strtolower(mb_substr($subject, 0, 60));
+}
+
+// Rate limit disimpan di DB (bukan session) supaya tidak bisa dilewati
+// dengan membuang cookie session di tiap request.
+function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300, $subject = '') {
+  global $conn;
+  $key = rateLimitKey($action, $subject);
 
   $stmt = $conn->prepare("DELETE FROM rate_limits WHERE rl_key = ? AND created_at < (NOW() - INTERVAL ? SECOND)");
   $stmt->bind_param("si", $key, $windowSec);
@@ -75,9 +82,9 @@ function isAdminSession($conn) {
   return $ok;
 }
 
-function clearRateLimit($action) {
+function clearRateLimit($action, $subject = '') {
   global $conn;
-  $key = $action . ':' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+  $key = rateLimitKey($action, $subject);
   $stmt = $conn->prepare("DELETE FROM rate_limits WHERE rl_key = ?");
   $stmt->bind_param("s", $key);
   $stmt->execute();

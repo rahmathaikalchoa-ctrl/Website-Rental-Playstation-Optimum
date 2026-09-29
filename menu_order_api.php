@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     $bk = $conn->prepare("
         SELECT id FROM bookings
         WHERE user_id = ? AND start_time <= ? AND end_time > ?
-          AND payment_status <> 'cancelled'
+          AND payment_status <> 'cancelled' AND expires_at IS NULL
         ORDER BY start_time DESC LIMIT 1
     ");
     $bk->bind_param("iii", $uid, $now, $now);

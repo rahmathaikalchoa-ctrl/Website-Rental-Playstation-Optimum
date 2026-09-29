@@ -4,16 +4,16 @@ session_start();
 header("Content-Type: application/json");
 require __DIR__ . "/db.php";
 
-if (!checkRateLimit('login_attempts', 5, 300)) {
-  echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit."]);
-  exit;
-}
-
 $username = trim($_POST['username'] ?? '');
 $password = trim($_POST['password'] ?? '');
 
 if ($username === '' || $password === '') {
-  echo json_encode(["status" => "error", "message" => "Data tidak lengkap"]);
+  echo json_encode(["status" => "error", "message" => "Username dan password wajib diisi"]);
+  exit;
+}
+
+if (!checkRateLimit('login_attempts', 5, 300, $username)) {
+  echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit."]);
   exit;
 }
 
@@ -29,7 +29,7 @@ try {
     exit;
   }
 
-  clearRateLimit('login_attempts');
+  clearRateLimit('login_attempts', $username);
   session_regenerate_id(true);
   $_SESSION['user_id'] = $user['id'];
   $_SESSION['username'] = $user['username'];

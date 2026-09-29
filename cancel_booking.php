@@ -3,7 +3,7 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
-require __DIR__ . '/queue_lib.php';
+require_once __DIR__ . '/queue_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
@@ -46,13 +46,26 @@ if ($found['payment_status'] === 'paid') {
 
 // Soft cancel: data tetap tersimpan di riwayat. expires_at dikosongkan supaya
 // tidak terbaca sebagai "batal karena tidak hadir".
-$stmt = $conn->prepare("UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL WHERE id = ?");
-$stmt->bind_param("i", $bookingId);
+// Syarat diulang di UPDATE supaya tidak lolos bila kasir menandai lunas/hadir
+// di antara SELECT di atas dan UPDATE ini.
+$stmt = $conn->prepare("
+  UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL
+  WHERE id = ? AND user_id = ? AND payment_status IN ('unpaid', 'pending')
+    AND (start_time > UNIX_TIMESTAMP() OR expires_at IS NOT NULL)
+");
+$stmt->bind_param("ii", $bookingId, $userId);
 $stmt->execute();
 $ok = $stmt->affected_rows > 0;
 $stmt->close();
 
-if ($ok) processQueue($conn);
+if ($ok) {
+  // Booking hasil antrian: tandai giliran juga batal (bukan tampil "dibatalkan admin")
+  $stmt = $conn->prepare("UPDATE booking_queue SET status = 'cancelled' WHERE booking_id = ?");
+  $stmt->bind_param("i", $bookingId);
+  $stmt->execute();
+  $stmt->close();
+  processQueue($conn);
+}
 
 echo json_encode($ok
   ? ["status" => "ok"]

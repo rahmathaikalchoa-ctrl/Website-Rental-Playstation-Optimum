@@ -2,21 +2,21 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/db.php';
-require __DIR__ . '/queue_lib.php';
-require __DIR__ . '/booking_lib.php';
+require_once __DIR__ . '/queue_lib.php';
+require_once __DIR__ . '/booking_lib.php';
 require __DIR__ . '/icons.php';
 
 // Nilai aman untuk argumen JS di atribut onclick. htmlspecialchars saja tidak cukup:
 // browser men-decode &#039; kembali jadi ' sebelum JS dijalankan.
 function jsArg($v) {
-  return htmlspecialchars(json_encode($v, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP), ENT_QUOTES);
+  return htmlspecialchars(json_encode($v, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE), ENT_QUOTES);
 }
 
 if (isset($_POST['login'])) {
-  if (!checkRateLimit('admin_login_attempts', 5, 300)) {
+  $inputUser = trim($_POST['username'] ?? '');
+  if (!checkRateLimit('admin_login_attempts', 5, 300, $inputUser)) {
     $error = "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit.";
   } else {
-    $inputUser = trim($_POST['username'] ?? '');
     // Di-trim seperti login.php karena hash dibuat dari password yang sudah di-trim
     $inputPass = trim($_POST['password'] ?? '');
 
@@ -27,7 +27,7 @@ if (isset($_POST['login'])) {
     $stmt->close();
 
     if ($adminUser && password_verify($inputPass, $adminUser['password'])) {
-      clearRateLimit('admin_login_attempts');
+      clearRateLimit('admin_login_attempts', $inputUser);
       session_regenerate_id(true);
       $_SESSION['admin']          = true;
       $_SESSION['admin_id']       = intval($adminUser['id']);
@@ -154,9 +154,9 @@ $offset  = ($pageNum - 1) * $perPage;
             <?php if (!$isCancelled && $b['payment_status'] !== 'paid'): ?>
               <button class="btn-paid-sm" onclick="markPaid(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>, <?= intval($b['total_price']) ?>)">Lunas</button>
             <?php endif; ?>
-            <?php if (!$isCancelled): ?>
+            <?php if (!$isCancelled && intval($b['end_time']) > time()): ?>
               <button class="btn-icon" title="Batalkan booking" aria-label="Batalkan booking" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>)"><?= icon('x') ?></button>
-            <?php else: ?>
+            <?php elseif ($isCancelled || $b['payment_status'] === 'paid'): ?>
               <span class="muted-dash">—</span>
             <?php endif; ?>
           </div>
@@ -559,12 +559,12 @@ $offset  = ($pageNum - 1) * $perPage;
       <?php while($u = mysqli_fetch_assoc($users)): ?>
       <?php
         $online  = !empty($u['last_activity']) && (time() - strtotime($u['last_activity'])) <= 300;
-        $isAdmin = $u['role'] === 'admin';
+        $rowIsAdmin = $u['role'] === 'admin';
         $isSelf  = intval($u['id']) === intval($_SESSION['admin_id']);
       ?>
       <tr>
         <td class="cell-main"><?= htmlspecialchars($u['username']) ?><?= $isSelf ? ' <span class="cell-sub">(akun kamu)</span>' : '' ?></td>
-        <td><span class="role-badge <?= $isAdmin ? 'role-admin' : 'role-user' ?>"><?= $isAdmin ? 'Admin' : 'User' ?></span></td>
+        <td><span class="role-badge <?= $rowIsAdmin ? 'role-admin' : 'role-user' ?>"><?= $rowIsAdmin ? 'Admin' : 'User' ?></span></td>
         <td><span class="status <?= $online ? 'online' : 'offline' ?>">● <?= $online ? 'Online' : 'Offline' ?></span></td>
         <td><?= date('d M Y', strtotime($u['created_at'])) ?></td>
         <td>
@@ -573,7 +573,7 @@ $offset  = ($pageNum - 1) * $perPage;
               <span class="muted-dash">—</span>
             <?php else: ?>
               <button class="btn-ghost-sm" onclick="toggleRole(<?= intval($u['id']) ?>, <?= jsArg($u['username']) ?>)">
-                <?= $isAdmin ? 'Jadikan User' : 'Jadikan Admin' ?>
+                <?= $rowIsAdmin ? 'Jadikan User' : 'Jadikan Admin' ?>
               </button>
             <?php endif; ?>
           </div>

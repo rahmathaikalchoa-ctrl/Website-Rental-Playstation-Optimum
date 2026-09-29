@@ -20,8 +20,8 @@ if ($username === '' || $oldPassword === '' || strlen($newPassword) < 6) {
   exit;
 }
 
-// Max 3 percobaan per 15 menit per IP
-if (!checkRateLimit('forgot_password', 3, 900)) {
+// Max 3 percobaan per 15 menit per IP + username
+if (!checkRateLimit('forgot_password', 3, 900, $username)) {
   echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan. Coba lagi dalam 15 menit."]);
   exit;
 }
@@ -51,5 +51,5 @@ if (!$ok) {
   exit;
 }
 
-clearRateLimit('forgot_password');
+clearRateLimit('forgot_password', $username);
 echo json_encode(["status" => "ok"]);

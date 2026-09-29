@@ -3,7 +3,7 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
-require __DIR__ . '/queue_lib.php';
+require_once __DIR__ . '/queue_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
@@ -33,12 +33,12 @@ if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $console  = $_POST['console_type'] ?? '';
   $duration = intval($_POST['duration'] ?? 0);
 
-  if (!in_array($console, QUEUE_CONSOLES, true) || $duration < 1 || $duration > 12) {
+  if (!in_array($console, QUEUE_CONSOLES, true) || $duration < 1 || $duration > BOOKING_MAX_DURATION) {
     echo json_encode(["status" => "error", "message" => "Data antrian tidak valid"]);
     exit;
   }
   $now = time();
-  if (intval(date('G', $now)) < QUEUE_OPEN_HOUR) {
+  if (intval(date('G', $now)) < BOOKING_OPEN_HOUR) {
     echo json_encode(["status" => "error", "message" => "Antrian dibuka mulai jam 11:00"]);
     exit;
   }
@@ -103,8 +103,9 @@ if ($action === 'cancel' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute();
     $cancelled = $stmt->affected_rows > 0;
     $stmt->close();
-    if ($cancelled) processQueue($conn);
   }
+  // Giliran/ruangan yang dilepas langsung diberikan ke antrian berikutnya
+  if ($cancelled) processQueue($conn);
 
   echo json_encode($cancelled
     ? ["status" => "ok"]
@@ -133,6 +134,7 @@ if ($action === 'status') {
   } else {
     $out['room']     = $e['room_title'];
     $out['end_time'] = intval($e['end_time']);
+    $out['payment_status'] = $e['payment_status'];
     if ($e['payment_status'] === 'cancelled') {
       // expires_at masih terisi = dibatalkan otomatis karena tidak datang
       $out['state'] = $e['expires_at'] !== null ? 'expired' : 'cancelled';

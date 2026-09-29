@@ -44,6 +44,7 @@ CREATE TABLE `bookings` (
   KEY `room_id` (`room_id`),
   KEY `user_id` (`user_id`),
   KEY `room_time` (`room_id`,`start_time`,`end_time`),
+  KEY `expires_at` (`expires_at`),
   CONSTRAINT `bookings_ibfk_1` FOREIGN KEY (`room_id`) REFERENCES `rooms` (`id`),
   CONSTRAINT `bookings_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

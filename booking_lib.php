@@ -12,6 +12,21 @@ function bookingFail($message) {
   return ['ok' => false, 'message' => $message];
 }
 
+// Batalkan booking yang belum lapor ke kasir sampai batas check-in (no-show).
+// Booking yang sudah lunas tidak pernah dianggap no-show.
+function releaseNoShows($conn, $now = null) {
+  $now = $now ?? time();
+  $stmt = $conn->prepare("
+    UPDATE bookings SET payment_status = 'cancelled'
+    WHERE expires_at IS NOT NULL AND expires_at < ? AND payment_status = 'unpaid'
+  ");
+  $stmt->bind_param("i", $now);
+  $stmt->execute();
+  $n = $stmt->affected_rows;
+  $stmt->close();
+  return $n;
+}
+
 // Hitung timestamp mulai reservasi dari tanggal (hari ini s/d lusa) dan jam "HH:MM".
 function scheduledStart($date, $time) {
   $today   = date('Y-m-d');
@@ -53,6 +68,9 @@ function createBooking($conn, array $o) {
   $payStat = $o['payment_status'];
   $paidAt  = $payStat === 'paid' ? time() : null;
   $expires = $o['expires_at'] ?? null;
+
+  // Slot milik konsumen yang tidak datang harus bebas sebelum cek bentrok
+  releaseNoShows($conn);
 
   // Transaksi + lock baris ruangan: cek bentrok dan insert atomik (anti double booking)
   try {
@@ -154,7 +172,7 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
     if ($room['status'] !== 'available') { $conn->rollback(); return bookingFail("Ruangan sedang dalam perawatan"); }
 
     $stmt = $conn->prepare("
-      SELECT start_time, end_time, duration FROM bookings
+      SELECT start_time, end_time, duration, expires_at FROM bookings
       WHERE id = ? AND room_id = ? AND payment_status <> 'cancelled'
       LIMIT 1 FOR UPDATE
     ");
@@ -163,6 +181,11 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
     $booking = $stmt->get_result()->fetch_assoc();
     $stmt->close();
     if (!$booking) { $conn->rollback(); return bookingFail("Booking tidak ditemukan"); }
+    // User harus sudah lapor ke kasir (check-in) sebelum bisa memperpanjang
+    if ($userId !== null && $booking['expires_at'] !== null) {
+      $conn->rollback();
+      return bookingFail("Lapor ke kasir dulu sebelum memperpanjang sesi");
+    }
 
     $now = time();
     if ($now < $booking['start_time'] || $now >= $booking['end_time']) {

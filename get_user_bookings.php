@@ -3,6 +3,9 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
+require_once __DIR__ . '/booking_lib.php';
+// Booking yang lewat batas check-in dibatalkan dulu supaya data yang tampil akurat
+releaseNoShows($conn);
 header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Pragma: no-cache');
 

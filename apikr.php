@@ -3,7 +3,7 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header("Content-Type: application/json");
 require __DIR__ . "/db.php";
-require __DIR__ . "/booking_lib.php";
+require_once __DIR__ . "/booking_lib.php";
 
 if ($_SERVER["REQUEST_METHOD"] !== "POST") {
   echo json_encode(["status" => "error", "message" => "Permintaan tidak valid"]);

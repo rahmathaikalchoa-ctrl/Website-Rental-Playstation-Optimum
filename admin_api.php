@@ -3,8 +3,8 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
-require __DIR__ . '/queue_lib.php';
-require __DIR__ . '/booking_lib.php';
+require_once __DIR__ . '/queue_lib.php';
+require_once __DIR__ . '/booking_lib.php';
 
 if (!isAdminSession($conn)) {
   echo json_encode(["status" => "unauthorized", "message" => "Sesi admin habis, silakan login ulang"]);
@@ -112,14 +112,18 @@ if ($action === 'admin_extend') {
 // ================= BATALKAN BOOKING (soft cancel, riwayat tetap tersimpan) =================
 if ($action === 'cancel_booking') {
   $id = intval($_POST['id'] ?? 0);
-  // expires_at dikosongkan supaya tidak terbaca sebagai "batal karena tidak hadir"
-  $stmt = $conn->prepare("UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL WHERE id = ? AND payment_status <> 'cancelled'");
+  // expires_at dikosongkan supaya tidak terbaca sebagai "batal karena tidak hadir".
+  // Sesi yang sudah selesai tidak bisa dibatalkan agar riwayat pendapatan tetap benar.
+  $stmt = $conn->prepare("
+    UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL
+    WHERE id = ? AND payment_status <> 'cancelled' AND end_time > UNIX_TIMESTAMP()
+  ");
   $stmt->bind_param("i", $id);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();
   if (!$ok) {
-    echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan atau sudah dibatalkan"]);
+    echo json_encode(["status" => "error", "message" => "Booking sudah dibatalkan atau sesinya sudah selesai"]);
     exit;
   }
   processQueue($conn);
@@ -130,14 +134,19 @@ if ($action === 'cancel_booking') {
 // ================= KONSUMEN ONLINE SUDAH DATANG (CHECK-IN) =================
 if ($action === 'checkin_booking') {
   $id = intval($_POST['id'] ?? 0);
-  $stmt = $conn->prepare("UPDATE bookings SET expires_at = NULL WHERE id = ? AND expires_at IS NOT NULL AND payment_status <> 'cancelled'");
-  $stmt->bind_param("i", $id);
+  // Check-in paling cepat 15 menit sebelum jam mulai (bukan untuk reservasi hari lain)
+  $earliest = time() + BOOKING_CHECKIN_SEC;
+  $stmt = $conn->prepare("
+    UPDATE bookings SET expires_at = NULL
+    WHERE id = ? AND expires_at IS NOT NULL AND payment_status <> 'cancelled' AND start_time <= ?
+  ");
+  $stmt->bind_param("ii", $id, $earliest);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();
   echo json_encode($ok
     ? ["status" => "ok"]
-    : ["status" => "error", "message" => "Booking sudah check-in atau sudah dibatalkan"]);
+    : ["status" => "error", "message" => "Booking sudah check-in, dibatalkan, atau jam mulainya masih lebih dari 15 menit lagi"]);
   exit;
 }
 
@@ -158,7 +167,7 @@ if ($action === 'walkin_join') {
     exit;
   }
   $now = time();
-  if (intval(date('G', $now)) < QUEUE_OPEN_HOUR) {
+  if (intval(date('G', $now)) < BOOKING_OPEN_HOUR) {
     echo json_encode(["status" => "error", "message" => "Belum jam buka. Layanan mulai jam 11:00"]);
     exit;
   }

@@ -1,6 +1,9 @@
 <?php
 header('Content-Type: application/json');
 require 'db.php';
+require_once __DIR__ . '/booking_lib.php';
+// Booking yang lewat batas check-in dibatalkan dulu supaya data yang tampil akurat
+releaseNoShows($conn);
 
 $roomId = intval($_GET['room_id'] ?? 0);
 if ($roomId <= 0) {
