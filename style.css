@@ -37,6 +37,7 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 /* left brand */
@@ -50,7 +51,8 @@ body {
 
 /* center area for search */
 .header-center {
-  flex: 1;
+  flex: 1 1 260px;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -63,13 +65,13 @@ body {
   background: rgba(255, 255, 255, 0.04);
   padding: 6px 10px;
   border-radius: 10px;
-  min-width: 360px;
-  max-width: 600px;
-  width: 50%;
+  width: 100%;
+  max-width: 520px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
 }
 .search-wrap input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: 0;
   outline: none;
@@ -267,6 +269,35 @@ body {
   margin-bottom: 18px;
 }
 
+/* Pilihan metode pembayaran */
+.pay-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.pay-option[hidden] { display: none; }
+.pay-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.pay-option:has(input:checked) {
+  border-color: var(--neon);
+  background: rgba(0, 234, 255, 0.06);
+}
+.pay-option input { margin-top: 3px; accent-color: var(--neon); }
+.pay-option span { display: grid; gap: 2px; }
+.pay-option strong { color: #e8eef8; font-size: 14px; }
+.pay-option small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.pay-chip.pending { color: #4da6ff; background: rgba(77, 166, 255, 0.08); border-color: rgba(77, 166, 255, 0.3); }
+.pay-btn { margin-top: 8px; font-size: 0.78rem; padding: 6px 12px; }
+
 /* Kartu konfirmasi setelah reservasi berhasil */
 .confirm-card { display: grid; gap: 10px; }
 .confirm-card .confirm-head {
@@ -437,11 +468,23 @@ body {
   flex-shrink: 0;
 }
 
+/* minmax(0, 1fr): kolom tidak ikut melebar mengikuti isi terpanjang */
 .brow {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
 }
+.bfield { min-width: 0; }
+.bfield input,
+.bfield select { width: 100%; min-width: 0; }
+
+/* Kartu antrian: konsol, durasi, tombol dalam satu baris */
+#queueJoinBox {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+#queueJoinBox .btn { height: 46px; padding: 0 22px; white-space: nowrap; }
+#queueStatusText { line-height: 1.6; }
 
 .form-actions {
   display: flex;
@@ -495,11 +538,12 @@ body {
   }
   .booking-summary-card {
     position: static;
-    order: -1;
   }
-  .brow {
-    grid-template-columns: 1fr;
+  .brow,
+  #queueJoinBox {
+    grid-template-columns: minmax(0, 1fr);
   }
+  #queueJoinBox .btn { width: 100%; }
 }
 .booking-item {
   background: var(--panel);
@@ -606,38 +650,43 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+/* Header: di layar sedang, pencarian turun ke baris kedua supaya menu tidak terpotong */
+@media (max-width: 1100px) {
+  .header-inner { row-gap: 12px; }
+  .brand { order: 1; }
+  .header-right { order: 2; margin-left: auto; }
+  .header-center {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .search-wrap { max-width: none; }
+}
 @media (max-width: 920px) {
   .header-inner {
     padding: 0 12px;
-  }
-  .search-wrap {
-    min-width: 220px;
-    width: 60%;
   }
   .hero {
     grid-template-columns: 1fr;
   }
 }
+/* Layar kecil: menu jadi baris sendiri yang bisa digeser horizontal */
 @media (max-width: 640px) {
-  .header-inner {
-    flex-direction: column;
-    gap: 12px;
-    align-items: stretch;
-  }
-  .header-center {
-    order: 3;
-    justify-content: flex-start;
-  }
+  .brand { font-size: 20px; }
   .header-right {
     order: 2;
-    justify-content: flex-end;
-  }
-  .brand {
-    order: 1;
-  }
-  .search-wrap {
     width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    gap: 12px;
   }
+  .nav {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    gap: 14px;
+    scrollbar-width: none;
+  }
+  .nav a { white-space: nowrap; }
 }
 
 /* MODAL LOGIN */

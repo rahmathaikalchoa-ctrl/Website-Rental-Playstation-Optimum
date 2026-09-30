@@ -11,6 +11,82 @@ function requireLogin(message, view, roomId = null) {
   document.getElementById("loginModal").classList.add("show");
 }
 
+// ===== PEMBAYARAN ONLINE (MIDTRANS SNAP) =====
+// { enabled, client_key, snap_js } dari payment_api.php; enabled false bila key belum diisi
+let paymentConfig = { enabled: false };
+let snapLoading = null;
+
+function loadPaymentConfig() {
+  return fetch("payment_api.php?action=config")
+    .then((r) => r.json())
+    .then((c) => {
+      paymentConfig = c;
+      const opt = document.getElementById("payOnlineOption");
+      if (opt) opt.hidden = !c.enabled;
+    })
+    .catch(() => {});
+}
+
+// Snap JS hanya dimuat saat user benar-benar akan membayar
+function loadSnap() {
+  if (window.snap) return Promise.resolve();
+  if (!snapLoading) {
+    snapLoading = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = paymentConfig.snap_js;
+      s.setAttribute("data-client-key", paymentConfig.client_key);
+      s.onload = resolve;
+      s.onerror = () => { snapLoading = null; reject(); };
+      document.head.appendChild(s);
+    });
+  }
+  return snapLoading;
+}
+
+// Status diambil dari server (yang mengecek ke Midtrans), bukan dari callback browser
+function checkPaymentStatus(bookingId) {
+  return fetch(`payment_api.php?action=status&booking_id=${encodeURIComponent(bookingId)}&t=${Date.now()}`)
+    .then((r) => r.json())
+    .then((r) => r.payment_status || null)
+    .catch(() => null);
+}
+
+// Buka popup pembayaran. onDone(status) dipanggil setelah status terbaru dicek.
+function payOnline(bookingId, onDone) {
+  if (!paymentConfig.enabled) {
+    alert("Pembayaran online belum tersedia. Silakan bayar di kasir.");
+    return;
+  }
+  fetch("payment_api.php", { method: "POST", body: new URLSearchParams({ action: "create", booking_id: bookingId }) })
+    .then((r) => r.json())
+    .then((res) => {
+      if (res.status !== "ok") {
+        alert(res.message || "Gagal memulai pembayaran.");
+        onDone?.(null);
+        return;
+      }
+      return loadSnap().then(() => {
+        const finish = (msg) => checkPaymentStatus(bookingId).then((st) => {
+          if (st === "paid") alert("Pembayaran berhasil! Booking kamu sudah lunas.");
+          else if (msg) alert(msg);
+          onDone?.(st);
+        });
+        window.snap.pay(res.token, {
+          onSuccess: () => finish(),
+          onPending: () => finish("Pembayaran menunggu diselesaikan. Ikuti instruksi pembayaran, lalu cek statusnya di Profil."),
+          onError: () => finish("Pembayaran gagal. Kamu bisa coba lagi dari Profil atau bayar di kasir."),
+          onClose: () => finish("Pembayaran belum selesai. Kamu bisa melanjutkannya dari Profil atau bayar di kasir."),
+        });
+      });
+    })
+    .catch(() => {
+      alert(NETWORK_ERROR);
+      onDone?.(null);
+    });
+}
+
+loadPaymentConfig();
+
 // Escape data sebelum dipasang lewat innerHTML, supaya judul/deskripsi/catatan
 // yang berisi karakter HTML tidak bisa mengeksekusi script (XSS).
 function escapeHtml(str) {
@@ -338,7 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
       op.value = r.id;
       // Status "sedang dipakai" tidak relevan untuk jam/tanggal lain, jadi tidak ditampilkan.
       // Ketersediaan jam dicek per slot lewat booked_slots_api.php.
-      op.textContent = `${r.title} — ${r.consoleType} · ${formatRup(r.price)}/jam`;
+      op.textContent = r.title;
       if (r.currentStatus === "in_service") {
         op.textContent += " (perawatan)";
         op.disabled = true;
@@ -416,17 +492,29 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
   }
 
-  // Ganti isi kotak Ringkasan dengan bukti booking (kode, jadwal, total, cara bayar)
-  function showBookingConfirmation(b) {
+  // Ganti isi kotak Ringkasan dengan bukti booking (kode, jadwal, total, cara bayar).
+  // payStatus: "paid" | "pending" | lainnya (belum bayar)
+  function showBookingConfirmation(b, payStatus = "unpaid") {
     const box = $("bookingSummary");
     if (!box) return;
     const start = new Date(b.start_time * 1000);
     const fmtTime = (d) => d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
     const dateText = start.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" });
     const checkin = b.expires_at ? fmtTime(new Date(b.expires_at * 1000)) : null;
+    const lapor = checkin ? ` Lapor paling lambat <strong>${checkin}</strong>, lewat dari itu booking batal otomatis.` : "";
+    const note = payStatus === "paid"
+      ? `Sudah lunas. Tunjukkan kode ini ke kasir saat datang.${checkin ? ` Lapor paling lambat <strong>${checkin}</strong>.` : ""}`
+      : payStatus === "pending"
+        ? `Menunggu pembayaran online. Selesaikan pembayaran, atau bayar di kasir saat datang.${lapor}`
+        : `Tunjukkan kode ini dan bayar di kasir saat datang.${lapor}`;
+    const payBtn = payStatus !== "paid" && paymentConfig.enabled
+      ? `<button type="button" class="btn" data-pay-booking="${escapeHtml(b.id)}">Bayar Online Sekarang</button>`
+      : "";
+    // Simpan data booking agar kartu bisa digambar ulang setelah status bayar berubah
+    box.dataset.booking = JSON.stringify(b);
     box.innerHTML = `
       <div class="confirm-card">
-        <div class="confirm-head">${icon('check')} Booking berhasil</div>
+        <div class="confirm-head">${icon('check')} Booking berhasil${payStatus === "paid" ? " · Lunas" : ""}</div>
         <div>
           <span class="sr-label">Kode booking</span>
           <div class="confirm-code">${escapeHtml(b.order_code)}</div>
@@ -435,7 +523,8 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="summary-row"><span class="sr-label">Tanggal</span><span class="sr-val">${dateText}</span></div>
         <div class="summary-row"><span class="sr-label">Sesi</span><span class="sr-val">${fmtTime(start)} – ${fmtTime(new Date(b.end_time * 1000))}</span></div>
         <div class="summary-row total-row"><span class="sr-label">Total</span><span class="sr-val">${formatRup(b.total_price)}</span></div>
-        <p class="confirm-note">Tunjukkan kode ini dan bayar di kasir saat datang.${checkin ? ` Lapor paling lambat <strong>${checkin}</strong>, lewat dari itu booking batal otomatis.` : ""}</p>
+        <p class="confirm-note">${note}</p>
+        ${payBtn}
         <button type="button" class="btn-ghost" data-view="profile">Lihat di Profil</button>
       </div>`;
   }
@@ -639,6 +728,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const bookingDate = document.getElementById("bookingDate")?.value || getTodayISO();
+    // Dibaca sebelum form di-reset setelah booking berhasil
+    const payMethod = $("bookingForm").querySelector('input[name="pay_method"]:checked')?.value || "cashier";
 
     const submitBtn = $("bookingForm").querySelector('[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;
@@ -670,6 +761,12 @@ document.addEventListener("DOMContentLoaded", () => {
           fetchBookedSlots($("roomSelect").value);
           prefillBookingUser();
           showBookingConfirmation(r);
+          if (payMethod === "midtrans") {
+            payOnline(r.id, (st) => {
+              if (st) showBookingConfirmation(r, st);
+              loadUpcomingBooking();
+            });
+          }
         } else {
           alert("Booking gagal: " + (r.message || "Terjadi kesalahan"));
         }
@@ -984,6 +1081,22 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => notif.remove(), 400);
     }, 8000);
   }
+
+  // ===== TOMBOL BAYAR ONLINE (kartu konfirmasi & profil) =====
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-pay-booking]");
+    if (!btn) return;
+    btn.disabled = true;
+    const inSummary = !!btn.closest("#bookingSummary");
+    const inProfile = !!btn.closest("#profileBookingList");
+    payOnline(btn.dataset.payBooking, (st) => {
+      btn.disabled = false;
+      const box = $("bookingSummary");
+      if (inSummary && st && box?.dataset.booking) showBookingConfirmation(JSON.parse(box.dataset.booking), st);
+      if (inProfile) document.getElementById("profileDetail")?.click();
+      loadUpcomingBooking();
+    });
+  });
 
   // ===== EXTEND BOOKING EVENT DELEGATION =====
   document.addEventListener("click", (e) => {
@@ -1632,9 +1745,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 statusHtml = `<span class="booking-status active" id="status-${b.id}">Sisa: <span id="countdown-${b.id}">--:--:--</span></span>`;
               }
 
-              const payHtml = isCancelled ? "" : b.payment_status === "paid"
-                ? `<span class="pay-chip paid">Lunas</span>`
-                : `<span class="pay-chip unpaid">Belum bayar · bayar di kasir</span>`;
+              const payHtml = isCancelled ? ""
+                : b.payment_status === "paid"
+                  ? `<span class="pay-chip paid">Lunas${b.payment_method === "midtrans" ? " · online" : ""}</span>`
+                  : b.payment_status === "pending"
+                    ? `<span class="pay-chip pending">Menunggu pembayaran online</span>`
+                    : `<span class="pay-chip unpaid">Belum bayar · bayar di kasir</span>`;
+              // Bayar online untuk reservasi yang belum lunas (bukan giliran antrian)
+              const payBtnHtml = paymentConfig.enabled && !b.from_queue && (isUpcoming || isActive)
+                && ["unpaid", "pending"].includes(b.payment_status)
+                ? `<button class="btn pay-btn" data-pay-booking="${escapeHtml(b.id)}">
+                     ${b.payment_status === "pending" ? "Lanjutkan Pembayaran" : "Bayar Online"}
+                   </button>`
+                : "";
               const metaHtml = `<div class="booking-meta">
                   ${b.order_code ? `<span class="code-chip">${escapeHtml(b.order_code)}</span>` : ""}${payHtml}
                 </div>`;
@@ -1692,12 +1815,24 @@ document.addEventListener("DOMContentLoaded", () => {
                   ${statusHtml}
                   ${metaHtml}
                   ${checkinHtml}
+                  ${payBtnHtml}
                   ${extendHtml}
                   ${cancelHtml}
                   ${reorderHtml}
                 </div>
               `;
             });
+
+            // Booking yang menunggu pembayaran online: cek status terbaru ke Midtrans,
+            // muat ulang daftar sekali bila ada yang berubah (lunas/kedaluwarsa)
+            const pendings = data.filter((b) => b.payment_status === "pending");
+            if (pendings.length && !window._paySyncing) {
+              window._paySyncing = true;
+              Promise.all(pendings.map((b) => checkPaymentStatus(b.id))).then((sts) => {
+                window._paySyncing = false;
+                if (sts.some((s) => s && s !== "pending")) loadUserBookings();
+              });
+            }
 
             if (!window._notifiedSessions) window._notifiedSessions = new Set();
 

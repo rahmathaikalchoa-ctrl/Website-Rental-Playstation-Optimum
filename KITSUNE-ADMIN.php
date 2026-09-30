@@ -114,7 +114,7 @@ $offset  = ($pageNum - 1) * $perPage;
 
     $payLabel = [
       'unpaid'    => ['Belum bayar', 'pay-unpaid'],
-      'pending'   => ['Menunggu', 'pay-unpaid'],
+      'pending'   => ['Menunggu bayar online', 'pay-pending'],
       'paid'      => ['Lunas', 'pay-paid'],
       'cancelled' => ['Dibatalkan', 'pay-cancelled'],
     ];
@@ -140,7 +140,7 @@ $offset  = ($pageNum - 1) * $perPage;
       ?>
       <tr class="<?= $isCancelled ? 'row-cancelled' : '' ?>">
         <td class="cell-main"><?= htmlspecialchars($b['customer_name']) ?>
-          <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?> · <?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?></span>
+          <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?> · <?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?><?= $b['payment_method'] === 'midtrans' && $b['payment_status'] === 'paid' ? ' · bayar via Midtrans' : '' ?></span>
         </td>
         <td><?= htmlspecialchars($b['room_title'] ?? '-') ?></td>
         <?php $st = intval($b['start_time']); ?>
@@ -296,7 +296,7 @@ $offset  = ($pageNum - 1) * $perPage;
             <option value="0">Otomatis (sesuai urutan)</option>
             <?php foreach ($roomOptions as $o): ?>
               <option value="<?= $o['id'] ?>" data-console="<?= $o['console'] ?>" <?= $o['free'] ? '' : 'disabled' ?>>
-                <?= htmlspecialchars($o['title']) ?> — Rp<?= number_format($o['price'], 0, ',', '.') ?>/jam<?= $o['free'] ? '' : ' (dipakai)' ?>
+                <?= htmlspecialchars($o['title']) ?><?= $o['free'] ? '' : ' (dipakai)' ?>
               </option>
             <?php endforeach; ?>
           </select>
@@ -334,7 +334,7 @@ $offset  = ($pageNum - 1) * $perPage;
           <span>Ruangan</span>
           <select name="room_id" required>
             <?php foreach ($roomOptions as $o): ?>
-              <option value="<?= $o['id'] ?>"><?= htmlspecialchars($o['title']) ?> (<?= $o['console'] ?>) — Rp<?= number_format($o['price'], 0, ',', '.') ?>/jam</option>
+              <option value="<?= $o['id'] ?>"><?= htmlspecialchars($o['title']) ?></option>
             <?php endforeach; ?>
           </select>
         </label>
@@ -396,9 +396,14 @@ $offset  = ($pageNum - 1) * $perPage;
             <p class="room-who">
               <?= htmlspecialchars($cur['customer_name']) ?>
               <span class="src-chip"><?= $srcLabel($cur['source']) ?></span>
-              <span class="pay-badge <?= $cur['payment_status'] === 'paid' ? 'pay-paid' : 'pay-unpaid' ?>">
-                <?= $cur['payment_status'] === 'paid' ? 'Lunas' : 'Belum bayar' ?>
-              </span>
+              <?php
+                [$curPayLabel, $curPayClass] = match ($cur['payment_status']) {
+                  'paid'    => ['Lunas', 'pay-paid'],
+                  'pending' => ['Menunggu bayar online', 'pay-pending'],
+                  default   => ['Belum bayar', 'pay-unpaid'],
+                };
+              ?>
+              <span class="pay-badge <?= $curPayClass ?>"><?= $curPayLabel ?></span>
             </p>
             <?php if ($waitingArrival): ?>
               <p class="checkin-wait">Menunggu kedatangan s/d <?= date('H:i', intval($cur['expires_at'])) ?></p>

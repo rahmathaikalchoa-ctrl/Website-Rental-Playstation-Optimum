@@ -20,6 +20,13 @@
   font-family: Inter, system-ui, sans-serif;
 }
 
+/* Input & select tidak boleh lebih lebar dari wadahnya */
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
 body {
   background: var(--bg);
   color: #e8eef8;
@@ -789,8 +796,12 @@ button.btn-danger {
   font-style: normal;
   opacity: 0.6;
 }
+.field { min-width: 0; }
 .field input,
 .field select {
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
   height: 42px;
   padding: 0 12px;
   border-radius: 8px;
@@ -1113,9 +1124,10 @@ button.btn-danger {
   gap: 14px;
 }
 .tab-form[hidden] { display: none; }
+/* minmax(0, 1fr): kolom tidak ikut melebar mengikuti teks opsi terpanjang */
 .field-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
 }
 .form-note {
@@ -1266,6 +1278,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 }
 .pay-paid      { color: var(--neon-green); background: rgba(0, 255, 157, 0.1);  border-color: rgba(0, 255, 157, 0.35); }
 .pay-unpaid    { color: var(--warn);       background: rgba(255, 170, 0, 0.1);  border-color: rgba(255, 170, 0, 0.35); }
+.pay-pending   { color: var(--ps4);        background: rgba(77, 166, 255, 0.1); border-color: rgba(77, 166, 255, 0.35); }
 .pay-cancelled { color: #8a96a3;           background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.12); }
 
 .row-cancelled td { opacity: 0.5; }

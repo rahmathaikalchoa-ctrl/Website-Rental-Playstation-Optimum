@@ -178,7 +178,7 @@ require __DIR__ . '/icons.php';
                 <label>Durasi</label>
                 <select id="queueDuration"></select>
               </div>
-              <div class="bfield" style="align-self:flex-end">
+              <div class="bfield">
                 <button type="button" class="btn" id="queueJoinBtn">Ambil Antrian</button>
               </div>
             </div>
@@ -245,6 +245,27 @@ require __DIR__ . '/icons.php';
                       <label>Durasi (jam)</label>
                       <select id="duration" required></select>
                     </div>
+                  </div>
+                </div>
+
+                <!-- Metode Pembayaran (opsi online muncul bila Midtrans sudah dikonfigurasi) -->
+                <div class="bsection">
+                  <h3 class="bsection-title"><?= icon('clipboard') ?> Pembayaran</h3>
+                  <div class="pay-options">
+                    <label class="pay-option">
+                      <input type="radio" name="pay_method" value="cashier" checked>
+                      <span>
+                        <strong>Bayar di kasir</strong>
+                        <small>Bayar tunai/QRIS kasir saat datang.</small>
+                      </span>
+                    </label>
+                    <label class="pay-option" id="payOnlineOption" hidden>
+                      <input type="radio" name="pay_method" value="midtrans">
+                      <span>
+                        <strong>Bayar online sekarang</strong>
+                        <small>QRIS, e-wallet, virtual account bank, kartu. Diproses oleh Midtrans.</small>
+                      </span>
+                    </label>
                   </div>
                 </div>
 

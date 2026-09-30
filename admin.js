@@ -304,7 +304,7 @@ function renderReserveTimes() {
     const booked = overlaps(start, start + 3600);
     items.push({ value: `${String(h).padStart(2, "0")}:00`, label: `${h}:00${booked ? " — terpesan" : ""}`, disabled: booked });
   }
-  fillSelect(f.time, items.length ? items : [{ value: "", label: "Tidak ada jam tersisa", disabled: true }]);
+  fillSelect(f.time, items.length ? items : [{ value: "", label: "Jam habis", disabled: true }]);
   renderReserveDurations();
 }
 

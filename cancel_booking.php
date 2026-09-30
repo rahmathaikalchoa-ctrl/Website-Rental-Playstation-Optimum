@@ -4,6 +4,7 @@ session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/queue_lib.php';
+require_once __DIR__ . '/midtrans_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
@@ -25,7 +26,7 @@ if ($bookingId <= 0) {
 
 // Boleh batal jika belum mulai, atau sudah mulai tapi belum lapor ke kasir (belum check-in)
 $stmt = $conn->prepare("
-  SELECT payment_status FROM bookings
+  SELECT payment_status, midtrans_order_id FROM bookings
   WHERE id = ? AND user_id = ? AND payment_status <> 'cancelled'
     AND (start_time > UNIX_TIMESTAMP() OR expires_at IS NOT NULL)
   LIMIT 1
@@ -39,6 +40,19 @@ if (!$found) {
   echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan atau sesi sudah berjalan"]);
   exit;
 }
+
+// Sedang menunggu pembayaran online: pastikan belum terbayar, lalu batalkan transaksi
+// Midtrans-nya supaya user tidak bisa membayar booking yang sudah batal.
+if ($found['payment_status'] === 'pending' && $found['midtrans_order_id'] && midtransConfigured()) {
+  $st = midtransFetchStatus($found['midtrans_order_id']);
+  if ($st && !empty($st['transaction_status'])) {
+    $found['payment_status'] = midtransApplyStatus($conn, $st) ?? $found['payment_status'];
+  }
+  if ($found['payment_status'] === 'pending') {
+    midtransRequest('POST', midtransApiUrl() . '/v2/' . rawurlencode($found['midtrans_order_id']) . '/cancel');
+  }
+}
+
 if ($found['payment_status'] === 'paid') {
   echo json_encode(["status" => "error", "message" => "Booking sudah dibayar. Hubungi kasir untuk pembatalan."]);
   exit;

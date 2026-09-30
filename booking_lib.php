@@ -13,14 +13,17 @@ function bookingFail($message) {
 }
 
 // Batalkan booking yang belum lapor ke kasir sampai batas check-in (no-show).
-// Booking yang sudah lunas tidak pernah dianggap no-show.
+// Booking yang sudah lunas tidak pernah dianggap no-show. Booking yang sedang
+// menunggu pembayaran online baru dibatalkan setelah waktu bayarnya habis.
 function releaseNoShows($conn, $now = null) {
   $now = $now ?? time();
   $stmt = $conn->prepare("
     UPDATE bookings SET payment_status = 'cancelled'
-    WHERE expires_at IS NOT NULL AND expires_at < ? AND payment_status = 'unpaid'
+    WHERE expires_at IS NOT NULL AND expires_at < ?
+      AND (payment_status = 'unpaid'
+        OR (payment_status = 'pending' AND (payment_expires_at IS NULL OR payment_expires_at < ?)))
   ");
-  $stmt->bind_param("i", $now);
+  $stmt->bind_param("ii", $now, $now);
   $stmt->execute();
   $n = $stmt->affected_rows;
   $stmt->close();

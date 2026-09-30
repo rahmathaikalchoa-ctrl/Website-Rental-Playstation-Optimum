@@ -34,13 +34,18 @@ CREATE TABLE `bookings` (
   `end_time` bigint(20) NOT NULL,
   `total_price` int(11) NOT NULL DEFAULT 0,
   `payment_status` enum('unpaid','pending','paid','cancelled') NOT NULL DEFAULT 'unpaid',
+  `payment_method` enum('cashier','midtrans') NOT NULL DEFAULT 'cashier',
   `source` enum('online','walkin') NOT NULL DEFAULT 'online',
   `order_code` varchar(40) DEFAULT NULL,
+  `midtrans_order_id` varchar(64) DEFAULT NULL,
+  `snap_token` varchar(100) DEFAULT NULL,
+  `payment_expires_at` int(11) DEFAULT NULL,
   `expires_at` int(11) DEFAULT NULL,
   `paid_at` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `order_code` (`order_code`),
+  UNIQUE KEY `midtrans_order_id` (`midtrans_order_id`),
   KEY `room_id` (`room_id`),
   KEY `user_id` (`user_id`),
   KEY `room_time` (`room_id`,`start_time`,`end_time`),
@@ -56,7 +61,7 @@ CREATE TABLE `bookings` (
 
 LOCK TABLES `bookings` WRITE;
 /*!40000 ALTER TABLE `bookings` DISABLE KEYS */;
-INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,'unpaid','online','GZ-20',NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,'unpaid','online','GZ-21',NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,'unpaid','online','GZ-22',NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,'unpaid','online','GZ-23',NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,'unpaid','online','GZ-24',NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,'unpaid','online','GZ-25',NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,'unpaid','online','GZ-26',NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,'unpaid','online','GZ-28',NULL,NULL,'2026-05-10 05:58:14');
+INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,'unpaid','cashier','online','GZ-20',NULL,NULL,NULL,NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,'unpaid','cashier','online','GZ-21',NULL,NULL,NULL,NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,'unpaid','cashier','online','GZ-22',NULL,NULL,NULL,NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,'unpaid','cashier','online','GZ-23',NULL,NULL,NULL,NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,'unpaid','cashier','online','GZ-24',NULL,NULL,NULL,NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,'unpaid','cashier','online','GZ-25',NULL,NULL,NULL,NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,'unpaid','cashier','online','GZ-26',NULL,NULL,NULL,NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,'unpaid','cashier','online','GZ-28',NULL,NULL,NULL,NULL,NULL,'2026-05-10 05:58:14');
 /*!40000 ALTER TABLE `bookings` ENABLE KEYS */;
 UNLOCK TABLES;
 

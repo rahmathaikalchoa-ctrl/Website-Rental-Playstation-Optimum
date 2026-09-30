@@ -1,1 +1,3 @@
 node_modules/
+# Berisi Midtrans Server Key (rahasia)
+midtrans_config.php
