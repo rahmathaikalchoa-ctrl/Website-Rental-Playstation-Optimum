@@ -30,6 +30,27 @@ if ($customer === "" || $roomId <= 0) {
   echo json_encode(["status" => "error", "message" => "Isi nama dan pilih ruangan terlebih dahulu"]);
   exit;
 }
+if (mb_strlen($customer) > 100) {
+  echo json_encode(["status" => "error", "message" => "Nama maksimal 100 karakter"]);
+  exit;
+}
+
+// Satu akun maksimal punya 2 reservasi mendatang yang belum dibayar,
+// supaya slot tidak diborong satu orang
+$userId = intval($_SESSION['user_id']);
+$stmt = $conn->prepare("
+  SELECT COUNT(*) AS n FROM bookings
+  WHERE user_id = ? AND payment_status = 'unpaid' AND end_time > UNIX_TIMESTAMP()
+");
+$stmt->bind_param("i", $userId);
+$stmt->execute();
+$activeUnpaid = intval($stmt->get_result()->fetch_assoc()['n']);
+$stmt->close();
+if ($activeUnpaid >= MAX_ACTIVE_UNPAID) {
+  echo json_encode(["status" => "error", "message" =>
+    "Kamu sudah punya " . MAX_ACTIVE_UNPAID . " reservasi yang belum dibayar. Bayar di kasir atau batalkan salah satunya dulu."]);
+  exit;
+}
 if ($email !== "" && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
   echo json_encode(["status" => "error", "message" => "Format email tidak valid"]);
   exit;
@@ -52,7 +73,7 @@ $res = createBooking($conn, [
   'customer_name'  => $customer,
   'email'          => $email,
   'phone'          => $phone,
-  'user_id'        => intval($_SESSION['user_id']),
+  'user_id'        => $userId,
   'source'         => 'online',
   'payment_status' => 'unpaid',
   // Wajib lapor ke kasir paling lambat 15 menit setelah jam mulai

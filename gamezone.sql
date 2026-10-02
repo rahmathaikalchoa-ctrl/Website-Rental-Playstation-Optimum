@@ -33,19 +33,15 @@ CREATE TABLE `bookings` (
   `start_time` bigint(20) NOT NULL,
   `end_time` bigint(20) NOT NULL,
   `total_price` int(11) NOT NULL DEFAULT 0,
-  `payment_status` enum('unpaid','pending','paid','cancelled') NOT NULL DEFAULT 'unpaid',
-  `payment_method` enum('cashier','midtrans') NOT NULL DEFAULT 'cashier',
+  `amount_paid` int(11) NOT NULL DEFAULT 0,
+  `payment_status` enum('unpaid','paid','cancelled') NOT NULL DEFAULT 'unpaid',
   `source` enum('online','walkin') NOT NULL DEFAULT 'online',
   `order_code` varchar(40) DEFAULT NULL,
-  `midtrans_order_id` varchar(64) DEFAULT NULL,
-  `snap_token` varchar(100) DEFAULT NULL,
-  `payment_expires_at` int(11) DEFAULT NULL,
   `expires_at` int(11) DEFAULT NULL,
   `paid_at` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `order_code` (`order_code`),
-  UNIQUE KEY `midtrans_order_id` (`midtrans_order_id`),
   KEY `room_id` (`room_id`),
   KEY `user_id` (`user_id`),
   KEY `room_time` (`room_id`,`start_time`,`end_time`),
@@ -61,7 +57,7 @@ CREATE TABLE `bookings` (
 
 LOCK TABLES `bookings` WRITE;
 /*!40000 ALTER TABLE `bookings` DISABLE KEYS */;
-INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,'unpaid','cashier','online','GZ-20',NULL,NULL,NULL,NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,'unpaid','cashier','online','GZ-21',NULL,NULL,NULL,NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,'unpaid','cashier','online','GZ-22',NULL,NULL,NULL,NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,'unpaid','cashier','online','GZ-23',NULL,NULL,NULL,NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,'unpaid','cashier','online','GZ-24',NULL,NULL,NULL,NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,'unpaid','cashier','online','GZ-25',NULL,NULL,NULL,NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,'unpaid','cashier','online','GZ-26',NULL,NULL,NULL,NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,'unpaid','cashier','online','GZ-28',NULL,NULL,NULL,NULL,NULL,'2026-05-10 05:58:14');
+INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,0,'unpaid','online','GZ-20',NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,0,'unpaid','online','GZ-21',NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,0,'unpaid','online','GZ-22',NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,0,'unpaid','online','GZ-23',NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,0,'unpaid','online','GZ-24',NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,0,'unpaid','online','GZ-25',NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,0,'unpaid','online','GZ-26',NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,0,'unpaid','online','GZ-28',NULL,NULL,'2026-05-10 05:58:14');
 /*!40000 ALTER TABLE `bookings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -131,7 +127,6 @@ CREATE TABLE `games` (
   `image` varchar(255) DEFAULT NULL,
   `is_active` tinyint(1) DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `cover_image` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -142,7 +137,7 @@ CREATE TABLE `games` (
 
 LOCK TABLES `games` WRITE;
 /*!40000 ALTER TABLE `games` DISABLE KEYS */;
-INSERT INTO `games` VALUES (14,'Resident Evil 7: Biohazard','Action','game_69f70ca75e965.webp',1,'2026-05-03 08:51:51',NULL),(15,'Resident Evil Village','Action','game_69f70ccb62b74.jpg',1,'2026-05-03 08:52:27',NULL),(16,'EFOOTBALL 2026','Sports','game_69f70ce0887cc.jpg',1,'2026-05-03 08:52:48',NULL),(17,'FC26','Sports','game_69f70cec1ce58.jpg',1,'2026-05-03 08:53:00',NULL),(19,'Resident Evil Requiem','Action','game_69f70d26175f3.webp',1,'2026-05-03 08:53:58',NULL),(20,'Devil May Cry 5','Action','game_69f70d4508541.webp',1,'2026-05-03 08:54:29',NULL),(21,'Final Fantasy VII Remake','Adventure','game_69f70d85e0591.png',1,'2026-05-03 08:55:33',NULL),(22,'F1 2021','Racing','game_69f70dca438e2.jpg',1,'2026-05-03 08:56:42',NULL),(23,'Persona 5','Puzzle',NULL,1,'2026-05-03 15:23:49',NULL),(24,'NBA 2K26','Sports',NULL,1,'2026-05-03 16:20:39',NULL),(25,'NBA 2K','Sports',NULL,1,'2026-05-03 16:30:51',NULL),(26,'FC25','Sports','game_69f779b1eff47.jpg',1,'2026-05-03 16:37:06',NULL),(27,'GTA VI','Roleplay',NULL,1,'2026-05-07 14:40:47',NULL);
+INSERT INTO `games` VALUES (14,'Resident Evil 7: Biohazard','Action','game_69f70ca75e965.webp',1,'2026-05-03 08:51:51'),(15,'Resident Evil Village','Action','game_69f70ccb62b74.jpg',1,'2026-05-03 08:52:27'),(16,'EFOOTBALL 2026','Sports','game_69f70ce0887cc.jpg',1,'2026-05-03 08:52:48'),(17,'FC26','Sports','game_69f70cec1ce58.jpg',1,'2026-05-03 08:53:00'),(19,'Resident Evil Requiem','Action','game_69f70d26175f3.webp',1,'2026-05-03 08:53:58'),(20,'Devil May Cry 5','Action','game_69f70d4508541.webp',1,'2026-05-03 08:54:29'),(21,'Final Fantasy VII Remake','Adventure','game_69f70d85e0591.png',1,'2026-05-03 08:55:33'),(22,'F1 2021','Racing','game_69f70dca438e2.jpg',1,'2026-05-03 08:56:42'),(23,'Persona 5','Puzzle',NULL,1,'2026-05-03 15:23:49'),(24,'NBA 2K26','Sports',NULL,1,'2026-05-03 16:20:39'),(25,'NBA 2K','Sports',NULL,1,'2026-05-03 16:30:51'),(26,'FC25','Sports','game_69f779b1eff47.jpg',1,'2026-05-03 16:37:06'),(27,'GTA VI','Roleplay',NULL,1,'2026-05-07 14:40:47');
 /*!40000 ALTER TABLE `games` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -189,6 +184,7 @@ CREATE TABLE `menu_orders` (
   `item_id` int(11) NOT NULL,
   `booking_id` int(11) DEFAULT NULL,
   `quantity` int(11) NOT NULL DEFAULT 1,
+  `unit_price` int(11) NOT NULL DEFAULT 0,
   `note` text DEFAULT NULL,
   `status` enum('pending','selesai') NOT NULL DEFAULT 'pending',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -208,7 +204,7 @@ CREATE TABLE `menu_orders` (
 
 LOCK TABLES `menu_orders` WRITE;
 /*!40000 ALTER TABLE `menu_orders` DISABLE KEYS */;
-INSERT INTO `menu_orders` VALUES (1,8,1,NULL,1,'','selesai','2026-05-03 11:05:54'),(2,24,3,NULL,2,'','selesai','2026-05-04 12:40:13'),(3,24,8,NULL,4,'','selesai','2026-05-04 12:40:27'),(4,23,1,NULL,1,'TIDAK PEDAS','selesai','2026-05-07 13:25:09'),(5,22,7,NULL,1,'','selesai','2026-05-09 18:47:04'),(6,25,3,NULL,1,'Pedas','selesai','2026-05-10 05:59:25');
+INSERT INTO `menu_orders` VALUES (1,8,1,NULL,1,12000,'','selesai','2026-05-03 11:05:54'),(2,24,3,NULL,2,18000,'','selesai','2026-05-04 12:40:13'),(3,24,8,NULL,4,8000,'','selesai','2026-05-04 12:40:27'),(4,23,1,NULL,1,12000,'TIDAK PEDAS','selesai','2026-05-07 13:25:09'),(5,22,7,NULL,1,5000,'','selesai','2026-05-09 18:47:04'),(6,25,3,NULL,1,18000,'Pedas','selesai','2026-05-10 05:59:25');
 /*!40000 ALTER TABLE `menu_orders` ENABLE KEYS */;
 UNLOCK TABLES;
 

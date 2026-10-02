@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $id = (int) $_SESSION['user_id'];
 
-$stmt = $conn->prepare("SELECT username, last_activity FROM users WHERE id = ?");
+$stmt = $conn->prepare("SELECT username, created_at FROM users WHERE id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
@@ -22,9 +22,10 @@ if (!$user) {
   exit;
 }
 
-$online = !empty($user['last_activity']) && (time() - strtotime($user['last_activity'])) <= 300;
+$bulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+$ts = $user['created_at'] ? strtotime($user['created_at']) : null;
 
 echo json_encode([
   'username' => $user['username'],
-  'status'   => $online ? 'Online' : 'Offline'
+  'since'    => $ts ? date('j', $ts) . ' ' . $bulan[intval(date('n', $ts)) - 1] . ' ' . date('Y', $ts) : '-',
 ]);

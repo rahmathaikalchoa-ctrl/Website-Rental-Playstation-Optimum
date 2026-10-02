@@ -4,6 +4,11 @@ session_start();
 header("Content-Type: application/json");
 require __DIR__ . "/db.php";
 
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+  echo json_encode(["status" => "error", "message" => "Permintaan tidak valid"]);
+  exit;
+}
+
 $username = trim($_POST['username'] ?? '');
 $password = trim($_POST['password'] ?? '');
 

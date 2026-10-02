@@ -4,6 +4,7 @@ session_start();
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/queue_lib.php';
 require_once __DIR__ . '/booking_lib.php';
+require_once __DIR__ . '/riwayat_filter.php';
 require __DIR__ . '/icons.php';
 
 // Nilai aman untuk argumen JS di atribut onclick. htmlspecialchars saja tidak cukup:
@@ -50,10 +51,10 @@ if (isset($_GET['logout'])) {
 
 $isAdmin = isAdminSession($conn);
 
-$navItems = ['booking' => 'Booking', 'riwayat' => 'Riwayat Booking', 'room' => 'Room',
-             'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
-$page    = $_GET['page'] ?? 'booking';
-if (!isset($navItems[$page])) $page = 'booking';
+$navItems = ['dashboard' => 'Dashboard', 'booking' => 'Booking', 'riwayat' => 'Riwayat Booking',
+             'room' => 'Room', 'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
+$page    = $_GET['page'] ?? 'dashboard';
+if (!isset($navItems[$page])) $page = 'dashboard';
 $perPage = 20;
 $pageNum = max(1, intval($_GET['p'] ?? 1));
 $offset  = ($pageNum - 1) * $perPage;
@@ -86,17 +87,221 @@ $offset  = ($pageNum - 1) * $perPage;
 
 <nav class="sidebar">
   <h2>Optimum Playzone<span class="brand-sub">Panel Admin</span></h2>
+  <?php
+    // Badge jumlah pesanan menu yang belum diantar
+    $pendingOrders = intval(mysqli_fetch_assoc(mysqli_query($conn,
+      "SELECT COUNT(*) AS n FROM menu_orders WHERE status = 'pending'"))['n']);
+  ?>
   <?php foreach ($navItems as $key => $label): ?>
-    <a href="?page=<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= $label ?></a>
+    <a href="?page=<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= $label ?>
+      <?php if ($key === 'menu' && $pendingOrders > 0): ?><span class="nav-badge" title="Pesanan menu belum diantar"><?= $pendingOrders ?></span><?php endif; ?>
+    </a>
   <?php endforeach; ?>
   <a href="?logout=1">Logout</a>
 </nav>
 
 <main>
-  <!-- RIWAYAT BOOKING -->
-<?php if ($page === 'riwayat'): ?>
+  <!-- DASHBOARD -->
+<?php if ($page === 'dashboard'): ?>
   <?php
-    $totalRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS n FROM bookings"))['n'];
+    releaseNoShows($conn);
+    $now        = time();
+    $todayStart = strtotime('today', $now);
+    $monthStart = strtotime(date('Y-m-01', $now));
+    $bulanNama  = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    $bulanIni   = $bulanNama[intval(date('n', $now)) - 1] . ' ' . date('Y', $now);
+
+    // Pendapatan dihitung dari uang yang sudah diterima kasir (amount_paid), menurut waktu bayar
+    $revenueSince = function ($from) use ($conn) {
+      $stmt = $conn->prepare("SELECT COALESCE(SUM(amount_paid), 0) AS s FROM bookings WHERE payment_status <> 'cancelled' AND paid_at >= ?");
+      $stmt->bind_param("i", $from);
+      $stmt->execute();
+      $s = intval($stmt->get_result()->fetch_assoc()['s']);
+      $stmt->close();
+      return $s;
+    };
+    $revToday = $revenueSince($todayStart);
+    $revMonth = $revenueSince($monthStart);
+
+    $tomorrow = $todayStart + 86400;
+    $stmt = $conn->prepare("SELECT COUNT(*) AS n FROM bookings WHERE payment_status <> 'cancelled' AND start_time >= ? AND start_time < ?");
+    $stmt->bind_param("ii", $todayStart, $tomorrow);
+    $stmt->execute();
+    $bookToday = intval($stmt->get_result()->fetch_assoc()['n']);
+    $stmt->close();
+
+    $monthStartSql = date('Y-m-d 00:00:00', $monthStart);
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(quantity * unit_price), 0) AS s FROM menu_orders WHERE status = 'selesai' AND created_at >= ?");
+    $stmt->bind_param("s", $monthStartSql);
+    $stmt->execute();
+    $menuMonth = intval($stmt->get_result()->fetch_assoc()['s']);
+    $stmt->close();
+
+    // Pendapatan 14 hari terakhir (hari tanpa transaksi tetap ditampilkan sebagai 0)
+    $days = [];
+    for ($i = 13; $i >= 0; $i--) {
+      $d = strtotime("-$i day", $todayStart);
+      $days[date('Y-m-d', $d)] = ['ts' => $d, 'sum' => 0, 'count' => 0];
+    }
+    $chartFrom = reset($days)['ts'];
+    $stmt = $conn->prepare("
+      SELECT DATE(FROM_UNIXTIME(paid_at)) AS d, SUM(amount_paid) AS s, COUNT(*) AS n
+      FROM bookings WHERE payment_status <> 'cancelled' AND paid_at >= ?
+      GROUP BY d
+    ");
+    $stmt->bind_param("i", $chartFrom);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+      if (isset($days[$row['d']])) {
+        $days[$row['d']]['sum'] = intval($row['s']);
+        $days[$row['d']]['count'] = intval($row['n']);
+      }
+    }
+    $stmt->close();
+    $maxDay = max(1, max(array_column($days, 'sum')));
+
+    // Ringkasan booking bulan ini (menurut jadwal main)
+    $stmt = $conn->prepare("SELECT payment_status, source, COUNT(*) AS n FROM bookings WHERE start_time >= ? GROUP BY payment_status, source");
+    $stmt->bind_param("i", $monthStart);
+    $stmt->execute();
+    $byStatus = ['paid' => 0, 'unpaid' => 0, 'cancelled' => 0];
+    $bySource = ['online' => 0, 'walkin' => 0];
+    $res = $stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+      $byStatus[$row['payment_status']] = ($byStatus[$row['payment_status']] ?? 0) + intval($row['n']);
+      if ($row['payment_status'] !== 'cancelled') $bySource[$row['source']] += intval($row['n']);
+    }
+    $stmt->close();
+    $totalMonth = max(1, array_sum($byStatus));
+    $totalSource = max(1, array_sum($bySource));
+
+    $stmt = $conn->prepare("
+      SELECT r.title, r.console_type, COUNT(b.id) AS n, COALESCE(SUM(b.amount_paid), 0) AS s
+      FROM bookings b JOIN rooms r ON r.id = b.room_id
+      WHERE b.payment_status <> 'cancelled' AND b.start_time >= ?
+      GROUP BY r.id ORDER BY n DESC, s DESC LIMIT 5
+    ");
+    $stmt->bind_param("i", $monthStart);
+    $stmt->execute();
+    $topRooms = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    $maxRoom = max(1, max(array_column($topRooms, 'n') ?: [0]));
+
+    $rp = fn($n) => 'Rp' . number_format($n, 0, ',', '.');
+    $hariPendek = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+  ?>
+  <div class="page-head">
+    <div>
+      <h2>Dashboard</h2>
+      <p class="page-sub">Ringkasan pendapatan dan booking. Pendapatan dihitung dari pembayaran yang sudah diterima kasir.</p>
+    </div>
+    <span class="clock-chip"><?= icon('clock') ?> <?= date('d', $now) ?> <?= $bulanNama[intval(date('n', $now)) - 1] ?></span>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-card stat-kosong"><span class="stat-num"><?= $rp($revToday) ?></span><span class="stat-label">Pendapatan hari ini</span></div>
+    <div class="stat-card stat-tunggu"><span class="stat-num"><?= $rp($revMonth) ?></span><span class="stat-label">Pendapatan <?= $bulanIni ?></span></div>
+    <div class="stat-card stat-service"><span class="stat-num"><?= $bookToday ?></span><span class="stat-label">Booking jadwal hari ini</span></div>
+    <div class="stat-card stat-dipakai"><span class="stat-num"><?= $rp($menuMonth) ?></span><span class="stat-label">Penjualan menu <?= $bulanIni ?></span></div>
+  </div>
+
+  <div class="dash-grid">
+    <section class="panel-card dash-chart-card">
+      <h3 class="panel-title"><?= icon('clipboard') ?> Pendapatan 14 hari terakhir</h3>
+      <div class="bar-chart" role="img" aria-label="Grafik batang pendapatan harian 14 hari terakhir">
+        <?php foreach ($days as $date => $d): ?>
+          <?php
+            $h = $d['sum'] > 0 ? max(3, round($d['sum'] / $maxDay * 100)) : 0;
+            $label = $hariPendek[intval(date('w', $d['ts']))] . ' ' . date('j', $d['ts']);
+            $tip = date('d', $d['ts']) . ' ' . $bulanNama[intval(date('n', $d['ts'])) - 1] . ' · ' . $rp($d['sum']) . ' · ' . $d['count'] . ' pembayaran';
+          ?>
+          <div class="bar-col<?= $date === date('Y-m-d', $now) ? ' is-today' : '' ?>" data-tip="<?= htmlspecialchars($tip) ?>" tabindex="0">
+            <div class="bar-track"><div class="bar" style="height:<?= $h ?>%"></div></div>
+            <span class="bar-label"><?= $label ?></span>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <p class="chart-scale">Tertinggi: <?= $rp($maxDay > 1 ? $maxDay : 0) ?> per hari</p>
+      <details class="chart-table">
+        <summary>Lihat tabel data</summary>
+        <div class="table-wrap">
+          <table class="users-table">
+            <tr><th>Tanggal</th><th>Pembayaran</th><th>Pendapatan</th></tr>
+            <?php foreach (array_reverse($days, true) as $d): ?>
+              <tr><td><?= date('d', $d['ts']) . ' ' . $bulanNama[intval(date('n', $d['ts'])) - 1] ?></td><td><?= $d['count'] ?></td><td><?= $rp($d['sum']) ?></td></tr>
+            <?php endforeach; ?>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel-card">
+      <h3 class="panel-title"><?= icon('check') ?> Booking <?= $bulanIni ?></h3>
+      <?php
+        $statusRows = [
+          ['Lunas', $byStatus['paid'], 'st-paid'],
+          ['Belum bayar', $byStatus['unpaid'], 'st-unpaid'],
+          ['Dibatalkan', $byStatus['cancelled'], 'st-cancel'],
+        ];
+      ?>
+      <ul class="hbar-list">
+        <?php foreach ($statusRows as [$lbl, $n, $cls]): ?>
+          <li class="<?= $cls ?>">
+            <div class="hbar-head"><span><?= $lbl ?></span><strong><?= $n ?></strong></div>
+            <div class="hbar-track"><div class="hbar" style="width:<?= round($n / $totalMonth * 100) ?>%"></div></div>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+      <h4 class="dash-sub">Sumber booking (tidak termasuk batal)</h4>
+      <div class="split-bar" role="img" aria-label="Online <?= $bySource['online'] ?>, Offline <?= $bySource['walkin'] ?>">
+        <div class="split-online" style="width:<?= round($bySource['online'] / $totalSource * 100) ?>%"></div>
+        <div class="split-offline" style="width:<?= round($bySource['walkin'] / $totalSource * 100) ?>%"></div>
+      </div>
+      <div class="split-legend">
+        <span><i class="dot dot-online"></i> Online <strong><?= $bySource['online'] ?></strong></span>
+        <span><i class="dot dot-offline"></i> Offline <strong><?= $bySource['walkin'] ?></strong></span>
+      </div>
+    </section>
+
+    <section class="panel-card">
+      <h3 class="panel-title"><?= icon('gamepad') ?> Ruangan terlaris <?= $bulanIni ?></h3>
+      <?php if (!$topRooms): ?>
+        <p class="queue-empty">Belum ada booking bulan ini.</p>
+      <?php else: ?>
+        <ol class="rank-list">
+          <?php foreach ($topRooms as $i => $r): ?>
+            <li>
+              <span class="rank-no"><?= $i + 1 ?></span>
+              <div class="rank-info">
+                <div class="hbar-head">
+                  <span><?= htmlspecialchars($r['title']) ?> <span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_type']) ?></span></span>
+                  <strong><?= intval($r['n']) ?> booking</strong>
+                </div>
+                <div class="hbar-track"><div class="hbar" style="width:<?= round(intval($r['n']) / $maxRoom * 100) ?>%"></div></div>
+                <span class="cell-sub">Diterima <?= $rp(intval($r['s'])) ?></span>
+              </div>
+            </li>
+          <?php endforeach; ?>
+        </ol>
+      <?php endif; ?>
+    </section>
+  </div>
+  <div id="chartTip" class="chart-tip" hidden></div>
+
+  <!-- RIWAYAT BOOKING -->
+<?php elseif ($page === 'riwayat'): ?>
+  <?php
+    // Booking yang lewat batas check-in ditandai batal dulu supaya status akurat
+    releaseNoShows($conn);
+    $f = riwayatFilter($_GET);
+
+    $stmt = $conn->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(b.amount_paid), 0) AS paid FROM bookings b {$f['where']}");
+    if ($f['types'] !== '') $stmt->bind_param($f['types'], ...$f['params']);
+    $stmt->execute();
+    $sum = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $totalRow = intval($sum['n']);
     $totalPages = max(1, (int) ceil($totalRow / $perPage));
     $pageNum = min($pageNum, $totalPages);
     $offset  = ($pageNum - 1) * $perPage;
@@ -105,16 +310,21 @@ $offset  = ($pageNum - 1) * $perPage;
       SELECT b.*, r.title AS room_title
       FROM bookings b
       LEFT JOIN rooms r ON r.id = b.room_id
+      {$f['where']}
       ORDER BY b.created_at DESC LIMIT ? OFFSET ?
     ");
-    $stmt->bind_param("ii", $perPage, $offset);
+    $types = $f['types'] . 'ii';
+    $params = array_merge($f['params'], [$perPage, $offset]);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result();
     $stmt->close();
 
+    $fv = $f['values'];
+    $qs = $f['query'] !== '' ? '&' . $f['query'] : '';
+
     $payLabel = [
       'unpaid'    => ['Belum bayar', 'pay-unpaid'],
-      'pending'   => ['Menunggu bayar online', 'pay-pending'],
       'paid'      => ['Lunas', 'pay-paid'],
       'cancelled' => ['Dibatalkan', 'pay-cancelled'],
     ];
@@ -122,9 +332,42 @@ $offset  = ($pageNum - 1) * $perPage;
   <div class="page-head">
     <div>
       <h2>Riwayat Booking</h2>
-      <p class="page-sub"><?= $totalRow ?> booking tercatat. Booking yang dibatalkan tetap disimpan untuk arsip.</p>
+      <p class="page-sub"><?= $totalRow ?> booking<?= $f['where'] ? ' sesuai filter' : ' tercatat' ?> · total diterima Rp<?= number_format(intval($sum['paid']), 0, ',', '.') ?>. Booking yang dibatalkan tetap disimpan untuk arsip.</p>
+    </div>
+    <div class="head-actions no-print">
+      <a class="btn-ghost-sm btn-link" href="admin_export.php?<?= htmlspecialchars($f['query']) ?>"><?= icon('clipboard') ?> Export CSV</a>
+      <button type="button" class="btn-ghost-sm" onclick="window.print()">Cetak</button>
     </div>
   </div>
+
+  <form method="get" class="filter-bar no-print">
+    <input type="hidden" name="page" value="riwayat">
+    <label class="field">
+      <span>Jadwal dari</span>
+      <input type="date" name="from" value="<?= htmlspecialchars($fv['from']) ?>">
+    </label>
+    <label class="field">
+      <span>Sampai</span>
+      <input type="date" name="to" value="<?= htmlspecialchars($fv['to']) ?>">
+    </label>
+    <label class="field">
+      <span>Status</span>
+      <select name="status">
+        <option value="">Semua</option>
+        <?php foreach ($payLabel as $k => [$lbl]): ?>
+          <option value="<?= $k ?>" <?= $fv['status'] === $k ? 'selected' : '' ?>><?= $lbl ?></option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+    <label class="field field-grow">
+      <span>Nama / kode booking</span>
+      <input type="search" name="q" value="<?= htmlspecialchars($fv['q']) ?>" placeholder="mis. Budi atau GZ-51">
+    </label>
+    <div class="filter-actions">
+      <button type="submit" class="btn-primary">Terapkan</button>
+      <?php if ($f['where']): ?><a class="btn-ghost-sm btn-link" href="?page=riwayat">Reset</a><?php endif; ?>
+    </div>
+  </form>
   <div class="table-wrap">
     <table class="users-table">
       <tr><th>Konsumen</th><th>Ruangan</th><th>Jadwal</th><th>Total</th><th>Status</th><th>Aksi</th></tr>
@@ -140,7 +383,7 @@ $offset  = ($pageNum - 1) * $perPage;
       ?>
       <tr class="<?= $isCancelled ? 'row-cancelled' : '' ?>">
         <td class="cell-main"><?= htmlspecialchars($b['customer_name']) ?>
-          <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?> · <?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?><?= $b['payment_method'] === 'midtrans' && $b['payment_status'] === 'paid' ? ' · bayar via Midtrans' : '' ?></span>
+          <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?> · <?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?></span>
         </td>
         <td><?= htmlspecialchars($b['room_title'] ?? '-') ?></td>
         <?php $st = intval($b['start_time']); ?>
@@ -152,10 +395,10 @@ $offset  = ($pageNum - 1) * $perPage;
         <td>
           <div class="row-actions">
             <?php if (!$isCancelled && $b['payment_status'] !== 'paid'): ?>
-              <button class="btn-paid-sm" onclick="markPaid(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>, <?= intval($b['total_price']) ?>)">Lunas</button>
+              <button class="btn-paid-sm" onclick="markPaid(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>, <?= intval($b['total_price']) - intval($b['amount_paid']) ?>)">Lunas</button>
             <?php endif; ?>
             <?php if (!$isCancelled && intval($b['end_time']) > time()): ?>
-              <button class="btn-icon" title="Batalkan booking" aria-label="Batalkan booking" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>)"><?= icon('x') ?></button>
+              <button class="btn-icon" title="Batalkan booking" aria-label="Batalkan booking" onclick="cancelBooking(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>, <?= intval($b['amount_paid']) ?>)"><?= icon('x') ?></button>
             <?php elseif ($isCancelled || $b['payment_status'] === 'paid'): ?>
               <span class="muted-dash">—</span>
             <?php endif; ?>
@@ -169,11 +412,11 @@ $offset  = ($pageNum - 1) * $perPage;
   <?php if ($totalPages > 1): ?>
   <div class="pagination">
     <?php if ($pageNum > 1): ?>
-      <a href="?page=riwayat&p=<?= $pageNum - 1 ?>">&laquo; Prev</a>
+      <a href="?page=riwayat&p=<?= $pageNum - 1 ?><?= htmlspecialchars($qs) ?>">&laquo; Prev</a>
     <?php endif; ?>
     <span>Hal <?= $pageNum ?> / <?= $totalPages ?></span>
     <?php if ($pageNum < $totalPages): ?>
-      <a href="?page=riwayat&p=<?= $pageNum + 1 ?>">Next &raquo;</a>
+      <a href="?page=riwayat&p=<?= $pageNum + 1 ?><?= htmlspecialchars($qs) ?>">Next &raquo;</a>
     <?php endif; ?>
   </div>
   <?php endif; ?>
@@ -186,7 +429,7 @@ $offset  = ($pageNum - 1) * $perPage;
     $dayEnd = strtotime(date('Y-m-d', $now)) + 24 * 3600;
 
     $curStmt  = $conn->prepare("
-      SELECT id, customer_name, source, start_time, end_time, expires_at, payment_status, total_price FROM bookings
+      SELECT id, customer_name, source, start_time, end_time, expires_at, payment_status, total_price, amount_paid FROM bookings
       WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time <= ? AND end_time > ? LIMIT 1
     ");
     $nextStmt = $conn->prepare("
@@ -198,7 +441,7 @@ $offset  = ($pageNum - 1) * $perPage;
     $rooms = [];
     $roomOptions = [];
     $minPrice = [];
-    $stat = ['kosong' => 0, 'dipakai' => 0, 'service' => 0];
+    $stat = ['kosong' => 0, 'dipakai' => 0, 'menunggu' => 0, 'service' => 0];
     $roomRes = mysqli_query($conn, "SELECT id, title, console_type, price, status FROM rooms ORDER BY console_type, id");
     while ($r = mysqli_fetch_assoc($roomRes)) {
       $rid = intval($r['id']);
@@ -212,7 +455,9 @@ $offset  = ($pageNum - 1) * $perPage;
       if ($r['status'] !== 'available')  { $r['state'] = 'service'; }
       elseif ($r['cur'])                 { $r['state'] = 'dipakai'; }
       else                               { $r['state'] = 'kosong'; }
-      $stat[$r['state']]++;
+      // Reservasi yang konsumennya belum datang tidak dihitung "sedang dipakai"
+      if ($r['state'] === 'dipakai' && $r['cur']['expires_at'] !== null) $stat['menunggu']++;
+      else $stat[$r['state']]++;
 
       $ct = $r['console_type'];
       if ($r['status'] === 'available') {
@@ -251,7 +496,7 @@ $offset  = ($pageNum - 1) * $perPage;
 
   <div class="stat-row">
     <div class="stat-card stat-kosong"><span class="stat-num"><?= $stat['kosong'] ?></span><span class="stat-label">Ruangan kosong</span></div>
-    <div class="stat-card stat-dipakai"><span class="stat-num"><?= $stat['dipakai'] ?></span><span class="stat-label">Sedang dipakai</span></div>
+    <div class="stat-card stat-dipakai"><span class="stat-num"><?= $stat['dipakai'] ?></span><span class="stat-label">Sedang dipakai<?= $stat['menunggu'] ? ' · ' . $stat['menunggu'] . ' menunggu datang' : '' ?></span></div>
     <div class="stat-card stat-tunggu"><span class="stat-num"><?= $totalWaiting ?></span><span class="stat-label">Daftar tunggu</span></div>
     <div class="stat-card stat-service"><span class="stat-num"><?= $stat['service'] ?></span><span class="stat-label">In service</span></div>
   </div>
@@ -396,14 +641,12 @@ $offset  = ($pageNum - 1) * $perPage;
             <p class="room-who">
               <?= htmlspecialchars($cur['customer_name']) ?>
               <span class="src-chip"><?= $srcLabel($cur['source']) ?></span>
-              <?php
-                [$curPayLabel, $curPayClass] = match ($cur['payment_status']) {
-                  'paid'    => ['Lunas', 'pay-paid'],
-                  'pending' => ['Menunggu bayar online', 'pay-pending'],
-                  default   => ['Belum bayar', 'pay-unpaid'],
-                };
-              ?>
-              <span class="pay-badge <?= $curPayClass ?>"><?= $curPayLabel ?></span>
+              <?php $due = intval($cur['total_price']) - intval($cur['amount_paid']); ?>
+              <span class="pay-badge <?= $cur['payment_status'] === 'paid' ? 'pay-paid' : 'pay-unpaid' ?>">
+                <?php if ($cur['payment_status'] === 'paid'): ?>Lunas
+                <?php elseif (intval($cur['amount_paid']) > 0): ?>Kurang Rp<?= number_format($due, 0, ',', '.') ?>
+                <?php else: ?>Belum bayar<?php endif; ?>
+              </span>
             </p>
             <?php if ($waitingArrival): ?>
               <p class="checkin-wait">Menunggu kedatangan s/d <?= date('H:i', intval($cur['expires_at'])) ?></p>
@@ -432,7 +675,7 @@ $offset  = ($pageNum - 1) * $perPage;
                 <button class="btn-checkin" onclick="checkinBooking(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)"><?= icon('check') ?> Hadir</button>
               <?php endif; ?>
               <?php if ($cur['payment_status'] !== 'paid'): ?>
-                <button class="btn-paid" onclick="markPaid(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>, <?= intval($cur['total_price']) ?>)">Lunas</button>
+                <button class="btn-paid" onclick="markPaid(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>, <?= intval($cur['total_price']) - intval($cur['amount_paid']) ?>)">Lunas</button>
               <?php endif; ?>
               <?php if (!$waitingArrival): ?>
                 <div class="extend-inline">
@@ -488,7 +731,15 @@ $offset  = ($pageNum - 1) * $perPage;
 
   <!-- ROOMS -->
 <?php elseif ($page === 'room'): ?>
-  <?php $rooms = mysqli_query($conn, "SELECT * FROM rooms ORDER BY console_type, id"); ?>
+  <?php
+    // upcoming = booking mendatang/berjalan yang masih aktif, untuk peringatan saat set perawatan
+    $rooms = mysqli_query($conn, "
+      SELECT r.*,
+        (SELECT COUNT(*) FROM bookings b
+          WHERE b.room_id = r.id AND b.payment_status <> 'cancelled' AND b.end_time > UNIX_TIMESTAMP()) AS upcoming
+      FROM rooms r ORDER BY r.console_type, r.id
+    ");
+  ?>
   <div class="page-head">
     <div>
       <h2>Manajemen Room</h2>
@@ -538,12 +789,37 @@ $offset  = ($pageNum - 1) * $perPage;
         <td><span class="pay-badge <?= $active ? 'pay-paid' : 'pay-unpaid' ?>"><?= $active ? 'Aktif' : 'Perawatan' ?></span></td>
         <td>
           <div class="row-actions">
-            <button class="<?= $active ? 'btn-warn-sm' : 'btn-ghost-sm' ?>" onclick="toggleRoom(<?= intval($r['id']) ?>)"><?= $active ? 'Set Perawatan' : 'Aktifkan' ?></button>
+            <button class="btn-ghost-sm" onclick="openEditRoom(<?= jsArg(['id' => intval($r['id']), 'title' => $r['title'], 'console_type' => $r['console_type'], 'price' => intval($r['price']), 'description' => $r['description']]) ?>)">Edit</button>
+            <button class="<?= $active ? 'btn-warn-sm' : 'btn-ghost-sm' ?>" onclick="toggleRoom(<?= intval($r['id']) ?>, <?= jsArg($r['title']) ?>, <?= $active ? 'true' : 'false' ?>, <?= intval($r['upcoming']) ?>)"><?= $active ? 'Set Perawatan' : 'Aktifkan' ?></button>
           </div>
         </td>
       </tr>
       <?php endwhile; ?>
     </table>
+  </div>
+
+  <!-- MODAL EDIT RUANGAN -->
+  <div id="editRoomModal" class="modal-backdrop" style="display:none">
+    <form id="editRoomForm" class="modal-card">
+      <h3 class="panel-title">Edit Ruangan</h3>
+      <p class="page-sub">Harga baru hanya berlaku untuk booking berikutnya.</p>
+      <input type="hidden" name="id">
+      <label class="field"><span>Nama room</span><input name="title" maxlength="100" required></label>
+      <div class="field-row">
+        <label class="field">
+          <span>Konsol</span>
+          <select name="console" required>
+            <?php foreach (QUEUE_CONSOLES as $c): ?><option value="<?= $c ?>"><?= $c ?></option><?php endforeach; ?>
+          </select>
+        </label>
+        <label class="field"><span>Harga / jam</span><input type="number" name="price" min="1" required></label>
+      </div>
+      <label class="field"><span>Keterangan</span><input name="description" maxlength="255"></label>
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary">Simpan</button>
+        <button type="button" class="btn-ghost-sm" onclick="closeEditModal('editRoomModal')">Batal</button>
+      </div>
+    </form>
   </div>
 
   <!-- AKUN -->
@@ -716,12 +992,14 @@ $pendingCount = mysqli_fetch_assoc(mysqli_query($conn,
     "SELECT COUNT(*) AS n FROM menu_orders WHERE status = 'pending'"
 ))['n'];
 $orders = mysqli_query($conn, "
-    SELECT mo.id, mo.quantity, mo.note, mo.status, mo.created_at,
-           mi.name AS item_name, mi.price,
-           u.username
+    SELECT mo.id, mo.quantity, mo.unit_price, mo.note, mo.status, mo.created_at,
+           mi.name AS item_name,
+           u.username, r.title AS room_title, b.order_code
     FROM menu_orders mo
     JOIN menu_items mi ON mi.id = mo.item_id
     JOIN users u       ON u.id  = mo.user_id
+    LEFT JOIN bookings b ON b.id = mo.booking_id
+    LEFT JOIN rooms r    ON r.id = b.room_id
     ORDER BY mo.status ASC, mo.created_at DESC
     LIMIT 50
 ");
@@ -746,10 +1024,12 @@ $orders = mysqli_query($conn, "
     <?php while ($o = mysqli_fetch_assoc($orders)): ?>
     <?php $isDone = $o['status'] === 'selesai'; ?>
     <tr class="<?= $isDone ? 'row-done' : '' ?>">
-      <td class="cell-main"><?= htmlspecialchars($o['username']) ?></td>
+      <td class="cell-main"><?= htmlspecialchars($o['username']) ?>
+        <span class="cell-sub"><?= $o['room_title'] ? 'Antar ke ' . htmlspecialchars($o['room_title']) . ' · ' . htmlspecialchars($o['order_code'] ?? '') : 'Ambil di kasir' ?></span>
+      </td>
       <td><?= htmlspecialchars($o['item_name']) ?></td>
       <td><?= intval($o['quantity']) ?>x</td>
-      <td>Rp<?= number_format($o['price'] * $o['quantity'], 0, ',', '.') ?></td>
+      <td>Rp<?= number_format($o['unit_price'] * $o['quantity'], 0, ',', '.') ?></td>
       <td class="wrap-cell"><?= $o['note'] ? htmlspecialchars($o['note']) : '<span class="muted-dash">—</span>' ?></td>
       <td><?= date('d M H:i', strtotime($o['created_at'])) ?></td>
       <td>
@@ -820,6 +1100,7 @@ $orders = mysqli_query($conn, "
         <td><span class="pay-badge <?= $item['is_available'] ? 'pay-paid' : 'pay-cancelled' ?>"><?= $item['is_available'] ? 'Tersedia' : 'Habis' ?></span></td>
         <td>
           <div class="row-actions">
+            <button class="btn-ghost-sm" onclick="openEditMenu(<?= jsArg(['id' => intval($item['id']), 'name' => $item['name'], 'category' => $item['category'], 'price' => intval($item['price']), 'description' => $item['description']]) ?>)">Edit</button>
             <button class="<?= $item['is_available'] ? 'btn-warn-sm' : 'btn-ghost-sm' ?>" onclick="toggleMenuItem(<?= intval($item['id']) ?>)">
               <?= $item['is_available'] ? 'Tandai Habis' : 'Tandai Tersedia' ?>
             </button>
@@ -830,6 +1111,35 @@ $orders = mysqli_query($conn, "
       <?php endwhile; ?>
     </table>
   </div>
+</div>
+
+<!-- MODAL EDIT MENU -->
+<div id="editMenuModal" class="modal-backdrop" style="display:none">
+  <form id="editMenuForm" class="modal-card" enctype="multipart/form-data">
+    <h3 class="panel-title">Edit Item Menu</h3>
+    <p class="page-sub">Pesanan lama tetap memakai harga saat dipesan.</p>
+    <input type="hidden" name="id">
+    <label class="field"><span>Nama item</span><input name="name" maxlength="100" required></label>
+    <div class="field-row">
+      <label class="field">
+        <span>Kategori</span>
+        <select name="category" required>
+          <option value="makanan">Makanan</option>
+          <option value="minuman">Minuman</option>
+        </select>
+      </label>
+      <label class="field"><span>Harga</span><input type="number" name="price" min="1" required></label>
+    </div>
+    <label class="field"><span>Deskripsi <em>(opsional)</em></span><input name="description" maxlength="255"></label>
+    <label class="field">
+      <span>Ganti foto <em>(opsional, JPG/PNG/WEBP maks 2 MB)</em></span>
+      <input type="file" name="item_image" accept="image/jpeg,image/png,image/webp">
+    </label>
+    <div class="modal-actions">
+      <button type="submit" class="btn-primary">Simpan</button>
+      <button type="button" class="btn-ghost-sm" onclick="closeEditModal('editMenuModal')">Batal</button>
+    </div>
+  </form>
 </div>
 
 <?php endif; ?>

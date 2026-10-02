@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" role="img" aria-label="Menu makanan dan minuman">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10141b"/>
+      <stop offset="1" stop-color="#2a1d10"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="400" fill="url(#bg)"/>
+  <!-- mangkuk -->
+  <g fill="none" stroke="#ffaa00" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity=".9">
+    <path d="M170 200h200c0 70-45 110-100 110s-100-40-100-110z"/>
+    <path d="M150 200h240"/>
+    <path d="M215 160c0-18 14-18 14-36M265 160c0-18 14-18 14-36M315 160c0-18 14-18 14-36" stroke-opacity=".7"/>
+  </g>
+  <!-- gelas minuman -->
+  <g fill="none" stroke="#00eaff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity=".9">
+    <path d="M410 150h70l-10 160h-50z"/>
+    <path d="M415 200h60" stroke-opacity=".6"/>
+    <path d="M455 150l20-50h20"/>
+  </g>
+</svg>

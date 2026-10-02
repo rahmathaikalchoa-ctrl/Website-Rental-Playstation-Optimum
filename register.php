@@ -18,7 +18,14 @@ $username = trim($_POST["username"] ?? "");
 $password = trim($_POST["password"] ?? "");
 
 if ($username === "" || $password === "") {
-  echo json_encode(["status" => "error", "message" => "Data tidak lengkap"]);
+  echo json_encode(["status" => "error", "message" => "Username dan password wajib diisi"]);
+  exit;
+}
+
+// Kolom username maks 50 karakter; tanpa validasi, nama panjang terpotong diam-diam
+// oleh database dan akun tidak bisa dipakai login
+if (!preg_match('/^[A-Za-z0-9_]{3,30}$/', $username)) {
+  echo json_encode(["status" => "error", "message" => "Username 3-30 karakter, hanya huruf, angka, dan garis bawah (_)"]);
   exit;
 }
 

@@ -30,9 +30,12 @@ function adminAction(params, confirmMsg) {
     .finally(() => { adminBusy = false; });
 }
 
-function cancelBooking(id, name) {
+function cancelBooking(id, name, amountPaid = 0) {
+  const refund = amountPaid > 0
+    ? `\n\nPERHATIAN: konsumen sudah membayar ${rupiah(amountPaid)}. Uang perlu dikembalikan manual.`
+    : "";
   adminAction({ action: "cancel_booking", id },
-    `Batalkan booking "${name}"? Data tetap tersimpan di riwayat.`);
+    `Batalkan booking "${name}"? Data tetap tersimpan di riwayat.${refund}`);
 }
 
 function finishBooking(id) {
@@ -68,9 +71,101 @@ function toggleRole(id, username) {
   adminAction({ action: "toggle_role", id }, `Ubah role akun "${username}"?`);
 }
 
-function toggleRoom(id) {
-  adminAction({ action: "toggle_room", id });
+function toggleRoom(id, name, active, upcoming) {
+  const msg = active
+    ? `Set "${name}" ke perawatan? Ruangan tidak bisa dibooking sampai diaktifkan lagi.` +
+      (upcoming > 0 ? `\n\nAda ${upcoming} booking mendatang di ruangan ini. Hubungi konsumennya atau pindahkan/batalkan dari Riwayat Booking.` : "")
+    : `Aktifkan kembali "${name}"?`;
+  adminAction({ action: "toggle_room", id }, msg);
 }
+
+// ===== MODAL EDIT RUANGAN & MENU =====
+function openEditModal(id) {
+  const m = document.getElementById(id);
+  if (m) m.style.display = "flex";
+}
+function closeEditModal(id) {
+  const m = document.getElementById(id);
+  if (m) m.style.display = "none";
+}
+
+function openEditRoom(room) {
+  const f = document.getElementById("editRoomForm");
+  if (!f) return;
+  f.elements.id.value = room.id;
+  f.elements.title.value = room.title;
+  f.elements.console.value = room.console_type;
+  f.elements.price.value = room.price;
+  f.elements.description.value = room.description || "";
+  openEditModal("editRoomModal");
+}
+
+function openEditMenu(item) {
+  const f = document.getElementById("editMenuForm");
+  if (!f) return;
+  f.reset();
+  f.elements.id.value = item.id;
+  f.elements.name.value = item.name;
+  f.elements.category.value = item.category;
+  f.elements.price.value = item.price;
+  f.elements.description.value = item.description || "";
+  openEditModal("editMenuModal");
+}
+
+// Kirim form edit (FormData agar file gambar ikut terkirim)
+function submitEditForm(form, action, modalId) {
+  const fd = new FormData(form);
+  fd.append("action", action);
+  const btn = form.querySelector("[type=submit]");
+  btn.disabled = true;
+  fetch("admin_api.php", { method: "POST", body: fd })
+    .then((r) => r.json())
+    .then((r) => {
+      if (r.status === "ok") {
+        if (r.image_saved === false) alert("Data tersimpan, tetapi gambar gagal diunggah (harus JPG/PNG/WEBP, maks 2 MB).");
+        closeEditModal(modalId);
+        location.reload();
+      } else {
+        alert("Gagal: " + (r.message || "Terjadi kesalahan"));
+        if (r.status === "unauthorized") location.reload();
+      }
+    })
+    .catch(() => alert("Server error"))
+    .finally(() => { btn.disabled = false; });
+}
+
+document.getElementById("editRoomForm")?.addEventListener("submit", function (e) {
+  e.preventDefault();
+  submitEditForm(this, "update_room", "editRoomModal");
+});
+document.getElementById("editMenuForm")?.addEventListener("submit", function (e) {
+  e.preventDefault();
+  submitEditForm(this, "update_menu_item", "editMenuModal");
+});
+document.querySelectorAll(".modal-backdrop").forEach((m) =>
+  m.addEventListener("click", (e) => { if (e.target === m) m.style.display = "none"; }));
+
+// ===== TOOLTIP GRAFIK DASHBOARD =====
+(function initChartTip() {
+  const tip = document.getElementById("chartTip");
+  if (!tip) return;
+  const show = (el, x, y) => {
+    tip.textContent = el.dataset.tip;
+    tip.hidden = false;
+    const w = tip.offsetWidth;
+    tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, x - w / 2)) + "px";
+    tip.style.top = (y - tip.offsetHeight - 12) + "px";
+  };
+  document.querySelectorAll("[data-tip]").forEach((el) => {
+    el.addEventListener("mousemove", (e) => show(el, e.clientX, e.clientY));
+    el.addEventListener("mouseleave", () => { tip.hidden = true; });
+    el.addEventListener("focus", () => {
+      const r = el.getBoundingClientRect();
+      show(el, r.left + r.width / 2, r.top);
+    });
+    el.addEventListener("blur", () => { tip.hidden = true; });
+  });
+})();
 
 // =====================
 // ADD ROOM
@@ -186,9 +281,10 @@ const minPrices    = JSON.parse(offlinePanel?.dataset.prices || "{}");
 
 const rupiah = (n) => "Rp " + Number(n).toLocaleString("id-ID");
 
-function markPaid(id, name, total) {
+// due = sisa yang harus dibayar (total dikurangi yang sudah diterima sebelumnya)
+function markPaid(id, name, due) {
   adminAction({ action: "mark_paid", id },
-    `Tandai booking "${name}" lunas? Pastikan ${rupiah(total)} sudah diterima.`);
+    `Tandai booking "${name}" lunas? Pastikan ${rupiah(due)} sudah diterima.`);
 }
 
 function adminExtend(id) {
@@ -198,7 +294,7 @@ function adminExtend(id) {
   postAdmin({ action: "admin_extend", id, hours })
     .then((r) => {
       if (r.status === "ok") {
-        alert(`Sesi ditambah ${hours} jam. Tagih tambahan ${rupiah(r.extra_cost)} ke konsumen.`);
+        alert(`Sesi ditambah ${hours} jam. Tagih tambahan ${rupiah(r.extra_cost)} ke konsumen, lalu tekan "Lunas".`);
         location.reload();
       } else {
         alert("Gagal: " + (r.message || "Terjadi kesalahan"));
@@ -420,6 +516,18 @@ if (offlinePanel) {
   }, 20000);
 }
 
+// Halaman Menu: refresh berkala supaya pesanan baru langsung terlihat kasir,
+// kecuali admin sedang mengisi form tambah item atau modal edit sedang terbuka.
+const addMenuForm = document.getElementById("addMenuForm");
+if (addMenuForm) {
+  setInterval(() => {
+    const modalOpen = [...document.querySelectorAll(".modal-backdrop")].some((m) => m.style.display === "flex");
+    const active = document.activeElement;
+    const editing = active?.matches("input, select, textarea");
+    if (!adminBusy && !modalOpen && !editing && !isFormDirty(addMenuForm)) location.reload();
+  }, 30000);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // =====================
   // CUSTOM FILE UPLOAD ZONES
@@ -473,7 +581,8 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((res) => res.json())
       .then((res) => {
         if (res.status === "ok") {
-          alert("Item berhasil ditambahkan");
+          alert("Item berhasil ditambahkan" +
+            (res.image_saved === false ? "\nCatatan: gambar gagal tersimpan (harus JPG/PNG/WEBP, maks 2 MB)." : ""));
           location.reload();
         } else {
           alert("Gagal: " + (res.message || "Error"));

@@ -28,8 +28,6 @@ $sql = "
     b.total_price,
     b.order_code,
     b.payment_status,
-    b.payment_method,
-    EXISTS (SELECT 1 FROM booking_queue q WHERE q.booking_id = b.id) AS from_queue,
     b.expires_at,
     b.source
   FROM bookings b
@@ -58,8 +56,6 @@ while ($row = $res->fetch_assoc()) {
     'total_price'    => $row['total_price'],
     'order_code'     => $row['order_code'],
     'payment_status' => $row['payment_status'],
-    'payment_method' => $row['payment_method'],
-    'from_queue'     => (bool) $row['from_queue'],
     'expires_at'     => $row['expires_at'] !== null ? (int) $row['expires_at'] : null,
     'source'         => $row['source'],
   ];

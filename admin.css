@@ -1267,6 +1267,222 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 }
 .modal-actions .btn-ghost-sm { height: 44px; }
 
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #ff6b6b;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+.field input[type="file"] {
+  height: auto;
+  padding: 8px 10px;
+}
+
+/* ===== DASHBOARD ===== */
+:root {
+  /* Warna data (lolos validasi palet dataviz di latar gelap #181b22) */
+  --data-1: #1aa3b8;
+  --data-2: #9b6fe8;
+  --grid-line: rgba(255, 255, 255, 0.06);
+}
+.dash-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.dash-grid .panel-card { position: static; }
+.dash-chart-card { grid-column: 1 / -1; }
+.dash-sub {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+/* Grafik batang pendapatan harian (satu seri, satu warna) */
+.bar-chart {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 6px;
+  height: 220px;
+  padding-top: 8px;
+  border-bottom: 1px solid var(--grid-line);
+  background-image: linear-gradient(to top, var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 25%;
+}
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  outline: none;
+  cursor: default;
+}
+.bar-track {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+}
+.bar {
+  width: 100%;
+  max-width: 34px;
+  margin: 0 auto;
+  background: var(--data-1);
+  border-radius: 4px 4px 0 0;
+  transition: filter 0.15s;
+}
+.bar-col.is-today .bar { background: var(--neon); }
+.bar-col:hover .bar,
+.bar-col:focus-visible .bar { filter: brightness(1.25); }
+.bar-label {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.bar-col.is-today .bar-label { color: var(--neon); font-weight: 700; }
+.chart-scale { color: var(--muted); font-size: 12px; }
+.chart-table summary {
+  cursor: pointer;
+  color: var(--neon);
+  font-size: 13px;
+  font-weight: 600;
+}
+.chart-table .table-wrap { margin-top: 10px; max-height: 260px; overflow-y: auto; }
+.chart-tip {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #0b0f14;
+  border: 1px solid var(--border);
+  color: #e8eef8;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+/* Bar horizontal: status, peringkat ruangan */
+.hbar-list,
+.rank-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hbar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: #d0dce8;
+  margin-bottom: 5px;
+}
+.hbar-head strong { color: #e8eef8; white-space: nowrap; }
+.hbar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.hbar {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--data-1);
+}
+.st-paid .hbar   { background: var(--neon-green); }
+.st-unpaid .hbar { background: var(--warn); }
+.st-cancel .hbar { background: #8a96a3; }
+.rank-list li { display: flex; gap: 10px; align-items: flex-start; }
+.rank-no {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.rank-info { flex: 1; min-width: 0; }
+
+/* Proporsi online vs offline (2px celah antar segmen) */
+.split-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+}
+.split-online { background: var(--data-1); }
+.split-offline { background: var(--data-2); }
+.split-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #d0dce8;
+}
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+.dot-online { background: var(--data-1); }
+.dot-offline { background: var(--data-2); }
+
+/* ===== FILTER RIWAYAT ===== */
+.head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  line-height: 32px;
+}
+.filter-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 150px)) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 18px;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.filter-bar input[type="date"] { color-scheme: dark; }
+.filter-actions { display: flex; gap: 8px; align-items: center; }
+.filter-actions .btn-primary { height: 42px; padding: 0 18px; font-size: 14px; }
+
+@media (max-width: 1100px) {
+  .filter-bar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Cetak: hanya isi halaman, tanpa sidebar & tombol */
+@media print {
+  .sidebar, .no-print, .row-actions, .pagination { display: none !important; }
+  body { background: #fff; color: #000; display: block; }
+  main { margin: 0; padding: 0; }
+  .table-wrap { border: none; overflow: visible; background: #fff; }
+  th, td { color: #000 !important; background: #fff !important; border-bottom: 1px solid #ccc; white-space: normal; }
+  .page-head h2 { color: #000; }
+  .pay-badge { border: 1px solid #999; color: #000 !important; background: none !important; }
+}
+
 /* Riwayat booking & tabel umum */
 .pay-badge {
   display: inline-block;
@@ -1278,7 +1494,6 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 }
 .pay-paid      { color: var(--neon-green); background: rgba(0, 255, 157, 0.1);  border-color: rgba(0, 255, 157, 0.35); }
 .pay-unpaid    { color: var(--warn);       background: rgba(255, 170, 0, 0.1);  border-color: rgba(255, 170, 0, 0.35); }
-.pay-pending   { color: var(--ps4);        background: rgba(77, 166, 255, 0.1); border-color: rgba(77, 166, 255, 0.35); }
 .pay-cancelled { color: #8a96a3;           background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.12); }
 
 .row-cancelled td { opacity: 0.5; }

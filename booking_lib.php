@@ -7,23 +7,22 @@ const BOOKING_MAX_DURATION = 12;
 const BOOKING_EXTEND_MAX   = 3;
 // Batas lapor ke kasir setelah jam mulai; lewat dari ini booking batal otomatis
 const BOOKING_CHECKIN_SEC  = 15 * 60;
+// Maksimal reservasi mendatang yang belum dibayar per akun user
+const MAX_ACTIVE_UNPAID    = 2;
 
 function bookingFail($message) {
   return ['ok' => false, 'message' => $message];
 }
 
 // Batalkan booking yang belum lapor ke kasir sampai batas check-in (no-show).
-// Booking yang sudah lunas tidak pernah dianggap no-show. Booking yang sedang
-// menunggu pembayaran online baru dibatalkan setelah waktu bayarnya habis.
+// Booking yang sudah lunas tidak pernah dianggap no-show.
 function releaseNoShows($conn, $now = null) {
   $now = $now ?? time();
   $stmt = $conn->prepare("
     UPDATE bookings SET payment_status = 'cancelled'
-    WHERE expires_at IS NOT NULL AND expires_at < ?
-      AND (payment_status = 'unpaid'
-        OR (payment_status = 'pending' AND (payment_expires_at IS NULL OR payment_expires_at < ?)))
+    WHERE expires_at IS NOT NULL AND expires_at < ? AND payment_status = 'unpaid'
   ");
-  $stmt->bind_param("ii", $now, $now);
+  $stmt->bind_param("i", $now);
   $stmt->execute();
   $n = $stmt->affected_rows;
   $stmt->close();
@@ -104,15 +103,16 @@ function createBooking($conn, array $o) {
     }
 
     $total = intval($room['price']) * $duration;
+    $amountPaid = $payStat === 'paid' ? $total : 0;
     $stmt = $conn->prepare("
       INSERT INTO bookings
       (customer_name, email, phone, room_id, duration, start_time, end_time, user_id,
-       total_price, payment_status, source, paid_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       total_price, amount_paid, payment_status, source, paid_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
-    $stmt->bind_param("sssiiiiiissii",
+    $stmt->bind_param("sssiiiiiiissii",
       $name, $email, $phone, $roomId, $duration, $start, $end, $userId,
-      $total, $payStat, $source, $paidAt, $expires
+      $total, $amountPaid, $payStat, $source, $paidAt, $expires
     );
     $stmt->execute();
     $bookingId = $stmt->insert_id;
@@ -222,7 +222,14 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
     }
 
     $extraCost = intval($room['price']) * $extraHours;
-    $stmt = $conn->prepare("UPDATE bookings SET end_time = ?, duration = duration + ?, total_price = total_price + ? WHERE id = ?");
+    // Ada tambahan biaya: status kembali "belum bayar" supaya kasir menagih kekurangannya
+    // (total_price - amount_paid). Yang sudah dibayar tetap tercatat di amount_paid.
+    $stmt = $conn->prepare("
+      UPDATE bookings
+      SET end_time = ?, duration = duration + ?, total_price = total_price + ?,
+          payment_status = 'unpaid'
+      WHERE id = ?
+    ");
     $stmt->bind_param("iiii", $newEnd, $extraHours, $extraCost, $bookingId);
     $stmt->execute();
     $stmt->close();

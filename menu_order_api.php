@@ -16,7 +16,7 @@ if ($action === 'my_orders') {
     $stmt = $conn->prepare("
         SELECT mo.id, mo.quantity, mo.note, mo.status,
                mo.created_at,
-               mi.name, mi.category, mi.price, mi.image
+               mi.name, mi.category, mo.unit_price AS price, mi.image
         FROM menu_orders mo
         JOIN menu_items mi ON mi.id = mo.item_id
         WHERE mo.user_id = ?
@@ -68,8 +68,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     $bk->close();
     $bookingId = $activeBooking ? intval($activeBooking['id']) : null;
 
-    $stmt = $conn->prepare("INSERT INTO menu_orders (user_id, item_id, booking_id, quantity, note) VALUES (?, ?, ?, ?, ?)");
-    $stmt->bind_param("iiiis", $uid, $itemId, $bookingId, $quantity, $note);
+    // Harga disimpan per pesanan supaya total lama tidak berubah bila harga menu diedit
+    $stmt = $conn->prepare("
+        INSERT INTO menu_orders (user_id, item_id, booking_id, quantity, unit_price, note)
+        SELECT ?, ?, ?, ?, price, ? FROM menu_items WHERE id = ?
+    ");
+    $stmt->bind_param("iiiisi", $uid, $itemId, $bookingId, $quantity, $note, $itemId);
     $stmt->execute();
     $stmt->close();
 

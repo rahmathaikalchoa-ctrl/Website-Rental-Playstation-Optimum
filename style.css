@@ -269,35 +269,6 @@ body {
   margin-bottom: 18px;
 }
 
-/* Pilihan metode pembayaran */
-.pay-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
-.pay-option[hidden] { display: none; }
-.pay-option {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
-  cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
-}
-.pay-option:has(input:checked) {
-  border-color: var(--neon);
-  background: rgba(0, 234, 255, 0.06);
-}
-.pay-option input { margin-top: 3px; accent-color: var(--neon); }
-.pay-option span { display: grid; gap: 2px; }
-.pay-option strong { color: #e8eef8; font-size: 14px; }
-.pay-option small { color: var(--muted); font-size: 12px; line-height: 1.4; }
-.pay-chip.pending { color: #4da6ff; background: rgba(77, 166, 255, 0.08); border-color: rgba(77, 166, 255, 0.3); }
-.pay-btn { margin-top: 8px; font-size: 0.78rem; padding: 6px 12px; }
-
 /* Kartu konfirmasi setelah reservasi berhasil */
 .confirm-card { display: grid; gap: 10px; }
 .confirm-card .confirm-head {
@@ -1134,3 +1105,156 @@ body {
   stroke-linejoin: round;
   flex-shrink: 0;
 }
+
+/* ===== Tombol lihat password ===== */
+.pass-wrap {
+  position: relative;
+  display: block;
+}
+.modal-content .pass-wrap input { padding-right: 40px; }
+.pass-toggle {
+  position: absolute;
+  right: 6px;
+  top: calc(50% + 2px);
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7a88;
+  cursor: pointer;
+}
+.pass-toggle:hover { color: #222; }
+.pass-toggle.on { color: #0090a8; }
+.pass-toggle .icon { width: 18px; height: 18px; }
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+p .field-hint { display: inline; margin-left: 4px; }
+
+/* ===== Kartu info di Beranda ===== */
+.info-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.info-list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: #d0dce8;
+}
+.info-list li > .icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--neon);
+}
+.info-list strong {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.info-wa {
+  display: inline-block;
+  margin-top: 16px;
+  text-decoration: none;
+}
+
+.location-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 30px;
+  padding: 22px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  max-width: calc(var(--container) - 40px);
+}
+.location-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.location-actions a { text-decoration: none; }
+
+/* ===== Fasilitas ===== */
+.facility-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.facility-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px;
+}
+.facility-card h3 {
+  color: var(--neon);
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+.facility-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(0, 234, 255, 0.08);
+  color: var(--neon);
+}
+.facility-icon .icon { width: 22px; height: 22px; }
+
+/* Konsol di judul kartu ruangan */
+.room-body h3 .badge {
+  font-size: 11px;
+  vertical-align: 2px;
+  margin-left: 4px;
+}
+
+/* ===== Footer ===== */
+.footer-inner {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  text-align: left;
+}
+.footer-brand { color: var(--neon); font-size: 16px; }
+.footer-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.footer-list li { display: flex; gap: 8px; align-items: center; }
+.footer-list .icon { width: 16px; height: 16px; color: var(--neon); flex-shrink: 0; }
+.footer-list a { color: var(--muted); text-decoration: none; }
+.footer-list a:hover { color: var(--neon); }
+.footer-copy { margin-top: 20px; font-size: 12px; text-align: center; }
+
+/* Jam yang sudah lewat di timeline jadwal hari ini */
+.timeline-past { opacity: 0.35; filter: grayscale(1); }
+
+.search-note { grid-column: 1 / -1; }

@@ -53,8 +53,8 @@ function processQueue($conn, $now = null) {
     ");
     $insert = $conn->prepare("
       INSERT INTO bookings
-      (customer_name, phone, room_id, duration, start_time, end_time, user_id, total_price, payment_status, source, paid_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (customer_name, phone, room_id, duration, start_time, end_time, user_id, total_price, amount_paid, payment_status, source, paid_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $setCode = $conn->prepare("UPDATE bookings SET order_code = ? WHERE id = ?");
     $markQ   = $conn->prepare("UPDATE booking_queue SET status = 'assigned', booking_id = ?, assigned_at = NOW() WHERE id = ?");
@@ -91,9 +91,10 @@ function processQueue($conn, $now = null) {
       $userId  = $q['user_id'] !== null ? intval($q['user_id']) : null;
       $source  = $q['source'];
 
-      $insert->bind_param("ssiiiiiissii",
+      $amountPaid = $isWalk ? $price : 0;
+      $insert->bind_param("ssiiiiiiissii",
         $q['customer_name'], $q['phone'], $roomId, $duration, $now, $end,
-        $userId, $price, $payStat, $source, $paidAt, $expires
+        $userId, $price, $amountPaid, $payStat, $source, $paidAt, $expires
       );
       $insert->execute();
       $bookingId = $insert->insert_id;

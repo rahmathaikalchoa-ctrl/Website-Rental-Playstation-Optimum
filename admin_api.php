@@ -18,6 +18,25 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $action = $_POST['action'] ?? '';
 
+// Simpan gambar upload ke assets/images/{subdir}. Return nama file, atau null bila
+// tidak ada file / gagal. File dicek benar-benar gambar (bukan cuma ekstensi), maks 2 MB.
+function saveUploadedImage($field, $subdir, $prefix) {
+  if (!isset($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) return null;
+  $f = $_FILES[$field];
+  $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+  if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) return null;
+  if ($f['size'] > 2 * 1024 * 1024 || @getimagesize($f['tmp_name']) === false) return null;
+
+  $dir = __DIR__ . '/assets/images/' . $subdir;
+  if (!is_dir($dir)) mkdir($dir, 0755, true);
+  $name = uniqid($prefix) . '.' . $ext;
+  return move_uploaded_file($f['tmp_name'], "$dir/$name") ? $name : null;
+}
+
+function uploadAttempted($field) {
+  return isset($_FILES[$field]) && $_FILES[$field]['error'] !== UPLOAD_ERR_NO_FILE;
+}
+
 // Validasi nama & HP konsumen offline. Return pesan error atau null.
 function offlineCustomerError($name, $phone) {
   if ($name === '') return "Nama konsumen wajib diisi";
@@ -59,8 +78,16 @@ function walkinHint($conn, $console, $duration, $now) {
 if ($action === 'mark_paid') {
   $id = intval($_POST['id'] ?? 0);
   $now = time();
-  $stmt = $conn->prepare("UPDATE bookings SET payment_status = 'paid', paid_at = ? WHERE id = ? AND payment_status IN ('unpaid', 'pending')");
-  $stmt->bind_param("ii", $now, $id);
+  // Membayar di kasir saat sesi sudah dekat/berjalan berarti konsumen sudah datang:
+  // sekalian dianggap check-in (expires_at dikosongkan)
+  $checkinFrom = $now + BOOKING_CHECKIN_SEC;
+  $stmt = $conn->prepare("
+    UPDATE bookings
+    SET payment_status = 'paid', paid_at = ?, amount_paid = total_price,
+        expires_at = IF(start_time <= ?, NULL, expires_at)
+    WHERE id = ? AND payment_status = 'unpaid'
+  ");
+  $stmt->bind_param("iii", $now, $checkinFrom, $id);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();
@@ -178,6 +205,8 @@ if ($action === 'walkin_join') {
 
   // Ruangan dipilih langsung: mulai sekarang di ruangan itu, tanpa lewat antrian
   if ($roomId > 0) {
+    // Bersihkan antrian basi dulu supaya tidak salah dihitung sebagai "masih menunggu"
+    processQueue($conn);
     $stmt = $conn->prepare("
       SELECT r.console_type,
         (SELECT COUNT(*) FROM booking_queue q WHERE q.status = 'waiting' AND q.console_type = r.console_type) AS waiting
@@ -313,6 +342,27 @@ if ($action === 'add_room') {
   exit;
 }
 
+// ================= EDIT ROOM =================
+// Harga baru hanya berlaku untuk booking baru (total_price booking lama sudah tersimpan)
+if ($action === 'update_room') {
+  $id          = intval($_POST['id'] ?? 0);
+  $title       = trim($_POST['title'] ?? '');
+  $console     = trim($_POST['console'] ?? '');
+  $price       = intval($_POST['price'] ?? 0);
+  $description = trim($_POST['description'] ?? '');
+
+  if ($id <= 0 || $title === '' || mb_strlen($title) > 100 || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
+    echo json_encode(["status" => "error", "message" => "Data room tidak lengkap atau tidak valid"]);
+    exit;
+  }
+  $stmt = $conn->prepare("UPDATE rooms SET title = ?, console_type = ?, price = ?, description = ? WHERE id = ?");
+  $stmt->bind_param("ssisi", $title, $console, $price, $description, $id);
+  $stmt->execute();
+  $stmt->close();
+  echo json_encode(["status" => "ok"]);
+  exit;
+}
+
 // ================= TOGGLE ROOM =================
 if ($action === 'toggle_room') {
   $id = intval($_POST['id'] ?? 0);
@@ -371,19 +421,7 @@ if ($action === 'add_game') {
     exit;
   }
 
-  $imageName = null;
-  if (isset($_FILES['cover_image']) && $_FILES['cover_image']['error'] === UPLOAD_ERR_OK) {
-    $ext = strtolower(pathinfo($_FILES['cover_image']['name'], PATHINFO_EXTENSION));
-    if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) {
-      $tmpName = uniqid('game_') . '.' . $ext;
-      $dir     = __DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'games';
-      if (!is_dir($dir)) mkdir($dir, 0755, true);
-      $dest = $dir . DIRECTORY_SEPARATOR . $tmpName;
-      if (move_uploaded_file($_FILES['cover_image']['tmp_name'], $dest)) {
-        $imageName = $tmpName;
-      }
-    }
-  }
+  $imageName = saveUploadedImage('cover_image', 'games', 'game_');
 
   $conn->begin_transaction();
 
@@ -404,7 +442,7 @@ if ($action === 'add_game') {
     $conn->commit();
     echo json_encode([
       "status"      => "ok",
-      "image_saved" => $imageName !== null,
+      "image_saved" => !uploadAttempted('cover_image') || $imageName !== null,
     ]);
     exit;
 
@@ -419,10 +457,23 @@ if ($action === 'add_game') {
 // ================= DELETE GAME =================
 if ($action === 'delete_game') {
     $id = intval($_POST['id'] ?? 0);
+    $stmt = $conn->prepare("SELECT image FROM games WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $img = $stmt->get_result()->fetch_assoc()['image'] ?? null;
+    $stmt->close();
+
     $stmt = $conn->prepare("DELETE FROM games WHERE id = ?");
     $stmt->bind_param("i", $id);
     $stmt->execute();
+    $deleted = $stmt->affected_rows > 0;
     $stmt->close();
+
+    // Hapus juga file cover-nya supaya tidak menumpuk di folder upload
+    if ($deleted && $img) {
+        $path = __DIR__ . '/assets/images/games/' . basename($img);
+        if (is_file($path)) unlink($path);
+    }
     echo json_encode(["status" => "ok"]);
     exit;
 }
@@ -483,26 +534,17 @@ if ($action === 'add_menu_item') {
         exit;
     }
 
-    $imageName = null;
-    if (isset($_FILES['item_image']) && $_FILES['item_image']['error'] === UPLOAD_ERR_OK) {
-        $ext = strtolower(pathinfo($_FILES['item_image']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) {
-            $tmpName = uniqid('menu_') . '.' . $ext;
-            $dir  = __DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'menu';
-            if (!is_dir($dir)) mkdir($dir, 0755, true);
-            $dest = $dir . DIRECTORY_SEPARATOR . $tmpName;
-            if (move_uploaded_file($_FILES['item_image']['tmp_name'], $dest)) {
-                $imageName = $tmpName;
-            }
-        }
-    }
+    $imageName = saveUploadedImage('item_image', 'menu', 'menu_');
 
     $stmt = $conn->prepare("INSERT INTO menu_items (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)");
     $stmt->bind_param("ssiss", $name, $category, $price, $description, $imageName);
     $stmt->execute();
     $stmt->close();
 
-    echo json_encode(["status" => "ok"]);
+    echo json_encode([
+        "status"      => "ok",
+        "image_saved" => !uploadAttempted('item_image') || $imageName !== null,
+    ]);
     exit;
 }
 
@@ -514,6 +556,50 @@ if ($action === 'toggle_menu_item') {
     $stmt->execute();
     $stmt->close();
     echo json_encode(["status" => "ok"]);
+    exit;
+}
+
+// ================= EDIT MENU ITEM =================
+// Pesanan lama tetap memakai harga saat dipesan (menu_orders.unit_price)
+if ($action === 'update_menu_item') {
+    $id          = intval($_POST['id'] ?? 0);
+    $name        = trim($_POST['name'] ?? '');
+    $category    = trim($_POST['category'] ?? '');
+    $price       = intval($_POST['price'] ?? 0);
+    $description = trim($_POST['description'] ?? '');
+
+    if ($id <= 0 || $name === '' || mb_strlen($name) > 100 || !in_array($category, ['makanan', 'minuman'], true) || $price <= 0) {
+        echo json_encode(["status" => "error", "message" => "Data menu tidak lengkap atau tidak valid"]);
+        exit;
+    }
+
+    $stmt = $conn->prepare("SELECT image FROM menu_items WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $old = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$old) {
+        echo json_encode(["status" => "error", "message" => "Item menu tidak ditemukan"]);
+        exit;
+    }
+
+    // Gambar hanya diganti bila admin memilih file baru
+    $newImage = saveUploadedImage('item_image', 'menu', 'menu_');
+    $image = $newImage ?? $old['image'];
+
+    $stmt = $conn->prepare("UPDATE menu_items SET name = ?, category = ?, price = ?, description = ?, image = ? WHERE id = ?");
+    $stmt->bind_param("ssissi", $name, $category, $price, $description, $image, $id);
+    $stmt->execute();
+    $stmt->close();
+
+    if ($newImage && $old['image']) {
+        $path = __DIR__ . '/assets/images/menu/' . basename($old['image']);
+        if (is_file($path)) unlink($path);
+    }
+    echo json_encode([
+        "status"      => "ok",
+        "image_saved" => !uploadAttempted('item_image') || $newImage !== null,
+    ]);
     exit;
 }
 

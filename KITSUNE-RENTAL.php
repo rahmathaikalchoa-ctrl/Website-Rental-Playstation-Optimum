@@ -2,6 +2,13 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/icons.php';
+require __DIR__ . '/db.php';
+require __DIR__ . '/site_info.php';
+
+// Harga termurah per konsol dari ruangan aktif, untuk kartu "Info Singkat" di Beranda
+$priceFrom = [];
+$res = $conn->query("SELECT console_type, MIN(price) AS p FROM rooms WHERE status = 'available' GROUP BY console_type ORDER BY console_type");
+while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($row['p']);
 ?>
 
 <!DOCTYPE html>
@@ -26,7 +33,7 @@ require __DIR__ . '/icons.php';
             <input
               id="navSearchInput"
               type="search"
-              placeholder="Cari kamar, game, atau fitur..."
+              placeholder="Cari ruangan atau game..."
               aria-label="Cari"
             />
             <button type="submit" aria-label="Cari"><?= icon('search') ?></button>
@@ -72,8 +79,8 @@ require __DIR__ . '/icons.php';
           <div>
             <h1>Optimum Playzone — Rental PlayStation</h1>
             <p class="muted">
-              Rasakan pengalaman bermain dengan suasana neon biru, kursi gaming,
-              & koleksi game lengkap.
+              Ruangan PS3, PS4, dan PS5 yang nyaman dengan kursi gaming dan koleksi game lengkap.
+              Booking jam tertentu atau ambil antrian untuk main sekarang.
             </p>
             <div style="display: flex; gap: 12px; margin-top: 12px">
               <button class="btn" data-view="consoles">Lihat Ruangan</button>
@@ -83,21 +90,22 @@ require __DIR__ . '/icons.php';
             </div>
           </div>
 
-          <div class="hero-card" aria-hidden="true">
-            <h3 style="color: var(--neon); margin-bottom: 8px">
-              Preview Ruang
-            </h3>
-            <p class="small muted">
-              Setup ruangan dengan neon biru & layar besar.
-            </p>
-            <div
-              style="
-                height: 160px;
-                background: #0f1216;
-                border-radius: 10px;
-                margin-top: 12px;
-              "
-            ></div>
+          <div class="hero-card">
+            <h3 style="color: var(--neon); margin-bottom: 12px">Info Singkat</h3>
+            <ul class="info-list">
+              <li><?= icon('clock') ?> <span><strong>Jam buka</strong><?= htmlspecialchars(SITE_HOURS) ?></span></li>
+              <li><?= icon('gamepad') ?>
+                <span><strong>Harga mulai</strong>
+                  <?php if ($priceFrom): ?>
+                    <?php foreach ($priceFrom as $c => $p): ?>
+                      <?= htmlspecialchars($c) ?> Rp<?= number_format($p, 0, ',', '.') ?>/jam<br>
+                    <?php endforeach; ?>
+                  <?php else: ?>Belum ada ruangan aktif<?php endif; ?>
+                </span>
+              </li>
+              <li><?= icon('clipboard') ?> <span><strong>Pembayaran</strong>Bayar di kasir saat datang</span></li>
+            </ul>
+            <a class="btn-ghost info-wa" href="<?= htmlspecialchars(siteWaLink()) ?>" target="_blank" rel="noopener">Tanya via WhatsApp</a>
           </div>
         </div>
 
@@ -117,6 +125,21 @@ require __DIR__ . '/icons.php';
             Ruangan Populer
           </h2>
           <div id="roomsGrid" class="rooms-grid" aria-live="polite"></div>
+        </div>
+
+        <div class="container location-card">
+          <div>
+            <h2 style="color: var(--neon); margin-bottom: 10px">Lokasi &amp; Kontak</h2>
+            <ul class="info-list">
+              <li><?= icon('clock') ?> <span><strong>Jam operasional</strong><?= htmlspecialchars(SITE_HOURS) ?></span></li>
+              <li><?= icon('pin') ?> <span><strong>Alamat</strong><?= htmlspecialchars(SITE_ADDRESS) ?></span></li>
+              <li><?= icon('phone') ?> <span><strong>WhatsApp</strong><?= htmlspecialchars(SITE_WA_SHOW) ?></span></li>
+            </ul>
+          </div>
+          <div class="location-actions">
+            <a class="btn" href="<?= htmlspecialchars(SITE_MAPS_URL) ?>" target="_blank" rel="noopener">Buka Google Maps</a>
+            <a class="btn-ghost" href="<?= htmlspecialchars(siteWaLink()) ?>" target="_blank" rel="noopener">Chat WhatsApp</a>
+          </div>
         </div>
       </section>
 
@@ -248,27 +271,6 @@ require __DIR__ . '/icons.php';
                   </div>
                 </div>
 
-                <!-- Metode Pembayaran (opsi online muncul bila Midtrans sudah dikonfigurasi) -->
-                <div class="bsection">
-                  <h3 class="bsection-title"><?= icon('clipboard') ?> Pembayaran</h3>
-                  <div class="pay-options">
-                    <label class="pay-option">
-                      <input type="radio" name="pay_method" value="cashier" checked>
-                      <span>
-                        <strong>Bayar di kasir</strong>
-                        <small>Bayar tunai/QRIS kasir saat datang.</small>
-                      </span>
-                    </label>
-                    <label class="pay-option" id="payOnlineOption" hidden>
-                      <input type="radio" name="pay_method" value="midtrans">
-                      <span>
-                        <strong>Bayar online sekarang</strong>
-                        <small>QRIS, e-wallet, virtual account bank, kartu. Diproses oleh Midtrans.</small>
-                      </span>
-                    </label>
-                  </div>
-                </div>
-
                 <div class="form-actions">
                   <button type="submit" class="btn" style="flex:1">Konfirmasi Booking</button>
                   <button type="button" class="btn-ghost" id="clearBookings">Reset</button>
@@ -294,50 +296,27 @@ require __DIR__ . '/icons.php';
       <section id="view-fasilitas" class="view" style="display: none">
         <div class="container">
           <h1 style="color: var(--neon)">Fasilitas</h1>
-          <div class="rooms-grid" style="margin-top: 12px">
-            <div class="room-card" style="padding: 14px">
-              <h3 style="color: var(--neon)">Kursi Gaming</h3>
-              <p class="muted small">
-                Kursi gaming ergonomis dengan bantalan empuk dan sandaran
-                nyaman, mendukung postur tubuh agar tetap rileks meski bermain
-                dalam waktu lama.
-              </p>
-            </div>
-
-            <div class="room-card" style="padding: 14px">
-              <h3 style="color: var(--neon)">Meja LED</h3>
-              <p class="muted small">
-                Meja gaming modern dengan pencahayaan LED neon biru yang
-                memberikan kesan futuristik dan menambah suasana bermain yang
-                imersif.
-              </p>
-            </div>
-
-            <div class="room-card" style="padding: 14px">
-              <h3 style="color: var(--neon)">Speaker</h3>
-              <p class="muted small">
-                Sistem audio surround berkualitas tinggi yang menghasilkan suara
-                jernih dan detail, membuat pengalaman bermain game terasa lebih
-                hidup.
-              </p>
-            </div>
-
-            <div class="room-card" style="padding: 14px">
-              <h3 style="color: var(--neon)">TV Besar</h3>
-              <p class="muted small">
-                Layar TV berukuran besar dengan resolusi tinggi untuk tampilan
-                visual yang tajam, warna lebih hidup, dan pengalaman gaming
-                maksimal.
-              </p>
-            </div>
-
-            <div class="room-card" style="padding: 14px">
-              <h3 style="color: var(--neon)">AC</h3>
-              <p class="muted small">
-                Pendingin ruangan yang menjaga suhu tetap sejuk dan nyaman,
-                sehingga fokus bermain tetap terjaga tanpa terganggu panas.
-              </p>
-            </div>
+          <p class="muted">Fasilitas yang tersedia di setiap ruangan.</p>
+          <div class="facility-grid">
+            <?php
+              $facilities = [
+                ['chair',   'Kursi Gaming', 'Kursi ergonomis dengan sandaran empuk, tetap nyaman untuk bermain berjam-jam.'],
+                ['tv',      'TV Besar',     'Layar besar resolusi tinggi dengan warna tajam untuk pengalaman bermain maksimal.'],
+                ['speaker', 'Speaker',      'Audio jernih dan detail sehingga suasana game terasa lebih hidup.'],
+                ['light',   'Meja LED',     'Meja gaming dengan pencahayaan LED yang membuat suasana bermain lebih seru.'],
+                ['snow',    'AC',           'Ruangan berpendingin agar tetap sejuk dan fokus selama bermain.'],
+                ['clipboard', 'Pesan Makanan', 'Makanan dan minuman bisa dipesan dari website dan diantar ke ruanganmu.'],
+              ];
+            ?>
+            <?php foreach ($facilities as [$ic, $title, $desc]): ?>
+              <div class="room-card facility-card">
+                <span class="facility-icon"><?= icon($ic) ?></span>
+                <div>
+                  <h3><?= $title ?></h3>
+                  <p class="muted small"><?= $desc ?></p>
+                </div>
+              </div>
+            <?php endforeach; ?>
           </div>
         </div>
       </section>
@@ -355,7 +334,7 @@ require __DIR__ . '/icons.php';
 <section id="view-menu" class="view" style="display:none">
   <div class="container">
     <h1 style="color:var(--neon)">Makanan & Minuman</h1>
-    <p class="muted">Pesan langsung dari ruangan saat sedang bermain</p>
+    <p class="muted">Pesan makanan &amp; minuman. Saat sedang main, pesanan diantar ke ruanganmu; selain itu ambil di kasir.</p>
 
     <div id="menuCatTabs" class="menu-cat-tabs" style="margin-top:16px"></div>
     <div id="menuGrid" class="rooms-grid" style="margin-top:14px"></div>
@@ -375,7 +354,7 @@ require __DIR__ . '/icons.php';
       <h3 style="color: var(--neon)">Informasi Akun</h3>
 
       <p><strong>Username:</strong> <span id="profileUsername">-</span></p>
-      <p><strong>Status:</strong> <span class="status-online">Online</span></p>
+      <p><strong>Terdaftar sejak:</strong> <span id="profileSince">-</span></p>
       <p style="margin-top:8px"><strong>Total Jam Dimainkan:</strong> <span id="profileTotalHours" style="color:var(--neon)">0 jam</span></p>
     </div>
 
@@ -397,7 +376,20 @@ require __DIR__ . '/icons.php';
 </section>
     </main>
 
-    <footer class="site-footer">© 2026 Optimum Playzone — Rahmat Haikal Choa</footer>
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div>
+          <strong class="footer-brand"><?= htmlspecialchars(SITE_NAME) ?></strong>
+          <p class="muted small">Rental ruangan PlayStation PS3, PS4, dan PS5.</p>
+        </div>
+        <ul class="footer-list">
+          <li><?= icon('clock') ?> <?= htmlspecialchars(SITE_HOURS) ?></li>
+          <li><?= icon('pin') ?> <a href="<?= htmlspecialchars(SITE_MAPS_URL) ?>" target="_blank" rel="noopener"><?= htmlspecialchars(SITE_ADDRESS) ?></a></li>
+          <li><?= icon('phone') ?> <a href="<?= htmlspecialchars(siteWaLink()) ?>" target="_blank" rel="noopener">WhatsApp <?= htmlspecialchars(SITE_WA_SHOW) ?></a></li>
+        </ul>
+      </div>
+      <p class="footer-copy">© <?= date('Y') ?> <?= htmlspecialchars(SITE_NAME) ?> — Rahmat Haikal Choa</p>
+    </footer>
 
 <!-- LOGIN MODAL -->
 <div id="loginModal" class="modal">
@@ -428,7 +420,8 @@ require __DIR__ . '/icons.php';
         Belum punya akun? <a href="#" class="daftar">Daftar di sini</a>
       </p>
       <p class="small muted" style="margin-top: 6px; text-align: center;">
-        <a href="#" id="openForgotPassword" style="color:var(--neon)">Ganti Password?</a>
+        <a href="#" id="openForgotPassword" style="color:var(--neon)">Ganti password</a>
+        <span class="field-hint">(perlu password lama; lupa password? hubungi kasir)</span>
       </p>
     </form>
   </div>
@@ -444,12 +437,15 @@ require __DIR__ . '/icons.php';
     <form id="registerForm" autocomplete="off">
       <label>
         Username
-        <input type="text" id="regUsername" required autocomplete="new-password" />
+        <input type="text" id="regUsername" required autocomplete="new-password"
+               minlength="3" maxlength="30" pattern="[A-Za-z0-9_]{3,30}" />
+        <small class="field-hint">3–30 karakter: huruf, angka, atau garis bawah (_), tanpa spasi.</small>
       </label>
 
       <label>
         Password
-        <input type="password" id="regPassword" required autocomplete="new-password" />
+        <input type="password" id="regPassword" required minlength="6" autocomplete="new-password" />
+        <small class="field-hint">Minimal 6 karakter.</small>
       </label>
 
       <label>

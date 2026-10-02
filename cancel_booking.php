@@ -4,7 +4,6 @@ session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/queue_lib.php';
-require_once __DIR__ . '/midtrans_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
@@ -24,11 +23,12 @@ if ($bookingId <= 0) {
   exit;
 }
 
-// Boleh batal jika belum mulai, atau sudah mulai tapi belum lapor ke kasir (belum check-in)
+// Boleh batal selama belum lapor ke kasir (belum check-in). Check-in baru bisa
+// 15 menit sebelum mulai, jadi booking yang mulainya masih jauh pasti belum check-in.
 $stmt = $conn->prepare("
-  SELECT payment_status, midtrans_order_id FROM bookings
+  SELECT payment_status FROM bookings
   WHERE id = ? AND user_id = ? AND payment_status <> 'cancelled'
-    AND (start_time > UNIX_TIMESTAMP() OR expires_at IS NOT NULL)
+    AND (expires_at IS NOT NULL OR start_time > UNIX_TIMESTAMP() + 900)
   LIMIT 1
 ");
 $stmt->bind_param("ii", $bookingId, $userId);
@@ -39,18 +39,6 @@ $stmt->close();
 if (!$found) {
   echo json_encode(["status" => "error", "message" => "Booking tidak ditemukan atau sesi sudah berjalan"]);
   exit;
-}
-
-// Sedang menunggu pembayaran online: pastikan belum terbayar, lalu batalkan transaksi
-// Midtrans-nya supaya user tidak bisa membayar booking yang sudah batal.
-if ($found['payment_status'] === 'pending' && $found['midtrans_order_id'] && midtransConfigured()) {
-  $st = midtransFetchStatus($found['midtrans_order_id']);
-  if ($st && !empty($st['transaction_status'])) {
-    $found['payment_status'] = midtransApplyStatus($conn, $st) ?? $found['payment_status'];
-  }
-  if ($found['payment_status'] === 'pending') {
-    midtransRequest('POST', midtransApiUrl() . '/v2/' . rawurlencode($found['midtrans_order_id']) . '/cancel');
-  }
 }
 
 if ($found['payment_status'] === 'paid') {
@@ -64,8 +52,8 @@ if ($found['payment_status'] === 'paid') {
 // di antara SELECT di atas dan UPDATE ini.
 $stmt = $conn->prepare("
   UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL
-  WHERE id = ? AND user_id = ? AND payment_status IN ('unpaid', 'pending')
-    AND (start_time > UNIX_TIMESTAMP() OR expires_at IS NOT NULL)
+  WHERE id = ? AND user_id = ? AND payment_status = 'unpaid'
+    AND (expires_at IS NOT NULL OR start_time > UNIX_TIMESTAMP() + 900)
 ");
 $stmt->bind_param("ii", $bookingId, $userId);
 $stmt->execute();
