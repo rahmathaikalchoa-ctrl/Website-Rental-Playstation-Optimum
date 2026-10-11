@@ -7,15 +7,11 @@ require_once __DIR__ . '/booking_lib.php';
 
 const QUEUE_CONSOLES = ['PS3', 'PS4', 'PS5'];
 
-function queueCloseLimit($now) {
-  return strtotime(date('Y-m-d', $now)) + 24 * 3600;
-}
-
 // Assign antrian terdepan ke ruangan kosong. Return jumlah antrian yang di-assign.
 function processQueue($conn, $now = null) {
   $now = $now ?? time();
   $dayStart   = strtotime(date('Y-m-d', $now));
-  $closeLimit = $dayStart + 24 * 3600;
+  $closeLimit = closeTs($now);
   $assigned = 0;
 
   try {
@@ -38,7 +34,7 @@ function processQueue($conn, $now = null) {
     $stmt->execute();
     $stmt->close();
 
-    if (intval(date('G', $now)) < BOOKING_OPEN_HOUR) {
+    if ($now < openTs($now)) {
       $conn->commit();
       return 0;
     }
@@ -53,8 +49,8 @@ function processQueue($conn, $now = null) {
     ");
     $insert = $conn->prepare("
       INSERT INTO bookings
-      (customer_name, phone, room_id, duration, start_time, end_time, user_id, total_price, amount_paid, payment_status, source, paid_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (customer_name, phone, room_id, duration, start_time, end_time, user_id, total_price, amount_paid, payment_status, source, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $setCode = $conn->prepare("UPDATE bookings SET order_code = ? WHERE id = ?");
     $markQ   = $conn->prepare("UPDATE booking_queue SET status = 'assigned', booking_id = ?, assigned_at = NOW() WHERE id = ?");
@@ -92,9 +88,9 @@ function processQueue($conn, $now = null) {
       $source  = $q['source'];
 
       $amountPaid = $isWalk ? $price : 0;
-      $insert->bind_param("ssiiiiiiissii",
+      $insert->bind_param("ssiiiiiiissi",
         $q['customer_name'], $q['phone'], $roomId, $duration, $now, $end,
-        $userId, $price, $amountPaid, $payStat, $source, $paidAt, $expires
+        $userId, $price, $amountPaid, $payStat, $source, $expires
       );
       $insert->execute();
       $bookingId = $insert->insert_id;
@@ -102,6 +98,8 @@ function processQueue($conn, $now = null) {
       $code = "GZ-$bookingId";
       $setCode->bind_param("si", $code, $bookingId);
       $setCode->execute();
+
+      if ($amountPaid > 0) recordPayment($conn, $bookingId, $amountPaid, $paidAt);
 
       $qid = intval($q['id']);
       $markQ->bind_param("ii", $bookingId, $qid);

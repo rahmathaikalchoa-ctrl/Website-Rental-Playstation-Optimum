@@ -4,8 +4,15 @@
 // true selama ada request aksi berjalan, supaya auto-refresh tidak memotongnya
 let adminBusy = false;
 
+// Semua POST ke admin_api.php membawa token CSRF dari <meta name="csrf-token">
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || "";
+function adminFetch(opts) {
+  opts.body.append("csrf", CSRF_TOKEN);
+  return fetch("admin_api.php", opts);
+}
+
 function postAdmin(params) {
-  return fetch("admin_api.php", {
+  return adminFetch({
     method: "POST",
     body: new URLSearchParams(params),
   }).then((r) => r.json());
@@ -38,9 +45,17 @@ function cancelBooking(id, name, amountPaid = 0) {
     `Batalkan booking "${name}"? Data tetap tersimpan di riwayat.${refund}`);
 }
 
-function finishBooking(id) {
+function finishBooking(id, due = 0) {
+  const unpaid = due > 0
+    ? `\n\nPERHATIAN: tagihan ${rupiah(due)} belum dibayar. Tagih dulu lalu klik Lunas.`
+    : "";
   adminAction({ action: "finish_booking", id },
-    "Selesaikan sesi ini sekarang? Ruangan akan diberikan ke konsumen berikutnya di daftar tunggu.");
+    `Selesaikan sesi ini sekarang? Ruangan akan diberikan ke konsumen berikutnya di daftar tunggu.${unpaid}`);
+}
+
+function releaseNoShow(id, name) {
+  adminAction({ action: "release_noshow", id },
+    `"${name}" tidak datang sampai batas check-in. Lepas ruangan sekarang?\n\nPembayaran tetap tercatat dan booking ditandai tidak hadir.`);
 }
 
 function checkinBooking(id, name) {
@@ -118,7 +133,7 @@ function submitEditForm(form, action, modalId) {
   fd.append("action", action);
   const btn = form.querySelector("[type=submit]");
   btn.disabled = true;
-  fetch("admin_api.php", { method: "POST", body: fd })
+  adminFetch({ method: "POST", body: fd })
     .then((r) => r.json())
     .then((r) => {
       if (r.status === "ok") {
@@ -174,11 +189,14 @@ document
   .getElementById("addRoomForm")
   ?.addEventListener("submit", function (e) {
     e.preventDefault();
+    const btn = this.querySelector("[type=submit]");
+    if (btn?.disabled) return;
+    if (btn) btn.disabled = true;
 
     const formData = new FormData(this);
     formData.append("action", "add_room");
 
-    fetch("admin_api.php", {
+    adminFetch({
       method: "POST",
       body: formData,
     })
@@ -189,9 +207,11 @@ document
           location.reload();
         } else {
           alert("Gagal menambah room:\n" + (res.message || res.msg));
+          if (res.status === "unauthorized") location.reload();
         }
       })
-      .catch(() => alert("Server error"));
+      .catch(() => alert("Server error"))
+      .finally(() => { if (btn) btn.disabled = false; });
   });
 
 // =====================
@@ -253,16 +273,24 @@ document.getElementById("saveEditGame")?.addEventListener("click", () => {
     return;
   }
 
+  const saveBtn = document.getElementById("saveEditGame");
+  if (saveBtn.disabled) return;
+  saveBtn.disabled = true;
+
   const body = new URLSearchParams({ action: "update_game_consoles", id });
   consoles.forEach(c => body.append("consoles[]", c));
 
-  fetch("admin_api.php", { method: "POST", body })
+  adminFetch({ method: "POST", body })
     .then(r => r.json())
     .then(r => {
       if (r.status === "ok") { closeEditGame(); location.reload(); }
-      else alert("Gagal: " + (r.message || "Error"));
+      else {
+        alert("Gagal: " + (r.message || "Error"));
+        if (r.status === "unauthorized") location.reload();
+      }
     })
-    .catch(() => alert("Server error"));
+    .catch(() => alert("Server error"))
+    .finally(() => { saveBtn.disabled = false; });
 });
 
 // Tutup modal klik di luar
@@ -374,8 +402,17 @@ walkinForm?.addEventListener("submit", function (e) {
 let reserveSlots = [];
 let reserveReq = 0;
 
-function slotTs(dateVal, hour) {
-  return Math.floor(new Date(`${dateVal}T${String(hour).padStart(2, "0")}:00:00`).getTime() / 1000);
+// Jam operasional dari booking_lib.php (atribut <body>): buka 10:30, tutup 22:00,
+// jam mulai reservasi kelipatan 30 menit
+const OPEN_SEC  = Number(document.body.dataset.openSec) || 37800;
+const CLOSE_SEC = Number(document.body.dataset.closeSec) || 79200;
+const SLOT_SEC  = 1800;
+const secToHHMM = (sec) =>
+  `${String(Math.floor(sec / 3600)).padStart(2, "0")}:${String(Math.floor(sec % 3600 / 60)).padStart(2, "0")}`;
+
+// Timestamp jam "HH:MM" WIB pada tanggal dateVal (tidak bergantung zona waktu perangkat)
+function slotTs(dateVal, hhmm) {
+  return Math.floor(new Date(`${dateVal}T${hhmm}:00+07:00`).getTime() / 1000);
 }
 const overlaps = (start, end) => reserveSlots.some((s) => start < s.end_time && end > s.start_time);
 
@@ -394,11 +431,12 @@ function renderReserveTimes() {
   const f = reserveForm.elements;
   const now = Date.now() / 1000;
   const items = [];
-  for (let h = 11; h <= 23; h++) {
-    const start = slotTs(f.date.value, h);
+  for (let t = OPEN_SEC; t + 3600 <= CLOSE_SEC; t += SLOT_SEC) {
+    const hhmm = secToHHMM(t);
+    const start = slotTs(f.date.value, hhmm);
     if (start < now) continue;
     const booked = overlaps(start, start + 3600);
-    items.push({ value: `${String(h).padStart(2, "0")}:00`, label: `${h}:00${booked ? " — terpesan" : ""}`, disabled: booked });
+    items.push({ value: hhmm, label: `${hhmm}${booked ? " — terpesan" : ""}`, disabled: booked });
   }
   fillSelect(f.time, items.length ? items : [{ value: "", label: "Jam habis", disabled: true }]);
   renderReserveDurations();
@@ -408,9 +446,9 @@ function renderReserveDurations() {
   const f = reserveForm.elements;
   const items = [];
   if (f.time.value) {
-    const hour = Number(f.time.value.split(":")[0]);
-    const start = slotTs(f.date.value, hour);
-    for (let d = 1; d <= Math.min(12, 24 - hour); d++) {
+    const start = slotTs(f.date.value, f.time.value);
+    const maxH = Math.floor((slotTs(f.date.value, "00:00") + CLOSE_SEC - start) / 3600);
+    for (let d = 1; d <= Math.min(12, maxH); d++) {
       if (overlaps(start, start + d * 3600)) break;
       items.push({ value: d, label: `${d} jam` });
     }
@@ -512,7 +550,9 @@ if (offlinePanel) {
     const editing = active?.matches("input, select, textarea")
       && (offlinePanel.contains(active) || active.closest(".room-tile"));
     const forms = [walkinForm, reserveForm].filter(Boolean);
-    if (!adminBusy && !editing && !forms.some(isFormDirty)) location.reload();
+    // Pilihan "+jam" yang sudah diubah tapi belum diklik Tambah jangan sampai tereset
+    const extendPicked = [...document.querySelectorAll(".extend-inline select")].some((s) => s.selectedIndex !== 0);
+    if (!adminBusy && !editing && !extendPicked && !forms.some(isFormDirty)) location.reload();
   }, 20000);
 }
 
@@ -575,9 +615,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // =====================
   document.getElementById("addMenuForm")?.addEventListener("submit", function (e) {
     e.preventDefault();
+    const btn = this.querySelector("[type=submit]");
+    if (btn?.disabled) return;
+    if (btn) btn.disabled = true;
+    adminBusy = true;
     const formData = new FormData(this);
     formData.append("action", "add_menu_item");
-    fetch("admin_api.php", { method: "POST", body: formData })
+    adminFetch({ method: "POST", body: formData })
       .then((res) => res.json())
       .then((res) => {
         if (res.status === "ok") {
@@ -586,9 +630,11 @@ document.addEventListener("DOMContentLoaded", () => {
           location.reload();
         } else {
           alert("Gagal: " + (res.message || "Error"));
+          if (res.status === "unauthorized") location.reload();
         }
       })
-      .catch(() => alert("Server error"));
+      .catch(() => alert("Server error"))
+      .finally(() => { if (btn) btn.disabled = false; adminBusy = false; });
   });
 
   // =====================
@@ -633,11 +679,14 @@ document.addEventListener("DOMContentLoaded", () => {
     .getElementById("addGameForm")
     ?.addEventListener("submit", function (e) {
       e.preventDefault();
+      const btn = this.querySelector("[type=submit]");
+      if (btn?.disabled) return;
+      if (btn) btn.disabled = true;
 
       const formData = new FormData(this);
       formData.append("action", "add_game");
 
-      fetch("admin_api.php", {
+      adminFetch({
         method: "POST",
         body: formData,
       })
@@ -649,8 +698,10 @@ document.addEventListener("DOMContentLoaded", () => {
             location.reload();
           } else {
             alert("Gagal menambahkan game:\n" + (res.message || res.msg));
+            if (res.status === "unauthorized") location.reload();
           }
         })
-        .catch(() => alert("Server error"));
+        .catch(() => alert("Server error"))
+        .finally(() => { if (btn) btn.disabled = false; });
     });
 });

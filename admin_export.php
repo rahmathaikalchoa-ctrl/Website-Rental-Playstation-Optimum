@@ -4,6 +4,7 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/riwayat_filter.php';
+require_once __DIR__ . '/booking_lib.php';
 
 if (!isAdminSession($conn)) {
   http_response_code(403);
@@ -12,6 +13,8 @@ if (!isAdminSession($conn)) {
   exit;
 }
 
+// Status no-show diperbarui dulu supaya sama dengan halaman Riwayat
+releaseNoShows($conn);
 $f = riwayatFilter($_GET);
 $stmt = $conn->prepare("
   SELECT b.order_code, b.customer_name, b.phone, b.source, r.title AS room_title,
@@ -19,11 +22,15 @@ $stmt = $conn->prepare("
   FROM bookings b
   LEFT JOIN rooms r ON r.id = b.room_id
   {$f['where']}
-  ORDER BY b.start_time DESC
+  ORDER BY b.created_at DESC
 ");
 if ($f['types'] !== '') $stmt->bind_param($f['types'], ...$f['params']);
 $stmt->execute();
 $rows = $stmt->get_result();
+
+// Cegah formula injection: sel teks yang diawali = + - @ (atau tab/CR) akan dijalankan
+// sebagai rumus oleh Excel. Diberi awalan petik supaya terbaca sebagai teks biasa.
+$csvText = fn($v) => ($v !== null && $v !== '' && strpbrk($v[0], "=+-@\t\r") !== false) ? "'" . $v : ($v ?? '');
 
 $statusLabel = ['unpaid' => 'Belum bayar', 'paid' => 'Lunas', 'cancelled' => 'Dibatalkan'];
 $filename = 'riwayat-booking-' . date('Ymd-His') . '.csv';
@@ -40,11 +47,11 @@ fputcsv($out, ['Kode', 'Nama', 'No. HP', 'Sumber', 'Ruangan', 'Tanggal', 'Jam Mu
                'Durasi (jam)', 'Total (Rp)', 'Dibayar (Rp)', 'Status', 'Dibuat'], $sep);
 while ($b = $rows->fetch_assoc()) {
   fputcsv($out, [
-    $b['order_code'],
-    $b['customer_name'],
-    $b['phone'] ?? '',
+    $csvText($b['order_code']),
+    $csvText($b['customer_name']),
+    $csvText($b['phone']),
     $b['source'] === 'walkin' ? 'Offline' : 'Online',
-    $b['room_title'] ?? '-',
+    $b['room_title'] !== null ? $csvText($b['room_title']) : '-',
     date('Y-m-d', intval($b['start_time'])),
     date('H:i', intval($b['start_time'])),
     date('H:i', intval($b['end_time'])),

@@ -5,6 +5,8 @@ header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 
 if (!isset($_SESSION['user_id'])) {
+  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  header('X-Auth-Required: 1');
   echo json_encode(['error' => 'not_logged_in']);
   exit;
 }

@@ -38,7 +38,6 @@ CREATE TABLE `bookings` (
   `source` enum('online','walkin') NOT NULL DEFAULT 'online',
   `order_code` varchar(40) DEFAULT NULL,
   `expires_at` int(11) DEFAULT NULL,
-  `paid_at` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `order_code` (`order_code`),
@@ -57,9 +56,27 @@ CREATE TABLE `bookings` (
 
 LOCK TABLES `bookings` WRITE;
 /*!40000 ALTER TABLE `bookings` DISABLE KEYS */;
-INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,0,'unpaid','online','GZ-20',NULL,NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,0,'unpaid','online','GZ-21',NULL,NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,0,'unpaid','online','GZ-22',NULL,NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,0,'unpaid','online','GZ-23',NULL,NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,0,'unpaid','online','GZ-24',NULL,NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,0,'unpaid','online','GZ-25',NULL,NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,0,'unpaid','online','GZ-26',NULL,NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,0,'unpaid','online','GZ-28',NULL,NULL,'2026-05-10 05:58:14');
+INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,1777816800,1777824000,50000,0,'unpaid','online','GZ-20',NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,1777816800,1777820400,55000,0,'unpaid','online','GZ-21',NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,1777816800,1777820400,25000,0,'unpaid','online','GZ-22',NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,1777802400,1777806000,25000,0,'unpaid','online','GZ-23',NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,1777899600,1777914000,220000,0,'unpaid','online','GZ-24',NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,1778162400,1778166000,55000,0,'unpaid','online','GZ-25',NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,1778306400,1778313600,110000,0,'unpaid','online','GZ-26',NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,1778392800,1778400000,110000,0,'unpaid','online','GZ-28',NULL,'2026-05-10 05:58:14');
 /*!40000 ALTER TABLE `bookings` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Table structure for table `booking_payments`
+-- Setiap pembayaran di kasir dicatat terpisah, supaya pendapatan masuk ke tanggal bayar yang benar
+-- (mis. bayar di muka lalu melunasi tambahan jam di hari lain)
+--
+
+DROP TABLE IF EXISTS `booking_payments`;
+CREATE TABLE `booking_payments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `booking_id` int(11) NOT NULL,
+  `amount` int(11) NOT NULL,
+  `paid_at` int(11) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `booking_id` (`booking_id`),
+  KEY `paid_at` (`paid_at`),
+  CONSTRAINT `booking_payments_ibfk_1` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Table structure for table `booking_queue`

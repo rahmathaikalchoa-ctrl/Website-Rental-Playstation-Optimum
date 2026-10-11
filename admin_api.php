@@ -16,6 +16,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   exit;
 }
 
+// Token CSRF dari halaman admin (meta csrf-token), cegah aksi yang dipicu situs lain
+if (empty($_SESSION['csrf']) || !hash_equals($_SESSION['csrf'], (string) ($_POST['csrf'] ?? ''))) {
+  echo json_encode(["status" => "unauthorized", "message" => "Sesi halaman kedaluwarsa, halaman akan dimuat ulang"]);
+  exit;
+}
+
 $action = $_POST['action'] ?? '';
 
 // Simpan gambar upload ke assets/images/{subdir}. Return nama file, atau null bila
@@ -37,9 +43,17 @@ function uploadAttempted($field) {
   return isset($_FILES[$field]) && $_FILES[$field]['error'] !== UPLOAD_ERR_NO_FILE;
 }
 
+// Hapus file gambar upload (mis. INSERT gagal setelah upload, atau item dihapus)
+function removeUploadedImage($subdir, $name) {
+  if (!$name) return;
+  $path = __DIR__ . '/assets/images/' . $subdir . '/' . basename($name);
+  if (is_file($path)) unlink($path);
+}
+
 // Validasi nama & HP konsumen offline. Return pesan error atau null.
 function offlineCustomerError($name, $phone) {
   if ($name === '') return "Nama konsumen wajib diisi";
+  if (mb_strlen($name) > 100) return "Nama konsumen maksimal 100 karakter";
   if ($phone !== '' && !preg_match('/^[0-9]{9,14}$/', $phone)) return "Nomor HP tidak valid (hanya angka, 9-14 digit)";
   return null;
 }
@@ -81,19 +95,39 @@ if ($action === 'mark_paid') {
   // Membayar di kasir saat sesi sudah dekat/berjalan berarti konsumen sudah datang:
   // sekalian dianggap check-in (expires_at dikosongkan)
   $checkinFrom = $now + BOOKING_CHECKIN_SEC;
-  $stmt = $conn->prepare("
-    UPDATE bookings
-    SET payment_status = 'paid', paid_at = ?, amount_paid = total_price,
-        expires_at = IF(start_time <= ?, NULL, expires_at)
-    WHERE id = ? AND payment_status = 'unpaid'
-  ");
-  $stmt->bind_param("iii", $now, $checkinFrom, $id);
-  $stmt->execute();
-  $ok = $stmt->affected_rows > 0;
-  $stmt->close();
-  echo json_encode($ok
-    ? ["status" => "ok"]
-    : ["status" => "error", "message" => "Booking sudah lunas atau sudah dibatalkan"]);
+  // Booking yang sudah lewat batas check-in dibatalkan dulu, jadi tidak bisa dilunasi
+  releaseNoShows($conn, $now);
+  try {
+    $conn->begin_transaction();
+    $stmt = $conn->prepare("SELECT total_price, amount_paid FROM bookings WHERE id = ? AND payment_status = 'unpaid' FOR UPDATE");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $b = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$b) {
+      $conn->rollback();
+      echo json_encode(["status" => "error", "message" => "Booking sudah lunas atau sudah dibatalkan"]);
+      exit;
+    }
+    // Waktu tiap pembayaran dicatat di booking_payments (recordPayment di bawah)
+    $stmt = $conn->prepare("
+      UPDATE bookings
+      SET payment_status = 'paid', amount_paid = total_price,
+          expires_at = IF(start_time <= ?, NULL, expires_at)
+      WHERE id = ?
+    ");
+    $stmt->bind_param("ii", $checkinFrom, $id);
+    $stmt->execute();
+    $stmt->close();
+    recordPayment($conn, $id, intval($b['total_price']) - intval($b['amount_paid']), $now);
+    $conn->commit();
+  } catch (\Throwable $e) {
+    $conn->rollback();
+    error_log("mark_paid failed: " . $e->getMessage());
+    echo json_encode(["status" => "error", "message" => "Gagal menyimpan pembayaran"]);
+    exit;
+  }
+  echo json_encode(["status" => "ok"]);
   exit;
 }
 
@@ -162,18 +196,23 @@ if ($action === 'cancel_booking') {
 if ($action === 'checkin_booking') {
   $id = intval($_POST['id'] ?? 0);
   // Check-in paling cepat 15 menit sebelum jam mulai (bukan untuk reservasi hari lain)
-  $earliest = time() + BOOKING_CHECKIN_SEC;
+  $now = time();
+  $earliest = $now + BOOKING_CHECKIN_SEC;
+  // Booking belum bayar yang lewat batas check-in dibatalkan dulu (tidak bisa dihidupkan lagi).
+  // Booking lunas yang terlambat tetap boleh check-in selama jam mainnya belum habis.
+  releaseNoShows($conn, $now);
   $stmt = $conn->prepare("
     UPDATE bookings SET expires_at = NULL
-    WHERE id = ? AND expires_at IS NOT NULL AND payment_status <> 'cancelled' AND start_time <= ?
+    WHERE id = ? AND expires_at IS NOT NULL AND payment_status <> 'cancelled'
+      AND start_time <= ? AND end_time > ?
   ");
-  $stmt->bind_param("ii", $id, $earliest);
+  $stmt->bind_param("iii", $id, $earliest, $now);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();
   echo json_encode($ok
     ? ["status" => "ok"]
-    : ["status" => "error", "message" => "Booking sudah check-in, dibatalkan, atau jam mulainya masih lebih dari 15 menit lagi"]);
+    : ["status" => "error", "message" => "Booking sudah check-in, dibatalkan karena tidak hadir, sudah lewat jam mainnya, atau jam mulainya masih lebih dari 15 menit lagi"]);
   exit;
 }
 
@@ -194,12 +233,12 @@ if ($action === 'walkin_join') {
     exit;
   }
   $now = time();
-  if (intval(date('G', $now)) < BOOKING_OPEN_HOUR) {
-    echo json_encode(["status" => "error", "message" => "Belum jam buka. Layanan mulai jam 11:00"]);
+  if ($now < openTs($now)) {
+    echo json_encode(["status" => "error", "message" => "Belum jam buka. Layanan mulai jam 10:30"]);
     exit;
   }
-  if ($now + $duration * 3600 > queueCloseLimit($now)) {
-    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (tengah malam)"]);
+  if ($now + $duration * 3600 > closeTs($now)) {
+    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (22:00)"]);
     exit;
   }
 
@@ -299,18 +338,45 @@ if ($action === 'queue_cancel') {
 if ($action === 'finish_booking') {
   $id  = intval($_POST['id'] ?? 0);
   $now = time();
-  // Biaya tetap; durasi dicatat sesuai jam main aktual (dibulatkan ke atas)
+  // Biaya tetap; durasi dicatat sesuai jam main aktual (dibulatkan ke atas).
+  // Hanya sesi yang konsumennya sudah check-in (expires_at NULL).
   $stmt = $conn->prepare("
     UPDATE bookings
-    SET end_time = ?, duration = GREATEST(1, CEIL((? - start_time) / 3600)), expires_at = NULL
-    WHERE id = ? AND start_time <= ? AND end_time > ? AND payment_status <> 'cancelled'
+    SET end_time = ?, duration = GREATEST(1, CEIL((? - start_time) / 3600))
+    WHERE id = ? AND start_time <= ? AND end_time > ? AND payment_status <> 'cancelled' AND expires_at IS NULL
   ");
   $stmt->bind_param("iiiii", $now, $now, $id, $now, $now);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();
   if (!$ok) {
-    echo json_encode(["status" => "error", "message" => "Sesi tidak sedang berjalan"]);
+    echo json_encode(["status" => "error", "message" => "Sesi tidak sedang berjalan atau konsumen belum ditandai hadir"]);
+    exit;
+  }
+  processQueue($conn);
+  echo json_encode(["status" => "ok"]);
+  exit;
+}
+
+// ================= LEPAS RUANGAN: KONSUMEN LUNAS TIDAK DATANG =================
+// Booking lunas tidak pernah dibatalkan otomatis. Bila batas check-in sudah lewat dan
+// konsumen tidak datang, admin melepas ruangan: sesi diakhiri sekarang, pembayaran tetap
+// tercatat, dan expires_at tetap terisi sebagai tanda tidak hadir.
+if ($action === 'release_noshow') {
+  $id  = intval($_POST['id'] ?? 0);
+  $now = time();
+  $stmt = $conn->prepare("
+    UPDATE bookings
+    SET end_time = ?, duration = GREATEST(1, CEIL((? - start_time) / 3600))
+    WHERE id = ? AND payment_status = 'paid' AND expires_at IS NOT NULL AND expires_at < ?
+      AND start_time <= ? AND end_time > ?
+  ");
+  $stmt->bind_param("iiiiii", $now, $now, $id, $now, $now, $now);
+  $stmt->execute();
+  $ok = $stmt->affected_rows > 0;
+  $stmt->close();
+  if (!$ok) {
+    echo json_encode(["status" => "error", "message" => "Booking sudah check-in, sudah selesai, atau batas kedatangannya belum lewat"]);
     exit;
   }
   processQueue($conn);
@@ -325,8 +391,9 @@ if ($action === 'add_room') {
   $price       = intval($_POST['price'] ?? 0);
   $description = trim($_POST['description'] ?? '');
 
-  if ($title === '' || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
-    echo json_encode(["status" => "error", "message" => "Data room tidak lengkap atau tidak valid"]);
+  if ($title === '' || mb_strlen($title) > 100 || mb_strlen($description) > 255
+      || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
+    echo json_encode(["status" => "error", "message" => "Data room tidak lengkap atau tidak valid (nama maks 100, keterangan maks 255 karakter)"]);
     exit;
   }
 
@@ -351,7 +418,7 @@ if ($action === 'update_room') {
   $price       = intval($_POST['price'] ?? 0);
   $description = trim($_POST['description'] ?? '');
 
-  if ($id <= 0 || $title === '' || mb_strlen($title) > 100 || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
+  if ($id <= 0 || $title === '' || mb_strlen($title) > 100 || mb_strlen($description) > 255 || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
     echo json_encode(["status" => "error", "message" => "Data room tidak lengkap atau tidak valid"]);
     exit;
   }
@@ -384,26 +451,30 @@ if ($action === 'toggle_role') {
     echo json_encode(["status" => "error", "message" => "Tidak bisa mengubah role akun sendiri"]);
     exit;
   }
-  $stmt = $conn->prepare("SELECT role FROM users WHERE id = ?");
+  // Baris admin dikunci supaya dua admin yang saling menurunkan role bersamaan
+  // tidak membuat sistem tanpa admin sama sekali.
+  $conn->begin_transaction();
+  $adminCount = count($conn->query("SELECT id FROM users WHERE role = 'admin' FOR UPDATE")->fetch_all());
+  $stmt = $conn->prepare("SELECT role FROM users WHERE id = ? FOR UPDATE");
   $stmt->bind_param("i", $id);
   $stmt->execute();
   $target = $stmt->get_result()->fetch_assoc();
   $stmt->close();
   if (!$target) {
+    $conn->rollback();
     echo json_encode(["status" => "error", "message" => "Akun tidak ditemukan"]);
     exit;
   }
-  if ($target['role'] === 'admin') {
-    $adminCount = intval($conn->query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'")->fetch_assoc()['n']);
-    if ($adminCount <= 1) {
-      echo json_encode(["status" => "error", "message" => "Minimal harus ada satu admin"]);
-      exit;
-    }
+  if ($target['role'] === 'admin' && $adminCount <= 1) {
+    $conn->rollback();
+    echo json_encode(["status" => "error", "message" => "Minimal harus ada satu admin"]);
+    exit;
   }
   $stmt = $conn->prepare("UPDATE users SET role = IF(role='user','admin','user') WHERE id = ?");
   $stmt->bind_param("i", $id);
   $stmt->execute();
   $stmt->close();
+  $conn->commit();
   echo json_encode(["status" => "ok"]);
   exit;
 }
@@ -418,6 +489,10 @@ if ($action === 'add_game') {
 
   if ($title === '' || $genre === '' || empty($consoles)) {
     echo json_encode(["status" => "error", "message" => "Lengkapi data game & pilih console"]);
+    exit;
+  }
+  if (mb_strlen($title) > 100 || mb_strlen($genre) > 50) {
+    echo json_encode(["status" => "error", "message" => "Judul maksimal 100 karakter, genre maksimal 50 karakter"]);
     exit;
   }
 
@@ -446,8 +521,9 @@ if ($action === 'add_game') {
     ]);
     exit;
 
-  } catch (Exception $e) {
+  } catch (Throwable $e) {
     $conn->rollback();
+    removeUploadedImage('games', $imageName);
     error_log("Add game failed: " . $e->getMessage());
     echo json_encode(["status" => "error", "message" => "Gagal menyimpan game"]);
     exit;
@@ -470,10 +546,7 @@ if ($action === 'delete_game') {
     $stmt->close();
 
     // Hapus juga file cover-nya supaya tidak menumpuk di folder upload
-    if ($deleted && $img) {
-        $path = __DIR__ . '/assets/images/games/' . basename($img);
-        if (is_file($path)) unlink($path);
-    }
+    if ($deleted) removeUploadedImage('games', $img);
     echo json_encode(["status" => "ok"]);
     exit;
 }
@@ -504,8 +577,9 @@ if ($action === 'update_game_consoles') {
 
         $conn->commit();
         echo json_encode(["status" => "ok"]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         $conn->rollback();
+        error_log("Update game consoles failed: " . $e->getMessage());
         echo json_encode(["status" => "error", "message" => "Gagal update"]);
     }
     exit;
@@ -529,17 +603,25 @@ if ($action === 'add_menu_item') {
     $price       = intval($_POST['price'] ?? 0);
     $description = trim($_POST['description'] ?? '');
 
-    if ($name === '' || !in_array($category, ['makanan', 'minuman'], true) || $price <= 0) {
-        echo json_encode(["status" => "error", "message" => "Data tidak lengkap"]);
+    if ($name === '' || mb_strlen($name) > 100 || mb_strlen($description) > 255
+        || !in_array($category, ['makanan', 'minuman'], true) || $price <= 0) {
+        echo json_encode(["status" => "error", "message" => "Data tidak lengkap atau tidak valid (nama maks 100, deskripsi maks 255 karakter)"]);
         exit;
     }
 
     $imageName = saveUploadedImage('item_image', 'menu', 'menu_');
 
-    $stmt = $conn->prepare("INSERT INTO menu_items (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)");
-    $stmt->bind_param("ssiss", $name, $category, $price, $description, $imageName);
-    $stmt->execute();
-    $stmt->close();
+    try {
+        $stmt = $conn->prepare("INSERT INTO menu_items (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssiss", $name, $category, $price, $description, $imageName);
+        $stmt->execute();
+        $stmt->close();
+    } catch (Throwable $e) {
+        removeUploadedImage('menu', $imageName);
+        error_log("Add menu item failed: " . $e->getMessage());
+        echo json_encode(["status" => "error", "message" => "Gagal menyimpan item menu"]);
+        exit;
+    }
 
     echo json_encode([
         "status"      => "ok",
@@ -568,7 +650,7 @@ if ($action === 'update_menu_item') {
     $price       = intval($_POST['price'] ?? 0);
     $description = trim($_POST['description'] ?? '');
 
-    if ($id <= 0 || $name === '' || mb_strlen($name) > 100 || !in_array($category, ['makanan', 'minuman'], true) || $price <= 0) {
+    if ($id <= 0 || $name === '' || mb_strlen($name) > 100 || mb_strlen($description) > 255 || !in_array($category, ['makanan', 'minuman'], true) || $price <= 0) {
         echo json_encode(["status" => "error", "message" => "Data menu tidak lengkap atau tidak valid"]);
         exit;
     }
@@ -587,15 +669,19 @@ if ($action === 'update_menu_item') {
     $newImage = saveUploadedImage('item_image', 'menu', 'menu_');
     $image = $newImage ?? $old['image'];
 
-    $stmt = $conn->prepare("UPDATE menu_items SET name = ?, category = ?, price = ?, description = ?, image = ? WHERE id = ?");
-    $stmt->bind_param("ssissi", $name, $category, $price, $description, $image, $id);
-    $stmt->execute();
-    $stmt->close();
-
-    if ($newImage && $old['image']) {
-        $path = __DIR__ . '/assets/images/menu/' . basename($old['image']);
-        if (is_file($path)) unlink($path);
+    try {
+        $stmt = $conn->prepare("UPDATE menu_items SET name = ?, category = ?, price = ?, description = ?, image = ? WHERE id = ?");
+        $stmt->bind_param("ssissi", $name, $category, $price, $description, $image, $id);
+        $stmt->execute();
+        $stmt->close();
+    } catch (Throwable $e) {
+        removeUploadedImage('menu', $newImage);
+        error_log("Update menu item failed: " . $e->getMessage());
+        echo json_encode(["status" => "error", "message" => "Gagal menyimpan perubahan menu"]);
+        exit;
     }
+
+    if ($newImage) removeUploadedImage('menu', $old['image']);
     echo json_encode([
         "status"      => "ok",
         "image_saved" => !uploadAttempted('item_image') || $newImage !== null,
@@ -606,11 +692,18 @@ if ($action === 'update_menu_item') {
 // ================= DELETE MENU ITEM =================
 if ($action === 'delete_menu_item') {
     $id = intval($_POST['id'] ?? 0);
+    $stmt = $conn->prepare("SELECT image FROM menu_items WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $img = $stmt->get_result()->fetch_assoc()['image'] ?? null;
+    $stmt->close();
     try {
         $stmt = $conn->prepare("DELETE FROM menu_items WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
+        $deleted = $stmt->affected_rows > 0;
         $stmt->close();
+        if ($deleted) removeUploadedImage('menu', $img);
         echo json_encode(["status" => "ok"]);
     } catch (\mysqli_sql_exception $e) {
         // Item masih punya histori pesanan (FK RESTRICT) — nonaktifkan saja, jangan hapus.

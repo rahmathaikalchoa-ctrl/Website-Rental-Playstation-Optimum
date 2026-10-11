@@ -3,6 +3,62 @@ const $ = (id) => document.getElementById(id);
 
 const NETWORK_ERROR = "Tidak dapat terhubung ke server. Periksa koneksi lalu coba lagi.";
 
+// ===== SESI LOGIN HABIS =====
+// Endpoint user mengirim header X-Auth-Required bila sesi di server sudah habis
+// (mis. lama tidak aktif) padahal tampilan masih login. Semua fetch dicek di sini
+// supaya UI tidak diam-diam menampilkan "Belum ada booking" atau gagal tanpa alasan.
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (...args) => nativeFetch(...args).then((res) => {
+  if (res.headers.get("X-Auth-Required") && IS_LOGGED_IN) {
+    IS_LOGGED_IN = false;
+    window.onSessionExpired?.();
+  }
+  return res;
+});
+
+// ===== JAM WIB =====
+// Jam buka, tanggal booking, dan tampilan jam selalu mengikuti WIB (zona server),
+// bukan zona atau jam perangkat pengunjung. Selisih jam perangkat dikoreksi dari
+// jam server yang dikirim session.php.
+const TZ = "Asia/Jakarta";
+const WIB_OFFSET = 7 * 3600;
+let serverSkew = 0;
+function nowSec() {
+  return Math.floor(Date.now() / 1000) + serverSkew;
+}
+function syncServerClock(serverTime) {
+  if (Number.isFinite(serverTime)) serverSkew = serverTime - Math.floor(Date.now() / 1000);
+}
+// Komponen kalender WIB dari timestamp (detik)
+function wibParts(ts = nowSec()) {
+  const d = new Date((ts + WIB_OFFSET) * 1000);
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+}
+// Timestamp jam 00:00 WIB pada hari yang sama dengan ts
+function wibDayStart(ts = nowSec()) {
+  return Math.floor((ts + WIB_OFFSET) / 86400) * 86400 - WIB_OFFSET;
+}
+function wibISODate(ts = nowSec()) {
+  const p = wibParts(ts);
+  return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`;
+}
+// Timestamp untuk tanggal "YYYY-MM-DD" dan jam "HH:MM" WIB
+function wibTs(isoDate, hhmm = "00:00") {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const [h, mi] = hhmm.split(":").map(Number);
+  return Date.UTC(y, m - 1, d, h, mi) / 1000 - WIB_OFFSET;
+}
+
+// Jam operasional dari booking_lib.php (atribut <body>): buka 10:30, tutup 22:00.
+// Jam mulai reservasi kelipatan 30 menit, sesi tidak boleh lewat jam tutup.
+const OPEN_SEC  = Number(document.body.dataset.openSec) || 37800;
+const CLOSE_SEC = Number(document.body.dataset.closeSec) || 79200;
+const SLOT_SEC  = 1800;
+// "HH:MM" dari detik sejak 00:00
+function secToHHMM(sec) {
+  return `${String(Math.floor(sec / 3600)).padStart(2, "0")}:${String(Math.floor(sec % 3600 / 60)).padStart(2, "0")}`;
+}
+
 // Minta login, lalu setelah login berhasil user dibawa kembali ke halaman tujuan
 // (dan ruangan yang tadi dipilih, jika ada) — lihat onLoginSuccess.
 function requireLogin(message, view, roomId = null) {
@@ -25,6 +81,7 @@ const ICON_PATHS = {
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
   utensils: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 };
 function icon(name) {
   return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ""}</svg>`;
@@ -53,6 +110,8 @@ function clearNoFillFields() {
   noFillIds.forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
+    // Jangan hapus yang sudah diketik user (pemanggilan susulan setelah load)
+    if (el.dataset.userTyped) return;
     // Nama acak tiap load — browser tidak bisa cocokkan ke history tersimpan
     el.setAttribute("name", "nofill_" + Math.random().toString(36).substr(2, 8));
     el.setAttribute("autocomplete", "new-password");
@@ -82,6 +141,10 @@ window.addEventListener("pageshow", (e) => {
 // Chrome kadang me-restore value form SETELAH DOMContentLoaded/pageshow selesai
 // (bagian dari mekanisme internal reload-nya) — jadi kosongkan lagi beberapa saat
 // setelah load untuk menimpa restorasi yang telat itu.
+// Tandai input yang diisi user sendiri supaya tidak ikut dikosongkan
+document.addEventListener("input", (e) => {
+  if (e.isTrusted && e.target.dataset) e.target.dataset.userTyped = "1";
+});
 window.addEventListener("load", () => {
   setTimeout(clearNoFillFields, 0);
   setTimeout(clearNoFillFields, 300);
@@ -97,6 +160,9 @@ document.addEventListener("DOMContentLoaded", () => {
   fetch("session.php")
     .then((res) => res.json())
     .then((sess) => {
+      // Jam perangkat bisa salah: samakan dengan jam server lalu perbarui pilihan tanggal/jam
+      syncServerClock(sess.server_time);
+      refreshStaleDateOptions();
       if (sess.logged_in) {
         IS_LOGGED_IN = true;
         setLoggedIn(sess.username);
@@ -192,6 +258,21 @@ document.addEventListener("DOMContentLoaded", () => {
     return card;
   }
 
+  // Ubah baris ruangan dari API (rooms_api / popular_rooms_api) ke bentuk data kartu
+  function toRoom(r) {
+    return {
+      id:            Number(r.id),
+      title:         r.title,
+      consoleType:   r.console_type,
+      price:         Number(r.price),
+      img:           r.image ? `assets/images/rooms/${r.image}` : "assets/images/rooms/default.svg",
+      desc:          r.description || "Tidak ada deskripsi",
+      // Deskripsi asli (tanpa teks pengganti) untuk pencarian
+      rawDesc:       r.description || "",
+      currentStatus: r.current_status || "available",
+    };
+  }
+
   // render preview — ambil 3 ruangan paling sering dibooking
   function renderPreview() {
     const g = $("roomsGrid");
@@ -205,17 +286,7 @@ document.addEventListener("DOMContentLoaded", () => {
           g.innerHTML = "<p class='muted'>Belum ada ruangan tersedia.</p>";
           return;
         }
-        data.forEach((r) => {
-          g.appendChild(createRoomCard({
-            id:            Number(r.id),
-            title:         r.title,
-            consoleType:   r.console_type,
-            price:         Number(r.price),
-            img:           r.image ? `assets/images/rooms/${r.image}` : "assets/images/rooms/default.svg",
-            desc:          r.description || "Tidak ada deskripsi",
-            currentStatus: r.current_status || "available",
-          }));
-        });
+        data.forEach((r) => g.appendChild(createRoomCard(toRoom(r))));
       })
       .catch(() => {
         g.innerHTML = "<p class='muted'>Gagal memuat ruangan.</p>";
@@ -313,19 +384,18 @@ document.addEventListener("DOMContentLoaded", () => {
         const tl = document.getElementById("roomTimeline");
         if (!tl) return;
         const hours = [];
-        const midnight = new Date();
-        midnight.setHours(0, 0, 0, 0);
-        const dayStart = midnight.getTime() / 1000;
-        for (let h = 11; h <= 23; h++) {
-          // Bandingkan timestamp (bukan getHours) supaya sesi berakhir 24:00
-          // atau mulai di menit ganjil (dari antrian) tetap terdeteksi
-          const hs = dayStart + h * 3600;
-          const booked = slots.some((s) => hs < s.end_time && hs + 3600 > s.start_time);
+        const dayStart = wibDayStart();
+        // Satu kotak = 30 menit dari jam buka sampai jam tutup. Bandingkan timestamp
+        // supaya sesi dari antrian yang mulai di menit ganjil tetap terdeteksi.
+        for (let t = OPEN_SEC; t < CLOSE_SEC; t += SLOT_SEC) {
+          const hs = dayStart + t;
+          const booked = slots.some((s) => hs < s.end_time && hs + SLOT_SEC > s.start_time);
           // Jam yang sudah lewat tidak bisa dipesan lagi, diberi warna abu-abu
-          const past = hs + 3600 <= Date.now() / 1000;
+          const past = hs + SLOT_SEC <= nowSec();
+          const label = secToHHMM(t);
           hours.push(
-            `<div class="tl-hour ${booked ? "tl-booked" : "tl-free"}${past ? " timeline-past" : ""}" title="${h}:00 — ${past ? "Sudah lewat" : booked ? "Terpesan" : "Kosong"}">
-               <span>${h}</span>
+            `<div class="tl-hour ${booked ? "tl-booked" : "tl-free"}${past ? " timeline-past" : ""}" title="${label}–${secToHHMM(t + SLOT_SEC)} — ${past ? "Sudah lewat" : booked ? "Terpesan" : "Kosong"}">
+               <span>${label}</span>
              </div>`
           );
         }
@@ -388,8 +458,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const total = room.price * dur;
 
     const [h, m] = timeVal.split(":").map(Number);
-    const endH   = ((h + dur) % 24).toString().padStart(2, "0");
-    const endTime = `${endH}:${m.toString().padStart(2, "0")}`;
+    const endTime = secToHHMM(Math.min(h * 3600 + m * 60 + dur * 3600, CLOSE_SEC));
 
     box.innerHTML = `
       <div class="summary-row">
@@ -428,8 +497,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const box = $("bookingSummary");
     if (!box) return;
     const start = new Date(b.start_time * 1000);
-    const fmtTime = (d) => d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    const dateText = start.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" });
+    const fmtTime = (d) => d.toLocaleTimeString("id-ID", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+    const dateText = start.toLocaleDateString("id-ID", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
     const checkin = b.expires_at ? fmtTime(new Date(b.expires_at * 1000)) : null;
     const note = `Tunjukkan kode ini dan bayar di kasir saat datang.${checkin ? ` Lapor paling lambat <strong>${checkin}</strong>, lewat dari itu booking batal otomatis.` : ""}`;
     box.innerHTML = `
@@ -640,7 +709,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const duration = $("duration").value;
 
     if (!time || !duration) {
-      alert("Tidak ada jam tersisa untuk tanggal ini. Silakan pilih tanggal lain.");
+      alert("Tidak ada jam yang bisa dipilih untuk ruangan dan tanggal ini. Pilih tanggal atau ruangan lain.");
       return;
     }
 
@@ -704,7 +773,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     stopMenuRefresh();
     const roomFound = roomsData.find((r) =>
-      (r.title + " " + r.desc).toLowerCase().includes(q),
+      (r.title + " " + r.rawDesc).toLowerCase().includes(q),
     );
     if (roomFound) {
       showDetail(roomFound.id);
@@ -727,7 +796,8 @@ document.addEventListener("DOMContentLoaded", () => {
     .catch(() => {});
 
   function refreshRoomsUI() {
-    if (!Array.isArray(roomsData) || roomsData.length === 0) return;
+    // Tetap dirender walau kosong, supaya ruangan yang dihapus admin ikut hilang dari tampilan
+    if (!Array.isArray(roomsData)) return;
     renderPreview();
     renderAll();
     populateSelect();
@@ -739,17 +809,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((res) => res.json())
       .then((data) => {
         roomsData.length = 0;
-        data.forEach((r) => {
-          roomsData.push({
-            id:            Number(r.id),
-            title:         r.title,
-            consoleType:   r.console_type,
-            price:         Number(r.price),
-            img:           r.image ? `assets/images/rooms/${r.image}` : "assets/images/rooms/default.svg",
-            desc:          r.description || "Tidak ada deskripsi",
-            currentStatus: r.current_status || "available",
-          });
-        });
+        data.forEach((r) => roomsData.push(toRoom(r)));
         refreshRoomsUI();
       })
       .catch((err) => console.error("Rooms load error:", err));
@@ -896,6 +956,11 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
+  // Pesanan yang sudah diketahui berstatus selesai. null = belum pernah berhasil dimuat,
+  // jadi muatan pertama (atau setelah gagal) tidak memunculkan notifikasi untuk pesanan lama.
+  let knownDoneOrders = null;
+  window.resetKnownOrders = () => { knownDoneOrders = null; };
+
   function loadMyOrders(silent = false) {
     const box = $("myOrdersList");
     if (!box) return;
@@ -904,29 +969,29 @@ document.addEventListener("DOMContentLoaded", () => {
     fetch("menu_order_api.php?action=my_orders")
       .then((res) => res.json())
       .then((data) => {
+        // User sudah logout saat request ini berjalan: jangan tampilkan pesanan lama
+        if (!IS_LOGGED_IN || !Array.isArray(data)) return;
+
+        // Notifikasi hanya untuk pesanan yang baru berubah jadi selesai sejak muatan terakhir
+        const doneNow = data.filter((o) => o.status === 'selesai');
+        if (knownDoneOrders) {
+          doneNow.forEach((o) => {
+            if (!knownDoneOrders.has(String(o.id))) showOrderNotif(o.name);
+          });
+        }
+        knownDoneOrders = new Set(doneNow.map((o) => String(o.id)));
+
         if (data.length === 0) {
           box.innerHTML = "<p class='muted small'>Belum ada pesanan.</p>";
           return;
-        }
-
-        // Cek apakah ada status yg baru berubah jadi selesai
-        if (silent) {
-          const prevDone = new Set(
-            [...box.querySelectorAll(".menu-order-item[data-status='selesai']")]
-              .map(el => el.dataset.id)
-          );
-          data.forEach(o => {
-            if (o.status === 'selesai' && !prevDone.has(String(o.id))) {
-              showOrderNotif(o.name);
-            }
-          });
         }
 
         box.innerHTML = data.map(o => {
           const total = formatRup(o.price * o.quantity);
           const statusCls = o.status === 'selesai' ? 'order-done' : 'order-pending';
           const statusLabel = o.status === 'selesai' ? `${icon('check')} Sudah Sampai` : `${icon('clock')} Diproses`;
-          const tgl = new Date(o.created_at).toLocaleString('id-ID', {
+          const [cDate, cTime] = String(o.created_at).split(" ");
+          const tgl = new Date(wibTs(cDate, (cTime || "00:00").slice(0, 5)) * 1000).toLocaleString('id-ID', { timeZone: TZ,
             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
           });
           const note = o.note ? `<p class="muted small">Catatan: ${escapeHtml(o.note)}</p>` : '';
@@ -952,6 +1017,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function showOrderNotif(itemName) {
     const notif = document.createElement("div");
     notif.className = "order-notif";
+    notif.setAttribute("role", "status");
+    notif.setAttribute("aria-live", "polite");
+    const stacked = document.querySelectorAll(".order-notif").length;
+    if (stacked) notif.style.bottom = `${28 + stacked * 64}px`;
     notif.innerHTML = `${icon('utensils')} "${escapeHtml(itemName)}" sudah sampai!`;
     document.body.appendChild(notif);
     requestAnimationFrame(() => notif.classList.add("show"));
@@ -973,8 +1042,8 @@ document.addEventListener("DOMContentLoaded", () => {
       .then((data) => {
         // Bisa saja user logout saat request ini masih berjalan
         if (!data || !IS_LOGGED_IN) { banner.style.display = "none"; return; }
-        const fmt = (u) => new Date(u * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-        const now = Date.now() / 1000;
+        const fmt = (u) => new Date(u * 1000).toLocaleTimeString("id-ID", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+        const now = nowSec();
         const label = document.getElementById("upcomingLabel");
         const started = data.start_time <= now;
         const waitingArrival = started && data.expires_at;
@@ -983,7 +1052,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : started ? "Sesi Sedang Berjalan" : "Booking Mendatang";
         }
         if (detail) {
-          const day = new Date(data.start_time * 1000).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short" });
+          const day = new Date(data.start_time * 1000).toLocaleDateString("id-ID", { timeZone: TZ, weekday: "long", day: "numeric", month: "short" });
           let text = started
             ? `${data.room} — selesai ${fmt(data.end_time)}`
             : `${data.room} — ${day}, jam ${fmt(data.start_time)} (${data.duration} jam) · ${data.order_code}`;
@@ -1000,7 +1069,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // batas lapor kasir, atau jam selesai booking terlewati, supaya status tidak basi.
   let statusRefreshTimer = null;
   function scheduleStatusRefresh(times) {
-    const now = Date.now() / 1000;
+    const now = nowSec();
     const next = times.map(Number).filter((t) => t && t > now).sort((a, b) => a - b)[0];
     clearTimeout(statusRefreshTimer);
     if (!next || next - now > 6 * 3600) return;
@@ -1009,7 +1078,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadUpcomingBooking();
       const profileOpen = document.getElementById("view-profile")?.style.display !== "none";
       const extendOpen = [...document.querySelectorAll("[id^='extend-form-']")].some((f) => f.style.display === "block");
-      if (profileOpen && !extendOpen) document.getElementById("profileDetail")?.click();
+      if (profileOpen && !extendOpen) openProfileDetail(true);
     }, (next - now + 2) * 1000);
   }
 
@@ -1043,12 +1112,10 @@ document.addEventListener("DOMContentLoaded", () => {
       form.style.display = isOpen ? "none" : "block";
       if (isOpen) return;
 
-      // Mirror batas server: total durasi maks 12 jam & tidak boleh lewat tengah malam
-      // hari mulainya sesi (lihat extend_booking.php).
+      // Mirror batas server: total durasi maks 12 jam & tidak boleh lewat jam tutup
+      // hari mulainya sesi (lihat extendBookingCore di booking_lib.php).
       const maxTotalDuration = 12;
-      const startDate = new Date(startTs * 1000);
-      const dayStart  = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime() / 1000;
-      const closeLimit = dayStart + 24 * 3600;
+      const closeLimit = wibDayStart(startTs) + CLOSE_SEC;
 
       // Konfirmasi baru aktif setelah ketersediaan jam diketahui
       const confirmEl = form.querySelector("[data-extend]");
@@ -1130,7 +1197,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (res.status === "ok") {
             alert(`Sesi berhasil diperpanjang ${extraHours} jam!`);
             loadUpcomingBooking();
-            document.getElementById("profileDetail")?.click();
+            openProfileDetail(true);
           } else {
             alert("Gagal: " + res.message);
             confirmBtn.disabled = false;
@@ -1165,7 +1232,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (res.status === "ok") {
             alert("Booking berhasil dibatalkan.");
             loadUpcomingBooking();
-            document.getElementById("profileDetail")?.click();
+            openProfileDetail(true);
           } else {
             alert("Gagal: " + res.message);
             cancelBookingBtn.disabled = false;
@@ -1259,7 +1326,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ===== TOMBOL LIHAT PASSWORD =====
   // Setiap input password dibungkus agar punya tombol mata untuk menampilkan isinya.
-  const EYE_SVG = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   document.querySelectorAll('input[type="password"]').forEach((input) => {
     const wrap = document.createElement("span");
     wrap.className = "pass-wrap";
@@ -1268,7 +1334,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "pass-toggle";
-    btn.innerHTML = EYE_SVG;
+    btn.innerHTML = icon("eye");
     btn.setAttribute("aria-label", "Tampilkan password");
     btn.addEventListener("click", () => {
       const show = input.type === "password";
@@ -1283,6 +1349,31 @@ document.addEventListener("DOMContentLoaded", () => {
     f.querySelectorAll(".pass-wrap input").forEach((i) => { i.type = "password"; });
     f.querySelectorAll(".pass-toggle").forEach((b) => b.classList.remove("on"));
   }));
+
+  // ===== MODAL: TOMBOL ESCAPE & FOKUS KEYBOARD =====
+  // Escape menekan tombol Batal modal yang terbuka (logika reset tiap modal tetap dipakai).
+  // Saat modal terbuka fokus pindah ke input pertama, dan kembali ke elemen asal saat ditutup.
+  const MODAL_CLOSE_BTN = { loginModal: "closeLogin", registerModal: "closeRegister",
+                            orderModal: "closeOrderModal", forgotModal: "closeForgot" };
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const open = document.querySelector(".modal.show");
+    if (open) document.getElementById(MODAL_CLOSE_BTN[open.id])?.click();
+  });
+  let focusBeforeModal = null;
+  const modalObserver = new MutationObserver((muts) => muts.forEach((m) => {
+    const wasOpen = (m.oldValue || "").split(" ").includes("show");
+    const isOpen = m.target.classList.contains("show");
+    if (isOpen && !wasOpen) {
+      if (!document.activeElement?.closest(".modal")) focusBeforeModal = document.activeElement;
+      m.target.querySelector("input:not([type=hidden]), button")?.focus();
+    } else if (!isOpen && wasOpen && !document.querySelector(".modal.show")) {
+      focusBeforeModal?.focus?.();
+      focusBeforeModal = null;
+    }
+  }));
+  document.querySelectorAll(".modal").forEach((m) =>
+    modalObserver.observe(m, { attributes: true, attributeFilter: ["class"], attributeOldValue: true }));
 
   // ===== LOGIN MODAL =====
   const loginLink = document.querySelector('[data-view="login"]');
@@ -1340,6 +1431,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const forgotModal    = document.getElementById("forgotModal");
 
   function openForgot() {
+    // Modal ini bukan <form>, jadi tombol mata dikembalikan ke mode tersembunyi di sini
+    forgotModal.querySelectorAll(".pass-wrap input").forEach((i) => { i.type = "password"; });
+    forgotModal.querySelectorAll(".pass-toggle").forEach((b) => b.classList.remove("on"));
     document.getElementById("forgotUsername").value = "";
     document.getElementById("forgotOldPass").value = "";
     document.getElementById("forgotNewPass").value = "";
@@ -1406,10 +1500,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("loginForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
 
-    const username = e.target.querySelector('input[type="text"]').value.trim();
-    const password = e.target
-      .querySelector('input[type="password"]')
-      .value.trim();
+    const username = document.getElementById("loginUsername").value.trim();
+    const password = document.getElementById("loginPassword").value.trim();
 
     if (!username || !password) {
       alert("Username & password wajib diisi");
@@ -1508,6 +1600,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.AUTH = null;
     window._notifiedSessions = new Set();
     stopMenuRefresh();
+    window.resetKnownOrders?.();
     queueWaiting = false;
     renderQueueEntry(null);
     if (window._bookingCountdownInterval) {
@@ -1539,6 +1632,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (profileBookingList) profileBookingList.innerHTML = '<p class="muted small">Belum ada booking.</p>';
     const myOrdersList = document.getElementById("myOrdersList");
     if (myOrdersList) myOrdersList.innerHTML = "";
+    const profileSince = document.getElementById("profileSince");
+    if (profileSince) profileSince.textContent = "-";
   }
 
   function onLoginSuccess(username) {
@@ -1576,6 +1671,15 @@ document.addEventListener("DOMContentLoaded", () => {
     showView("home");
     fetch("logout.php", { method: "POST" }).catch(() => {});
   }
+
+  // Sesi login habis di server (lihat pembungkus fetch di atas): ubah tampilan ke
+  // status logout lalu minta login lagi, dan kembali ke halaman ini setelah login.
+  window.onSessionExpired = () => {
+    const view = Object.keys(views).find((k) => document.getElementById(views[k])?.style.display === "block") || "home";
+    setLoggedOut();
+    if (view === "profile") showView("home");
+    requireLogin("Sesi login kamu sudah habis karena lama tidak aktif. Silakan login lagi.", view);
+  };
 
   document.getElementById("logoutBtn")?.addEventListener("click", (e) => {
     e.preventDefault();
@@ -1649,12 +1753,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Dipakai baik oleh link "Detail" di dropdown profil maupun tombol
   // "Lihat Detail" di banner booking mendatang (halaman Beranda), supaya
   // keduanya selalu menampilkan data booking yang sama & ter-update.
-  function openProfileDetail() {
+  // keepScroll: muat ulang data profil (setelah perpanjang/batal/auto-refresh) tanpa
+  // melompat ke atas halaman dan tanpa mengosongkan daftar dulu
+  function openProfileDetail(keepScroll = false) {
     stopMenuRefresh();
     loadUserBookings();
 
     // 1️⃣ tampilkan view
-    showView("profile");
+    showView("profile", keepScroll);
 
     // RIWAYAT BOOKING PADA DETAIL PROFILE
     function loadUserBookings() {
@@ -1666,7 +1772,7 @@ document.addEventListener("DOMContentLoaded", () => {
           window._bookingCountdownInterval = null;
         }
 
-        box.innerHTML = '<p class="muted small">Memuat booking...</p>';
+        if (!keepScroll) box.innerHTML = '<p class="muted small">Memuat booking...</p>';
 
         fetch("get_user_bookings.php?t=" + Date.now())
           .then((r) => r.json())
@@ -1678,12 +1784,12 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             box.innerHTML = "";
-            const now = Math.floor(Date.now() / 1000);
+            const now = nowSec();
 
             const totalHours = data
-              // No-show (batas check-in lewat tanpa hadir) tidak dihitung sebagai jam main
-              .filter(b => parseInt(b.end_time) <= now && b.payment_status !== "cancelled"
-                && !(b.payment_status === "unpaid" && b.expires_at && now > b.expires_at))
+              // No-show tidak dihitung sebagai jam main: sesi yang sudah selesai tapi
+              // expires_at masih terisi berarti konsumen tidak pernah check-in
+              .filter(b => parseInt(b.end_time) <= now && b.payment_status !== "cancelled" && !b.expires_at)
               .reduce((sum, b) => sum + parseInt(b.duration), 0);
             const totalEl = document.getElementById("profileTotalHours");
             if (totalEl) totalEl.textContent = totalHours + " jam";
@@ -1700,7 +1806,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
               // expires_at terisi = belum lapor ke kasir (belum check-in)
               const notCheckedIn = !isCancelled && b.expires_at && (isUpcoming || isActive);
-              const fmtTime = (u) => new Date(u * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+              const fmtTime = (u) => new Date(u * 1000).toLocaleTimeString("id-ID", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
 
               let statusHtml;
               if (isCancelled) {
@@ -1726,7 +1832,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ? `<p class="checkin-note">Lapor ke kasir sebelum ${fmtTime(b.expires_at)}, lewat dari itu booking batal otomatis.</p>`
                 : "";
 
-              const cancelHtml = (isUpcoming || notCheckedIn) && b.payment_status !== "paid" ? `
+              // Sama dengan syarat cancel_booking.php: belum lunas dan belum check-in
+              // (check-in paling cepat 15 menit sebelum mulai)
+              const canCancel = !isCancelled && b.payment_status !== "paid" && !isDone
+                && (b.expires_at || start > now + 900);
+              const cancelHtml = canCancel ? `
                 <div style="margin-top:8px">
                   <button class="btn-ghost cancel-booking-btn" data-bid="${b.id}" data-room="${escapeHtml(b.room)}"
                     style="font-size:0.78rem;padding:4px 10px;color:#ff6b6b;border-color:#ff6b6b44">
@@ -1772,7 +1882,7 @@ document.addEventListener("DOMContentLoaded", () => {
               box.innerHTML += `
                 <div class="booking-item">
                   <strong>${escapeHtml(b.room)}</strong><br>
-                  <span class="small muted">${new Date(start * 1000).toLocaleDateString("id-ID", { day: "numeric", month: "short" })} &bull; Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam &bull; ${formatRup(b.total_price)}</span><br>
+                  <span class="small muted">${new Date(start * 1000).toLocaleDateString("id-ID", { timeZone: TZ, day: "numeric", month: "short" })} &bull; Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam &bull; ${formatRup(b.total_price)}</span><br>
                   ${statusHtml}
                   ${metaHtml}
                   ${checkinHtml}
@@ -1787,7 +1897,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!window._notifiedSessions) window._notifiedSessions = new Set();
 
             function tick() {
-              const nowTick = Math.floor(Date.now() / 1000);
+              const nowTick = nowSec();
               let hasActive = false;
               data.forEach((b) => {
                 const el = document.getElementById(`countdown-${b.id}`);
@@ -1835,7 +1945,7 @@ document.addEventListener("DOMContentLoaded", () => {
       fetch("profile_status.php")
         .then((r) => r.json())
         .then((d) => {
-          if (d.error) return;
+          if (d.error || !IS_LOGGED_IN) return;
           if (uname) uname.textContent = d.username || "User";
           if (sinceEl) sinceEl.textContent = d.since || "-";
         })
@@ -1857,21 +1967,13 @@ document.addEventListener("DOMContentLoaded", () => {
   showView("home");
 });
 
-//JAM MULAI (11.00–23.00)
+// JAM MULAI (tiap 30 menit dari jam buka sampai 1 jam sebelum tutup)
 const timeSelect = document.getElementById("timeStart");
 const durationSelect = document.getElementById("duration");
 
-// Format tanggal lokal (bukan UTC) supaya "hari ini" tidak salah tanggal
-// untuk pengguna WIB antara jam 00:00-06:59 (toISOString() memakai UTC).
-function toLocalISODate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
+// Tanggal hari ini menurut WIB (lihat wibISODate), bukan tanggal perangkat
 function getTodayISO() {
-  return toLocalISODate(new Date());
+  return wibISODate();
 }
 
 function generateDateOptions() {
@@ -1880,12 +1982,13 @@ function generateDateOptions() {
   sel.innerHTML = "";
   const labels = ["Hari ini", "Besok", "Lusa"];
   for (let i = 0; i < 3; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const iso = toLocalISODate(d);
+    // Jam 12:00 WIB pada hari ke-i, aman dari pergeseran zona saat diformat
+    const noon = wibDayStart() + i * 86400 + 12 * 3600;
+    const d = new Date(noon * 1000);
+    const iso = wibISODate(noon);
     const opt = document.createElement("option");
     opt.value = iso;
-    opt.textContent = `${labels[i]} · ${d.toLocaleDateString("id-ID", { day: "numeric", month: "short" })}`;
+    opt.textContent = `${labels[i]} · ${d.toLocaleDateString("id-ID", { timeZone: TZ, day: "numeric", month: "short" })}`;
     sel.appendChild(opt);
   }
 }
@@ -1893,26 +1996,26 @@ function generateDateOptions() {
 function generateTimeOptions() {
   const dateSel = document.getElementById("bookingDate");
   const selectedDate = dateSel?.value || getTodayISO();
-  const isToday = selectedDate === getTodayISO();
-  const nowHour = new Date().getHours();
+  const dayStart = wibTs(selectedDate);
 
   timeSelect.innerHTML = "";
   let firstAvailable = null;
-  for (let hour = 11; hour <= 23; hour++) {
-    if (isToday && hour <= nowHour) continue;
-    const h = hour.toString().padStart(2, "0");
+  for (let t = OPEN_SEC; t + 3600 <= CLOSE_SEC; t += SLOT_SEC) {
+    // Jam mulai yang sudah lewat tidak ditawarkan (server juga menolaknya)
+    if (dayStart + t <= nowSec()) continue;
+    const hhmm = secToHHMM(t);
     const opt = document.createElement("option");
-    opt.value = `${h}:00`;
-    opt.textContent = `${h}:00`;
+    opt.value = hhmm;
+    opt.textContent = hhmm;
     timeSelect.appendChild(opt);
-    if (!firstAvailable) firstAvailable = `${h}:00`;
+    if (!firstAvailable) firstAvailable = hhmm;
   }
 
   if (firstAvailable) {
     timeSelect.value = firstAvailable;
     timeSelect.disabled = false;
   } else {
-    // Sudah lewat jam operasional untuk tanggal ini (mis. sudah jam 23 lewat hari ini)
+    // Sudah lewat jam operasional untuk tanggal ini (mis. sudah lewat jam 21:00 hari ini)
     const opt = document.createElement("option");
     opt.value = "";
     opt.textContent = "Tidak ada jam tersisa hari ini";
@@ -1934,10 +2037,11 @@ function updateDurationOptions() {
   }
   durationSelect.disabled = false;
 
-  const [hour] = timeSelect.value.split(":").map(Number);
-  const maxDuration = 12; // sesuai batas maksimal di server (apikr.php)
-  const remaining = Math.min(24 - hour, maxDuration);
+  const maxDuration = 12; // sesuai batas maksimal di server (booking_lib.php)
   const start = slotStartTs(timeSelect.value);
+  // Sesi harus selesai paling lambat jam tutup
+  const closeTs = wibDayStart(start) + CLOSE_SEC;
+  const remaining = Math.min(Math.floor((closeTs - start) / 3600), maxDuration);
 
   for (let i = 1; i <= remaining; i++) {
     // Durasi yang menabrak booking berikutnya tidak ditawarkan
@@ -1975,6 +2079,22 @@ document.getElementById("bookingDate")?.addEventListener("change", () => {
   // Ringkasan diperbarui oleh listener "change" di dalam DOMContentLoaded
 });
 
+// Halaman yang dibiarkan terbuka: pilihan tanggal basi setelah tengah malam dan jam
+// mulai yang sudah lewat masih bisa dipilih. Cek tiap menit dan perbarui bila perlu.
+function refreshStaleDateOptions() {
+  const sel = document.getElementById("bookingDate");
+  if (!sel) return;
+  const prevDate = sel.value;
+  const dateStale = sel.options[0]?.value !== getTodayISO();
+  const timeStale = prevDate === getTodayISO() && timeSelect.value
+    && slotStartTs(timeSelect.value) <= nowSec();
+  if (!dateStale && !timeStale) return;
+  generateDateOptions();
+  if ([...sel.options].some((o) => o.value === prevDate)) sel.value = prevDate;
+  sel.dispatchEvent(new Event("change"));
+}
+setInterval(refreshStaleDateOptions, 60000);
+
 // ===== BOOKED SLOTS =====
 
 // Nomor request terakhir: respons lama (ganti ruangan/tanggal cepat) diabaikan
@@ -2002,7 +2122,7 @@ function fetchBookedSlots(roomId) {
         } else {
           const ranges = data.map((s) => {
             const fmt = (unix) =>
-              new Date(unix * 1000).toLocaleTimeString("id-ID", {
+              new Date(unix * 1000).toLocaleTimeString("id-ID", { timeZone: TZ,
                 hour: "2-digit",
                 minute: "2-digit",
               });
@@ -2022,7 +2142,7 @@ function fetchBookedSlots(roomId) {
 // Timestamp (detik) untuk jam "HH:MM" pada tanggal booking yang dipilih
 function slotStartTs(timeVal) {
   const date = document.getElementById("bookingDate")?.value || getTodayISO();
-  return Math.floor(new Date(`${date}T${timeVal}:00`).getTime() / 1000);
+  return wibTs(date, timeVal);
 }
 
 // Sama dengan cek bentrok di apikr.php: start < endLain && end > startLain
@@ -2069,7 +2189,7 @@ document.getElementById("roomSelect")?.addEventListener("change", (e) => {
   fetchBookedSlots(e.target.value);
 });
 
-function showView(v) {
+function showView(v, keepScroll = false) {
   Object.values(views).forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = "none";
@@ -2081,8 +2201,8 @@ function showView(v) {
   if (v === "booking") refreshQueue();
   setActiveNav(v);
 
-  // reset scroll & state
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  // reset scroll & state (kecuali hanya memuat ulang halaman yang sama)
+  if (!keepScroll) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function setActiveNav(view) {
@@ -2116,7 +2236,7 @@ function renderQueueEntry(entry) {
     }
     return;
   }
-  const fmt = (unix) => new Date(unix * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  const fmt = (unix) => new Date(unix * 1000).toLocaleTimeString("id-ID", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
   const ended = entry.state === "expired" || entry.state === "cancelled";
   // Kalau giliran sudah batal, user boleh ambil antrian lagi
   joinBox.style.display = ended ? "" : "none";
@@ -2152,7 +2272,7 @@ function refreshQueue() {
   }
   fetch("queue_api.php?action=status&t=" + Date.now())
     .then((r) => r.json())
-    .then((res) => { if (res.status === "ok") renderQueueEntry(res.entry); })
+    .then((res) => { if (IS_LOGGED_IN && res.status === "ok") renderQueueEntry(res.entry); })
     .catch(() => {});
 }
 
@@ -2163,13 +2283,10 @@ function postQueue(params) {
 
 (function initQueueForm() {
   const durSel = $("queueDuration");
-  // Durasi maksimal mengikuti sisa waktu sampai jam tutup (tengah malam), sama dengan aturan server
+  // Durasi maksimal mengikuti sisa waktu sampai jam tutup, sama dengan aturan server
   const fillDurations = () => {
     if (!durSel) return;
-    const now = new Date();
-    const midnight = new Date(now);
-    midnight.setHours(24, 0, 0, 0);
-    const maxH = Math.min(12, Math.floor((midnight - now) / 3600000));
+    const maxH = Math.min(12, Math.floor((wibDayStart() + CLOSE_SEC - nowSec()) / 3600));
     const prev = Number(durSel.value) || 1;
     durSel.innerHTML = "";
     if (maxH < 1) {

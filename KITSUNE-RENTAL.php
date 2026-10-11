@@ -4,6 +4,7 @@ session_start();
 require __DIR__ . '/icons.php';
 require __DIR__ . '/db.php';
 require __DIR__ . '/site_info.php';
+require_once __DIR__ . '/booking_lib.php';
 
 // Harga termurah per konsol dari ruangan aktif, untuk kartu "Info Singkat" di Beranda
 $priceFrom = [];
@@ -21,7 +22,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
     <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__ . '/style.css') ?>">
   </head>
 
-  <body>
+  <body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>">
     <header class="site-header">
       <div class="header-inner">
         <!-- left: brand -->
@@ -190,7 +191,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
             </p>
             <div id="queueJoinBox" class="brow">
               <div class="bfield">
-                <label>Konsol</label>
+                <label for="queueConsole">Konsol</label>
                 <select id="queueConsole">
                   <option value="PS3">PS3</option>
                   <option value="PS4">PS4</option>
@@ -198,7 +199,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                 </select>
               </div>
               <div class="bfield">
-                <label>Durasi</label>
+                <label for="queueDuration">Durasi</label>
                 <select id="queueDuration"></select>
               </div>
               <div class="bfield">
@@ -232,16 +233,16 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                   </div>
 
                   <div class="bfield" style="margin-top:14px">
-                    <label>Nama Lengkap</label>
-                    <input id="name" placeholder="Nama asli kamu" required autocomplete="new-password">
+                    <label for="name">Nama Lengkap</label>
+                    <input id="name" placeholder="Nama asli kamu" maxlength="100" required autocomplete="new-password">
                   </div>
                   <div class="brow">
                     <div class="bfield">
-                      <label>Email</label>
-                      <input id="email" type="text" inputmode="email" placeholder="email@contoh.com" autocomplete="new-password">
+                      <label for="email">Email</label>
+                      <input id="email" type="text" inputmode="email" maxlength="100" placeholder="email@contoh.com" autocomplete="new-password">
                     </div>
                     <div class="bfield">
-                      <label>No. HP</label>
+                      <label for="phone">No. HP</label>
                       <input id="phone" type="tel" inputmode="numeric" pattern="[0-9]{9,14}" maxlength="14" placeholder="08xxxxxxxxxx" autocomplete="new-password">
                     </div>
                   </div>
@@ -251,21 +252,21 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                 <div class="bsection">
                   <h3 class="bsection-title"><?= icon('gamepad') ?> Detail Sesi</h3>
                   <div class="bfield">
-                    <label>Pilih Ruangan</label>
+                    <label for="roomSelect">Pilih Ruangan</label>
                     <select id="roomSelect" required></select>
                     <p id="bookedSlotsInfo" style="margin-top:6px;font-size:0.8rem;color:#ff6b6b;min-height:1.2em"></p>
                   </div>
                   <div class="bfield">
-                    <label>Tanggal</label>
+                    <label for="bookingDate">Tanggal</label>
                     <select id="bookingDate" required></select>
                   </div>
                   <div class="brow">
                     <div class="bfield">
-                      <label>Jam Mulai</label>
+                      <label for="timeStart">Jam Mulai</label>
                       <select id="timeStart" required></select>
                     </div>
                     <div class="bfield">
-                      <label>Durasi (jam)</label>
+                      <label for="duration">Durasi (jam)</label>
                       <select id="duration" required></select>
                     </div>
                   </div>
@@ -395,18 +396,18 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
 <div id="loginModal" class="modal">
   <div class="modal-overlay"></div>
 
-  <div class="modal-content">
-    <h2>Login User</h2>
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <h2 id="loginTitle">Login User</h2>
 
     <form id="loginForm" action="javascript:void(0)" autocomplete="off">
       <label>
         Username
-        <input type="text" required autocomplete="new-password" />
+        <input type="text" id="loginUsername" required maxlength="50" autocomplete="new-password" />
       </label>
 
       <label>
         Password
-        <input type="password" required autocomplete="new-password" />
+        <input type="password" id="loginPassword" required autocomplete="new-password" />
       </label>
 
       <div class="modal-actions">
@@ -431,8 +432,8 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
 <div id="registerModal" class="modal">
   <div class="modal-overlay"></div>
 
-  <div class="modal-content" onclick="event.stopPropagation()">
-    <h2>Register User</h2>
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="registerTitle" onclick="event.stopPropagation()">
+    <h2 id="registerTitle">Register User</h2>
 
     <form id="registerForm" autocomplete="off">
       <label>
@@ -468,8 +469,8 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
 <!-- ORDER MODAL -->
 <div id="orderModal" class="modal">
   <div class="modal-overlay"></div>
-  <div class="modal-content" onclick="event.stopPropagation()">
-    <h2>Pesan <span id="orderItemName"></span></h2>
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="orderTitle" onclick="event.stopPropagation()">
+    <h2 id="orderTitle">Pesan <span id="orderItemName"></span></h2>
     <p class="small muted" id="orderItemPrice" style="margin-bottom:14px"></p>
     <input type="hidden" id="orderItemId">
     <label>
@@ -478,7 +479,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
     </label>
     <label style="margin-top:10px">
       Catatan (opsional)
-      <input type="text" id="orderNote" placeholder="Contoh: tidak pedas, es batu sedikit" style="margin-top:6px">
+      <input type="text" id="orderNote" maxlength="200" placeholder="Contoh: tidak pedas, es batu sedikit" style="margin-top:6px">
     </label>
     <div class="modal-actions" style="margin-top:14px">
       <button type="button" class="btn" id="orderSubmitBtn">Pesan Sekarang</button>
@@ -490,14 +491,14 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
 <!-- FORGOT PASSWORD MODAL -->
 <div id="forgotModal" class="modal">
   <div class="modal-overlay"></div>
-  <div class="modal-content" onclick="event.stopPropagation()">
-    <h2>Ganti Password</h2>
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="forgotTitle" onclick="event.stopPropagation()">
+    <h2 id="forgotTitle">Ganti Password</h2>
 
     <div id="forgotStep1">
       <p class="small muted" style="margin-bottom:12px">Masukkan username, password lama, dan password baru akunmu.</p>
       <label>
         Username
-        <input type="text" id="forgotUsername" placeholder="Username kamu" required autocomplete="new-password" />
+        <input type="text" id="forgotUsername" maxlength="50" placeholder="Username kamu" required autocomplete="new-password" />
       </label>
       <label style="margin-top:8px">
         Password Lama

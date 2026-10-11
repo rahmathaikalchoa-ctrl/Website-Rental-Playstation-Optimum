@@ -38,6 +38,7 @@ try {
   session_regenerate_id(true);
   $_SESSION['user_id'] = $user['id'];
   $_SESSION['username'] = $user['username'];
+  $_SESSION['pw_sig'] = passwordSig($user['password']);
 
   updateUserActivity($conn, $user['id']);
 

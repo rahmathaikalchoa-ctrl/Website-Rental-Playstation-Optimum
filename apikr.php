@@ -11,6 +11,8 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
 }
 
 if (!isset($_SESSION['user_id'])) {
+  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  header('X-Auth-Required: 1');
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
 }
@@ -35,23 +37,8 @@ if (mb_strlen($customer) > 100) {
   exit;
 }
 
-// Satu akun maksimal punya 2 reservasi mendatang yang belum dibayar,
-// supaya slot tidak diborong satu orang
 $userId = intval($_SESSION['user_id']);
-$stmt = $conn->prepare("
-  SELECT COUNT(*) AS n FROM bookings
-  WHERE user_id = ? AND payment_status = 'unpaid' AND end_time > UNIX_TIMESTAMP()
-");
-$stmt->bind_param("i", $userId);
-$stmt->execute();
-$activeUnpaid = intval($stmt->get_result()->fetch_assoc()['n']);
-$stmt->close();
-if ($activeUnpaid >= MAX_ACTIVE_UNPAID) {
-  echo json_encode(["status" => "error", "message" =>
-    "Kamu sudah punya " . MAX_ACTIVE_UNPAID . " reservasi yang belum dibayar. Bayar di kasir atau batalkan salah satunya dulu."]);
-  exit;
-}
-if ($email !== "" && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+if (mb_strlen($email) > 100 || ($email !== "" && !filter_var($email, FILTER_VALIDATE_EMAIL))) {
   echo json_encode(["status" => "error", "message" => "Format email tidak valid"]);
   exit;
 }
@@ -78,6 +65,9 @@ $res = createBooking($conn, [
   'payment_status' => 'unpaid',
   // Wajib lapor ke kasir paling lambat 15 menit setelah jam mulai
   'expires_at'     => $slot['start'] + BOOKING_CHECKIN_SEC,
+  // Satu akun maksimal punya beberapa reservasi aktif yang belum dibayar,
+  // supaya slot tidak diborong satu orang (dicek di dalam transaksi createBooking)
+  'max_unpaid'     => MAX_ACTIVE_UNPAID,
 ]);
 
 echo json_encode($res['ok']

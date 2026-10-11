@@ -6,6 +6,8 @@ require __DIR__ . '/db.php';
 require_once __DIR__ . '/queue_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
+  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  header('X-Auth-Required: 1');
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
 }
@@ -38,12 +40,12 @@ if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
   }
   $now = time();
-  if (intval(date('G', $now)) < BOOKING_OPEN_HOUR) {
-    echo json_encode(["status" => "error", "message" => "Antrian dibuka mulai jam 11:00"]);
+  if ($now < openTs($now)) {
+    echo json_encode(["status" => "error", "message" => "Antrian dibuka mulai jam 10:30"]);
     exit;
   }
-  if ($now + $duration * 3600 > queueCloseLimit($now)) {
-    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (tengah malam)"]);
+  if ($now + $duration * 3600 > closeTs($now)) {
+    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (22:00)"]);
     exit;
   }
 

@@ -666,6 +666,9 @@ body {
   inset: 0;
   display: none;
   z-index: 999;
+  /* Layar pendek (HP landscape): isi modal tetap bisa di-scroll sampai tombolnya */
+  overflow-y: auto;
+  padding: 24px 0;
 }
 
 .modal.show {
@@ -674,7 +677,7 @@ body {
 
 /* background blur */
 .modal-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(6px);
@@ -683,8 +686,8 @@ body {
 /* card login */
 .modal-content {
   position: relative;
-  width: 340px;
-  margin: 10% auto;
+  width: min(340px, calc(100% - 24px));
+  margin: 6vh auto;
   background: #0f1216;
   border-radius: 14px;
   padding: 22px;
@@ -711,6 +714,14 @@ body {
   border-radius: 6px;
   border: none;
   outline: none;
+}
+
+/* Fokus keyboard tetap terlihat walau outline bawaan dimatikan */
+.modal-content input:focus-visible {
+  box-shadow: 0 0 0 2px var(--neon);
+}
+.search-wrap:focus-within {
+  box-shadow: 0 0 0 2px var(--neon), 0 6px 18px rgba(0, 0, 0, 0.6);
 }
 
 .modal-actions {
@@ -814,11 +825,6 @@ body {
 }
 
 /* ===== PROFILE DETAIL PAGE ===== */
-.status-online {
-  color: var(--neon-green);
-  font-weight: 600;
-}
-
 .booking-list {
   margin-top: 10px;
 }

@@ -10,6 +10,8 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Pragma: no-cache');
 
 if (!isset($_SESSION['user_id'])) {
+  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  header('X-Auth-Required: 1');
   echo json_encode([]);
   exit;
 }

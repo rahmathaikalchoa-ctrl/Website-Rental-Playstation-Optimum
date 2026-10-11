@@ -14,7 +14,12 @@ if ($roomId <= 0) {
 $today   = date('Y-m-d');
 $allowed = [$today, date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+2 days'))];
 $dateStr = $_GET['date'] ?? $today;
-if (!in_array($dateStr, $allowed, true)) $dateStr = $today;
+// Tanggal di luar hari ini s/d lusa (mis. halaman lama yang terbuka lewat tengah malam)
+// tidak boleh diam-diam diganti jadi hari ini, karena slotnya akan salah tanggal
+if (!in_array($dateStr, $allowed, true)) {
+  echo json_encode([]);
+  exit;
+}
 
 $todayStart = strtotime($dateStr . ' 00:00:00');
 $todayEnd   = $todayStart + 86400;

@@ -33,6 +33,7 @@ if (isset($_POST['login'])) {
       $_SESSION['admin']          = true;
       $_SESSION['admin_id']       = intval($adminUser['id']);
       $_SESSION['admin_username'] = $inputUser;
+      $_SESSION['admin_pw_sig'] = passwordSig($adminUser['password']);
       header("Location: KITSUNE-ADMIN.php");
       exit;
     } else {
@@ -41,7 +42,11 @@ if (isset($_POST['login'])) {
   }
 }
 
-if (isset($_GET['logout'])) {
+// Token CSRF untuk semua aksi admin (dikirim admin.js di setiap POST ke admin_api.php)
+if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
+
+// Logout lewat POST + token, supaya link/gambar dari situs lain tidak bisa mengeluarkan admin
+if (isset($_POST['logout']) && hash_equals($_SESSION['csrf'], (string) ($_POST['csrf'] ?? ''))) {
   // Hanya keluarkan sesi admin; login user di browser yang sama tetap jalan
   unset($_SESSION['admin'], $_SESSION['admin_id'], $_SESSION['admin_username']);
   session_regenerate_id(true);
@@ -64,10 +69,11 @@ $offset  = ($pageNum - 1) * $perPage;
 <html>
 <head>
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="<?= htmlspecialchars($_SESSION['csrf']) ?>">
   <title>Admin Optimum Playzone</title>
   <link rel="stylesheet" href="admin.css?v=<?= filemtime(__DIR__ . '/admin.css') ?>">
 </head>
-<body>
+<body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>">
 
 <?php if (!$isAdmin): ?>
   <div class="login-box">
@@ -97,7 +103,10 @@ $offset  = ($pageNum - 1) * $perPage;
       <?php if ($key === 'menu' && $pendingOrders > 0): ?><span class="nav-badge" title="Pesanan menu belum diantar"><?= $pendingOrders ?></span><?php endif; ?>
     </a>
   <?php endforeach; ?>
-  <a href="?logout=1">Logout</a>
+  <form method="post" class="logout-form">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars($_SESSION['csrf']) ?>">
+    <button type="submit" name="logout" value="1">Logout</button>
+  </form>
 </nav>
 
 <main>
@@ -108,12 +117,14 @@ $offset  = ($pageNum - 1) * $perPage;
     $now        = time();
     $todayStart = strtotime('today', $now);
     $monthStart = strtotime(date('Y-m-01', $now));
+    $monthEnd   = strtotime('+1 month', $monthStart);
     $bulanNama  = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
     $bulanIni   = $bulanNama[intval(date('n', $now)) - 1] . ' ' . date('Y', $now);
 
-    // Pendapatan dihitung dari uang yang sudah diterima kasir (amount_paid), menurut waktu bayar
+    // Pendapatan = uang yang diterima kasir (booking_payments), menurut waktu tiap pembayaran.
+    // Booking yang dibatalkan tidak dihitung (uangnya dikembalikan manual).
     $revenueSince = function ($from) use ($conn) {
-      $stmt = $conn->prepare("SELECT COALESCE(SUM(amount_paid), 0) AS s FROM bookings WHERE payment_status <> 'cancelled' AND paid_at >= ?");
+      $stmt = $conn->prepare("SELECT COALESCE(SUM(p.amount), 0) AS s FROM booking_payments p JOIN bookings b ON b.id = p.booking_id WHERE b.payment_status <> 'cancelled' AND p.paid_at >= ?");
       $stmt->bind_param("i", $from);
       $stmt->execute();
       $s = intval($stmt->get_result()->fetch_assoc()['s']);
@@ -145,8 +156,9 @@ $offset  = ($pageNum - 1) * $perPage;
     }
     $chartFrom = reset($days)['ts'];
     $stmt = $conn->prepare("
-      SELECT DATE(FROM_UNIXTIME(paid_at)) AS d, SUM(amount_paid) AS s, COUNT(*) AS n
-      FROM bookings WHERE payment_status <> 'cancelled' AND paid_at >= ?
+      SELECT DATE(FROM_UNIXTIME(p.paid_at)) AS d, SUM(p.amount) AS s, COUNT(*) AS n
+      FROM booking_payments p JOIN bookings b ON b.id = p.booking_id
+      WHERE b.payment_status <> 'cancelled' AND p.paid_at >= ?
       GROUP BY d
     ");
     $stmt->bind_param("i", $chartFrom);
@@ -162,8 +174,8 @@ $offset  = ($pageNum - 1) * $perPage;
     $maxDay = max(1, max(array_column($days, 'sum')));
 
     // Ringkasan booking bulan ini (menurut jadwal main)
-    $stmt = $conn->prepare("SELECT payment_status, source, COUNT(*) AS n FROM bookings WHERE start_time >= ? GROUP BY payment_status, source");
-    $stmt->bind_param("i", $monthStart);
+    $stmt = $conn->prepare("SELECT payment_status, source, COUNT(*) AS n FROM bookings WHERE start_time >= ? AND start_time < ? GROUP BY payment_status, source");
+    $stmt->bind_param("ii", $monthStart, $monthEnd);
     $stmt->execute();
     $byStatus = ['paid' => 0, 'unpaid' => 0, 'cancelled' => 0];
     $bySource = ['online' => 0, 'walkin' => 0];
@@ -179,10 +191,10 @@ $offset  = ($pageNum - 1) * $perPage;
     $stmt = $conn->prepare("
       SELECT r.title, r.console_type, COUNT(b.id) AS n, COALESCE(SUM(b.amount_paid), 0) AS s
       FROM bookings b JOIN rooms r ON r.id = b.room_id
-      WHERE b.payment_status <> 'cancelled' AND b.start_time >= ?
+      WHERE b.payment_status <> 'cancelled' AND b.start_time >= ? AND b.start_time < ?
       GROUP BY r.id ORDER BY n DESC, s DESC LIMIT 5
     ");
-    $stmt->bind_param("i", $monthStart);
+    $stmt->bind_param("ii", $monthStart, $monthEnd);
     $stmt->execute();
     $topRooms = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -296,7 +308,7 @@ $offset  = ($pageNum - 1) * $perPage;
     releaseNoShows($conn);
     $f = riwayatFilter($_GET);
 
-    $stmt = $conn->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(b.amount_paid), 0) AS paid FROM bookings b {$f['where']}");
+    $stmt = $conn->prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN b.payment_status <> 'cancelled' THEN b.amount_paid ELSE 0 END), 0) AS paid FROM bookings b {$f['where']}");
     if ($f['types'] !== '') $stmt->bind_param($f['types'], ...$f['params']);
     $stmt->execute();
     $sum = $stmt->get_result()->fetch_assoc();
@@ -313,8 +325,10 @@ $offset  = ($pageNum - 1) * $perPage;
       {$f['where']}
       ORDER BY b.created_at DESC LIMIT ? OFFSET ?
     ");
+    // Mode cetak: semua baris sesuai filter (bukan hanya halaman ini), dibatasi supaya tetap ringan
+    $printMode = isset($_GET['print']);
     $types = $f['types'] . 'ii';
-    $params = array_merge($f['params'], [$perPage, $offset]);
+    $params = array_merge($f['params'], $printMode ? [2000, 0] : [$perPage, $offset]);
     $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result();
@@ -336,10 +350,14 @@ $offset  = ($pageNum - 1) * $perPage;
     </div>
     <div class="head-actions no-print">
       <a class="btn-ghost-sm btn-link" href="admin_export.php?<?= htmlspecialchars($f['query']) ?>"><?= icon('clipboard') ?> Export CSV</a>
-      <button type="button" class="btn-ghost-sm" onclick="window.print()">Cetak</button>
+      <a class="btn-ghost-sm btn-link" href="?page=riwayat&amp;print=1<?= htmlspecialchars($qs) ?>">Cetak</a>
     </div>
   </div>
 
+  <?php if ($printMode): ?>
+  <p class="page-sub no-print">Mode cetak: menampilkan <?= min($totalRow, 2000) ?> booking sesuai filter. <a href="?page=riwayat<?= htmlspecialchars($qs) ?>">Kembali ke Riwayat</a></p>
+  <script>window.addEventListener("load", () => window.print());</script>
+  <?php endif; ?>
   <form method="get" class="filter-bar no-print">
     <input type="hidden" name="page" value="riwayat">
     <label class="field">
@@ -370,7 +388,7 @@ $offset  = ($pageNum - 1) * $perPage;
   </form>
   <div class="table-wrap">
     <table class="users-table">
-      <tr><th>Konsumen</th><th>Ruangan</th><th>Jadwal</th><th>Total</th><th>Status</th><th>Aksi</th></tr>
+      <tr><th>Konsumen</th><th>Ruangan</th><th>Jadwal</th><th>Total</th><th>Status</th><th class="col-actions">Aksi</th></tr>
       <?php if ($data->num_rows === 0): ?>
         <tr><td colspan="6" class="empty-row">Belum ada data booking.</td></tr>
       <?php endif; ?>
@@ -392,7 +410,7 @@ $offset  = ($pageNum - 1) * $perPage;
         </td>
         <td>Rp<?= number_format(intval($b['total_price']), 0, ',', '.') ?></td>
         <td><span class="pay-badge <?= $pc ?>"><?= $pl ?></span></td>
-        <td>
+        <td class="col-actions">
           <div class="row-actions">
             <?php if (!$isCancelled && $b['payment_status'] !== 'paid'): ?>
               <button class="btn-paid-sm" onclick="markPaid(<?= intval($b['id']) ?>, <?= jsArg($b['customer_name']) ?>, <?= intval($b['total_price']) - intval($b['amount_paid']) ?>)">Lunas</button>
@@ -409,7 +427,7 @@ $offset  = ($pageNum - 1) * $perPage;
     </table>
   </div>
 
-  <?php if ($totalPages > 1): ?>
+  <?php if ($totalPages > 1 && !$printMode): ?>
   <div class="pagination">
     <?php if ($pageNum > 1): ?>
       <a href="?page=riwayat&p=<?= $pageNum - 1 ?><?= htmlspecialchars($qs) ?>">&laquo; Prev</a>
@@ -626,6 +644,8 @@ $offset  = ($pageNum - 1) * $perPage;
             $progress = min(100, round(($now - intval($cur['start_time'])) / $span * 100));
           }
           $waitingArrival = $cur && $cur['expires_at'] !== null;
+          // Hanya booking lunas yang masih tersisa setelah batas check-in (yang belum bayar sudah batal otomatis)
+          $noShow = $waitingArrival && intval($cur['expires_at']) < $now;
           // Konsumen reservasi berikutnya boleh check-in lebih awal (15 menit sebelum mulai)
           $nextEarly = !$cur && $next && $next['expires_at'] !== null
                        && intval($next['start_time']) - $now <= BOOKING_CHECKIN_SEC;
@@ -648,7 +668,9 @@ $offset  = ($pageNum - 1) * $perPage;
                 <?php else: ?>Belum bayar<?php endif; ?>
               </span>
             </p>
-            <?php if ($waitingArrival): ?>
+            <?php if ($noShow): ?>
+              <p class="checkin-wait">Tidak hadir (batas <?= date('H:i', intval($cur['expires_at'])) ?> lewat). Sudah dibayar, ruangan bisa dilepas.</p>
+            <?php elseif ($waitingArrival): ?>
               <p class="checkin-wait">Menunggu kedatangan s/d <?= date('H:i', intval($cur['expires_at'])) ?></p>
             <?php else: ?>
               <div class="progress"><div style="width:<?= $progress ?>%"></div></div>
@@ -674,6 +696,9 @@ $offset  = ($pageNum - 1) * $perPage;
               <?php if ($waitingArrival): ?>
                 <button class="btn-checkin" onclick="checkinBooking(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)"><?= icon('check') ?> Hadir</button>
               <?php endif; ?>
+              <?php if ($noShow): ?>
+                <button class="btn-outline" onclick="releaseNoShow(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)">Lepas Ruangan</button>
+              <?php endif; ?>
               <?php if ($cur['payment_status'] !== 'paid'): ?>
                 <button class="btn-paid" onclick="markPaid(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>, <?= intval($cur['total_price']) - intval($cur['amount_paid']) ?>)">Lunas</button>
               <?php endif; ?>
@@ -686,7 +711,7 @@ $offset  = ($pageNum - 1) * $perPage;
                   </select>
                   <button class="btn-ghost-sm" onclick="adminExtend(<?= intval($cur['id']) ?>)">Tambah</button>
                 </div>
-                <button class="btn-outline" onclick="finishBooking(<?= intval($cur['id']) ?>)">Selesaikan Sesi</button>
+                <button class="btn-outline" onclick="finishBooking(<?= intval($cur['id']) ?>, <?= $cur['payment_status'] === 'paid' ? 0 : $due ?>)">Selesaikan Sesi</button>
               <?php endif; ?>
             </div>
           <?php endif; ?>
@@ -750,7 +775,7 @@ $offset  = ($pageNum - 1) * $perPage;
   <form id="addRoomForm" class="panel-card form-inline">
     <label class="field">
       <span>Nama room</span>
-      <input type="text" name="title" placeholder="mis. VIP - Room 4" required>
+      <input type="text" name="title" placeholder="mis. VIP - Room 4" maxlength="100" required>
     </label>
     <label class="field">
       <span>Konsol</span>
@@ -767,7 +792,7 @@ $offset  = ($pageNum - 1) * $perPage;
     </label>
     <label class="field">
       <span>Keterangan</span>
-      <input type="text" name="description" placeholder="mis. Ruangan 4 orang">
+      <input type="text" name="description" placeholder="mis. Ruangan 4 orang" maxlength="255">
     </label>
     <button type="submit" class="btn-primary"><?= icon('check') ?> Tambah</button>
   </form>
@@ -888,7 +913,7 @@ $games = mysqli_query($conn, "
     <h3 class="panel-title"><?= icon('gamepad') ?> Tambah Game</h3>
     <label class="field">
       <span>Nama game</span>
-      <input name="title" placeholder="mis. EA FC 26" required>
+      <input name="title" placeholder="mis. EA FC 26" maxlength="100" required>
     </label>
     <label class="field">
       <span>Genre</span>
@@ -908,7 +933,7 @@ $games = mysqli_query($conn, "
       </select>
     </label>
     <div id="customGenreWrap" class="custom-genre-wrap" style="display:none">
-      <input type="text" id="customGenreInput" placeholder="Nama genre baru (mis. Horror)" autocomplete="off">
+      <input type="text" id="customGenreInput" placeholder="Nama genre baru (mis. Horror)" maxlength="50" autocomplete="off">
       <button type="button" id="cancelCustomGenre" class="btn-cancel-genre" aria-label="Batal"><?= icon('x') ?></button>
     </div>
 
@@ -922,7 +947,7 @@ $games = mysqli_query($conn, "
     </div>
 
     <label class="file-upload-zone">
-      <input type="file" name="cover_image" accept="image/*">
+      <input type="file" name="cover_image" accept="image/jpeg,image/png,image/webp">
       <img class="file-upload-preview" style="display:none" alt="preview">
       <div class="file-upload-inner">
         <span class="file-upload-icon"><?= icon('image') ?></span>
@@ -1054,7 +1079,7 @@ $orders = mysqli_query($conn, "
     <h3 class="panel-title"><?= icon('clipboard') ?> Tambah Item</h3>
     <label class="field">
       <span>Nama item</span>
-      <input name="name" placeholder="mis. Indomie Goreng" required>
+      <input name="name" placeholder="mis. Indomie Goreng" maxlength="100" required>
     </label>
     <div class="field-row">
       <label class="field">
@@ -1072,10 +1097,10 @@ $orders = mysqli_query($conn, "
     </div>
     <label class="field">
       <span>Deskripsi <em>(opsional)</em></span>
-      <input type="text" name="description" placeholder="Deskripsi singkat">
+      <input type="text" name="description" placeholder="Deskripsi singkat" maxlength="255">
     </label>
     <label class="file-upload-zone">
-      <input type="file" name="item_image" accept="image/*">
+      <input type="file" name="item_image" accept="image/jpeg,image/png,image/webp">
       <img class="file-upload-preview" style="display:none" alt="preview">
       <div class="file-upload-inner">
         <span class="file-upload-icon"><?= icon('image') ?></span>

@@ -51,5 +51,14 @@ if (!$ok) {
   exit;
 }
 
+// Sesi lain milik akun ini otomatis keluar (sidik password berubah, lihat db.php).
+// Sesi yang sedang dipakai untuk mengganti password tetap login.
+if (intval($_SESSION['user_id'] ?? 0) === intval($user['id'])) {
+  $_SESSION['pw_sig'] = passwordSig($hashed);
+}
+if (intval($_SESSION['admin_id'] ?? 0) === intval($user['id'])) {
+  $_SESSION['admin_pw_sig'] = passwordSig($hashed);
+}
+
 clearRateLimit('forgot_password', $username);
 echo json_encode(["status" => "ok"]);

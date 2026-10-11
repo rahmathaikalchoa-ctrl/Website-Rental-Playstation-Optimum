@@ -9,10 +9,11 @@ if (isset($_SESSION['user_id'])) {
 
   echo json_encode([
     "logged_in" => true,
-    "username"  => $_SESSION['username']
+    "username"  => $_SESSION['username'],
+    "server_time" => time(),
   ]);
 } else {
-  echo json_encode(["logged_in" => false]);
+  echo json_encode(["logged_in" => false, "server_time" => time()]);
 }
 
 session_write_close();

@@ -24,6 +24,26 @@ $conn = new mysqli("localhost", "root", "", "gamezone");
 // Samakan zona waktu NOW()/TIMESTAMP MySQL dengan PHP (WIB)
 $conn->query("SET time_zone = '+07:00'");
 
+// Sidik password untuk sesi: berubah saat password diganti, sehingga sesi lain
+// (perangkat lain) yang masih memakai password lama otomatis keluar.
+function passwordSig($hash) {
+  return substr(hash('sha256', (string) $hash), 0, 16);
+}
+
+// Keluarkan sesi user bila password akunnya sudah diganti sejak login
+if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['user_id'], $_SESSION['pw_sig'])) {
+  $sessUid = intval($_SESSION['user_id']);
+  $stmt = $conn->prepare("SELECT password FROM users WHERE id = ?");
+  $stmt->bind_param("i", $sessUid);
+  $stmt->execute();
+  $sessRow = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$sessRow || !hash_equals($_SESSION['pw_sig'], passwordSig($sessRow['password']))) {
+    unset($_SESSION['user_id'], $_SESSION['username'], $_SESSION['pw_sig']);
+  }
+  unset($sessUid, $sessRow);
+}
+
 function updateUserActivity($conn, $userId) {
   $stmt = $conn->prepare("UPDATE users SET last_activity = NOW() WHERE id = ?");
   $stmt->bind_param("i", $userId);
@@ -51,21 +71,20 @@ function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300, $subject = 
   // Buang sisa percobaan lama dari IP/aksi lain supaya tabel tidak tumbuh terus
   $conn->query("DELETE FROM rate_limits WHERE created_at < (NOW() - INTERVAL 1 DAY)");
 
+  // Catat dulu baru hitung: request yang datang bersamaan saling melihat catatan
+  // masing-masing, jadi tidak bisa lolos semua seperti pola "cek lalu catat".
+  $stmt = $conn->prepare("INSERT INTO rate_limits (rl_key) VALUES (?)");
+  $stmt->bind_param("s", $key);
+  $stmt->execute();
+  $stmt->close();
+
   $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM rate_limits WHERE rl_key = ?");
   $stmt->bind_param("s", $key);
   $stmt->execute();
   $count = intval($stmt->get_result()->fetch_assoc()['c']);
   $stmt->close();
 
-  if ($count >= $maxAttempts) {
-    return false;
-  }
-
-  $stmt = $conn->prepare("INSERT INTO rate_limits (rl_key) VALUES (?)");
-  $stmt->bind_param("s", $key);
-  $stmt->execute();
-  $stmt->close();
-  return true;
+  return $count <= $maxAttempts;
 }
 
 // Sesi admin valid hanya jika akunnya masih ber-role admin di DB
@@ -73,12 +92,14 @@ function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300, $subject = 
 function isAdminSession($conn) {
   if (empty($_SESSION['admin']) || empty($_SESSION['admin_id'])) return false;
   $id = intval($_SESSION['admin_id']);
-  $stmt = $conn->prepare("SELECT 1 FROM users WHERE id = ? AND role = 'admin'");
+  $stmt = $conn->prepare("SELECT password FROM users WHERE id = ? AND role = 'admin'");
   $stmt->bind_param("i", $id);
   $stmt->execute();
-  $ok = (bool) $stmt->get_result()->fetch_row();
+  $row = $stmt->get_result()->fetch_assoc();
   $stmt->close();
-  if (!$ok) unset($_SESSION['admin'], $_SESSION['admin_id'], $_SESSION['admin_username']);
+  // Password admin diganti sejak login: sesi lama tidak berlaku lagi
+  $ok = $row && (empty($_SESSION['admin_pw_sig']) || hash_equals($_SESSION['admin_pw_sig'], passwordSig($row['password'])));
+  if (!$ok) unset($_SESSION['admin'], $_SESSION['admin_id'], $_SESSION['admin_username'], $_SESSION['admin_pw_sig']);
   return $ok;
 }
 

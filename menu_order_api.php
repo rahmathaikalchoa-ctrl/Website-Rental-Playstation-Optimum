@@ -9,6 +9,8 @@ $action = $_REQUEST['action'] ?? '';
 // GET — daftar pesanan milik user yg sedang login
 if ($action === 'my_orders') {
     if (!isset($_SESSION['user_id'])) {
+        // Sesi login habis: script.js membaca header ini lalu membuka modal login
+        header('X-Auth-Required: 1');
         echo json_encode([]);
         exit;
     }
@@ -33,6 +35,8 @@ if ($action === 'my_orders') {
 // POST — buat pesanan baru
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     if (!isset($_SESSION['user_id'])) {
+        // Sesi login habis: script.js membaca header ini lalu membuka modal login
+        header('X-Auth-Required: 1');
         echo json_encode(["status" => "error", "message" => "Belum login"]);
         exit;
     }
@@ -41,6 +45,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     $itemId   = intval($_POST['item_id'] ?? 0);
     $quantity = max(1, min(20, intval($_POST['quantity'] ?? 1)));
     $note     = trim($_POST['note'] ?? '');
+
+    if (mb_strlen($note) > 200) {
+        echo json_encode(["status" => "error", "message" => "Catatan maksimal 200 karakter"]);
+        exit;
+    }
+    if (!checkRateLimit('menu_order', 15, 300, (string) $uid)) {
+        echo json_encode(["status" => "error", "message" => "Terlalu banyak pesanan dalam waktu singkat. Coba lagi beberapa menit lagi."]);
+        exit;
+    }
 
     // pastikan item ada dan tersedia
     $chk = $conn->prepare("SELECT id FROM menu_items WHERE id = ? AND is_available = 1");

@@ -2,7 +2,9 @@
 // Logika inti pembuatan & perpanjangan booking, dipakai bersama oleh
 // halaman user (apikr.php, extend_booking.php) dan admin (admin_api.php).
 
-const BOOKING_OPEN_HOUR    = 11;
+// Jam operasional (detik sejak 00:00 WIB): buka 10:30, tutup 22:00. Sesi tidak boleh lewat jam tutup.
+const BOOKING_OPEN_SEC     = 10 * 3600 + 30 * 60;
+const BOOKING_CLOSE_SEC    = 22 * 3600;
 const BOOKING_MAX_DURATION = 12;
 const BOOKING_EXTEND_MAX   = 3;
 // Batas lapor ke kasir setelah jam mulai; lewat dari ini booking batal otomatis
@@ -12,6 +14,28 @@ const MAX_ACTIVE_UNPAID    = 2;
 
 function bookingFail($message) {
   return ['ok' => false, 'message' => $message];
+}
+
+// Jam buka & jam tutup pada hari dari timestamp $ts
+function openTs($ts) {
+  return strtotime(date('Y-m-d', $ts)) + BOOKING_OPEN_SEC;
+}
+function closeTs($ts) {
+  return strtotime(date('Y-m-d', $ts)) + BOOKING_CLOSE_SEC;
+}
+
+// Catat uang yang diterima kasir ke buku pembayaran. Dashboard menghitung pendapatan dari
+// tabel ini menurut waktu bayar, jadi pelunasan tambahan jam di hari lain tidak memindahkan
+// pembayaran sebelumnya ke tanggal baru.
+function recordPayment($conn, $bookingId, $amount, $paidAt) {
+  $bookingId = intval($bookingId);
+  $amount    = intval($amount);
+  $paidAt    = intval($paidAt);
+  if ($amount <= 0) return;
+  $stmt = $conn->prepare("INSERT INTO booking_payments (booking_id, amount, paid_at) VALUES (?, ?, ?)");
+  $stmt->bind_param("iii", $bookingId, $amount, $paidAt);
+  $stmt->execute();
+  $stmt->close();
 }
 
 // Batalkan booking yang belum lapor ke kasir sampai batas check-in (no-show).
@@ -35,12 +59,15 @@ function scheduledStart($date, $time) {
   $allowed = [$today, date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+2 days'))];
   if (!in_array($date, $allowed, true)) return bookingFail("Tanggal booking tidak valid");
 
-  if (!preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', $time, $tm)) return bookingFail("Format jam tidak valid");
-  $hour = intval($tm[1]);
-  if ($hour < BOOKING_OPEN_HOUR || $hour > 23) return bookingFail("Jam booking harus di antara 11:00-23:00");
+  // Jam mulai kelipatan 30 menit (10:30, 11:00, ... 21:00)
+  if (!preg_match('/^([01]?\d|2[0-3]):(00|30)$/', $time)) return bookingFail("Format jam tidak valid");
 
   $start = strtotime("$date $time");
   if ($start === false) return bookingFail("Format waktu tidak valid");
+  // Minimal 1 jam sebelum tutup, jadi jam mulai terakhir 21:00
+  if ($start < openTs($start) || $start + 3600 > closeTs($start)) {
+    return bookingFail("Jam mulai harus di antara 10:30-21:00");
+  }
   if ($start < time()) return bookingFail("Jam mulai sudah lewat, pilih jam lain");
 
   return ['ok' => true, 'start' => $start];
@@ -57,9 +84,8 @@ function createBooking($conn, array $o) {
   if ($duration < 1 || $duration > BOOKING_MAX_DURATION) {
     return bookingFail("Durasi harus 1-" . BOOKING_MAX_DURATION . " jam");
   }
-  // Timestamp penuh (bukan bulatan jam) supaya mulai 23:30 tidak lolos lewat tengah malam
-  if ($end > strtotime(date('Y-m-d', $start)) + 24 * 3600) {
-    return bookingFail("Durasi melewati jam tutup (tengah malam)");
+  if ($end > closeTs($start)) {
+    return bookingFail("Durasi melewati jam tutup (22:00)");
   }
 
   $name    = $o['customer_name'];
@@ -77,6 +103,30 @@ function createBooking($conn, array $o) {
   // Transaksi + lock baris ruangan: cek bentrok dan insert atomik (anti double booking)
   try {
     $conn->begin_transaction();
+
+    // Batas reservasi belum bayar per akun. Baris user dikunci supaya request
+    // booking yang dikirim bersamaan tidak lolos semua dari hitungan ini.
+    if (isset($o['max_unpaid']) && $userId !== null) {
+      $uid = intval($userId);
+      $stmt = $conn->prepare("SELECT id FROM users WHERE id = ? FOR UPDATE");
+      $stmt->bind_param("i", $uid);
+      $stmt->execute();
+      $stmt->get_result();
+      $stmt->close();
+
+      $stmt = $conn->prepare("
+        SELECT COUNT(*) AS n FROM bookings
+        WHERE user_id = ? AND payment_status = 'unpaid' AND end_time > UNIX_TIMESTAMP()
+      ");
+      $stmt->bind_param("i", $uid);
+      $stmt->execute();
+      $activeUnpaid = intval($stmt->get_result()->fetch_assoc()['n']);
+      $stmt->close();
+      if ($activeUnpaid >= $o['max_unpaid']) {
+        $conn->rollback();
+        return bookingFail("Kamu sudah punya {$o['max_unpaid']} reservasi yang belum dibayar. Bayar di kasir atau batalkan salah satunya dulu.");
+      }
+    }
 
     $stmt = $conn->prepare("SELECT id, title, price, status FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
     $stmt->bind_param("i", $roomId);
@@ -107,12 +157,12 @@ function createBooking($conn, array $o) {
     $stmt = $conn->prepare("
       INSERT INTO bookings
       (customer_name, email, phone, room_id, duration, start_time, end_time, user_id,
-       total_price, amount_paid, payment_status, source, paid_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       total_price, amount_paid, payment_status, source, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
-    $stmt->bind_param("sssiiiiiiissii",
+    $stmt->bind_param("sssiiiiiiissi",
       $name, $email, $phone, $roomId, $duration, $start, $end, $userId,
-      $total, $amountPaid, $payStat, $source, $paidAt, $expires
+      $total, $amountPaid, $payStat, $source, $expires
     );
     $stmt->execute();
     $bookingId = $stmt->insert_id;
@@ -123,6 +173,8 @@ function createBooking($conn, array $o) {
     $stmt->bind_param("si", $code, $bookingId);
     $stmt->execute();
     $stmt->close();
+
+    recordPayment($conn, $bookingId, $amountPaid, $paidAt);
 
     $conn->commit();
   } catch (\Throwable $e) {
@@ -184,10 +236,14 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
     $booking = $stmt->get_result()->fetch_assoc();
     $stmt->close();
     if (!$booking) { $conn->rollback(); return bookingFail("Booking tidak ditemukan"); }
-    // User harus sudah lapor ke kasir (check-in) sebelum bisa memperpanjang
-    if ($userId !== null && $booking['expires_at'] !== null) {
+    // Konsumen harus sudah lapor ke kasir (check-in) sebelum sesi bisa diperpanjang, baik
+    // oleh user maupun admin. Tanpa ini booking lunas yang belum datang berubah jadi
+    // "belum bayar" lalu ikut terbatal otomatis sebagai no-show.
+    if ($booking['expires_at'] !== null) {
       $conn->rollback();
-      return bookingFail("Lapor ke kasir dulu sebelum memperpanjang sesi");
+      return bookingFail($userId !== null
+        ? "Lapor ke kasir dulu sebelum memperpanjang sesi"
+        : "Konsumen belum ditandai hadir. Klik Hadir dulu sebelum menambah jam.");
     }
 
     $now = time();
@@ -202,9 +258,9 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
 
     $currentEnd = intval($booking['end_time']);
     $newEnd     = $currentEnd + $extraHours * 3600;
-    if ($newEnd > strtotime(date('Y-m-d', intval($booking['start_time']))) + 24 * 3600) {
+    if ($newEnd > closeTs(intval($booking['start_time']))) {
       $conn->rollback();
-      return bookingFail("Perpanjangan melewati jam tutup (tengah malam)");
+      return bookingFail("Perpanjangan melewati jam tutup (22:00)");
     }
 
     $stmt = $conn->prepare("
