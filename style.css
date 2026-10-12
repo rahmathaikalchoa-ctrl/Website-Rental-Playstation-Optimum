@@ -1284,3 +1284,69 @@ p .field-hint { display: inline; margin-left: 4px; }
 /* Pilihan tambah Nintendo Switch di form booking */
 .bcheck { display: flex; align-items: center; gap: 10px; margin-top: 12px; cursor: pointer; font-size: 0.9rem; }
 .bcheck input { width: 18px; height: 18px; accent-color: var(--neon); }
+
+/* ===== CARI RUANGAN KOSONG ===== */
+.finder-card { margin-top: 16px; }
+.finder-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto auto; gap: 10px; align-items: end; }
+.finder-check { margin-top: 0; white-space: nowrap; }
+.finder-result { margin-top: 14px; }
+.finder-list { display: flex; flex-direction: column; gap: 8px; }
+.finder-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid #00eaff33; background: #0f141c;
+}
+.finder-price { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.finder-price strong { color: var(--neon); }
+@media (max-width: 760px) {
+  .finder-form { grid-template-columns: 1fr 1fr; }
+  .finder-form .btn { grid-column: span 2; }
+  .finder-item { flex-direction: column; align-items: flex-start; }
+}
+
+/* ===== SARAN HEMAT PAKET ===== */
+.upsell-box {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 10px 12px;
+  border-radius: 10px; border: 1px dashed var(--neon-green); background: rgba(0, 255, 157, 0.06); font-size: 0.85rem;
+}
+.upsell-box .btn-ghost { align-self: flex-start; font-size: 0.8rem; padding: 4px 12px; }
+
+/* ===== PENGINGAT BOOKING ===== */
+.reminder-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.reminder-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; padding: 5px 10px; text-decoration: none; }
+
+/* ===== ULASAN & RATING ===== */
+.rating-chip { margin-left: 6px; font-size: 0.75rem; font-weight: 700; color: #ffcf66; vertical-align: middle; }
+.rating-summary { font-size: 1.2rem; font-weight: 800; color: #ffcf66; margin-bottom: 8px; }
+.review-item { padding: 10px 0; border-bottom: 1px solid #ffffff14; }
+.review-item p { margin-top: 4px; }
+.review-stars { color: #ffcf66; letter-spacing: 1px; }
+.review-done { margin-left: 8px; }
+.star-input { display: flex; gap: 6px; }
+.star-btn {
+  font-size: 2rem; line-height: 1; padding: 2px 4px; background: none; border: none;
+  color: #3a4654; cursor: pointer; transition: transform 0.1s;
+}
+.star-btn.on { color: #ffcf66; }
+.star-btn:hover { transform: scale(1.1); }
+.modal-content textarea {
+  width: 100%; margin-top: 4px; padding: 8px 10px; border-radius: 6px; border: none;
+  font: inherit; resize: vertical;
+}
+.modal-content textarea:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--neon); }
+
+/* ===== POIN LOYALITAS ===== */
+.points-box { margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid #00eaff33; background: #0f141c; }
+.points-bar { height: 8px; margin: 8px 0 6px; border-radius: 6px; background: #1d2633; overflow: hidden; }
+.points-bar > div { height: 100%; background: linear-gradient(90deg, var(--neon), var(--neon-green)); transition: width 0.4s; }
+
+/* ===== HALAMAN PROMO ===== */
+.promo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 18px; }
+.promo-card { padding: 18px; }
+.promo-card h3 { color: var(--neon); display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.price-old { display: block; font-size: 0.72rem; color: var(--muted); text-decoration: line-through; }
+.promo-terms { margin: 6px 0 0 18px; font-size: 0.85rem; line-height: 1.7; }
+.promo-terms a { color: var(--neon); }
+.promo-big { font-size: 1.4rem; font-weight: 800; color: var(--neon-green); margin: 12px 0 6px; }
+.promo-wide { grid-column: 1 / -1; }
+.price-table-compact { min-width: 0; }
+.price-table-compact th:first-child { white-space: normal; }

@@ -122,6 +122,7 @@ if ($action === 'mark_paid') {
     $stmt->execute();
     $stmt->close();
     recordPayment($conn, $id, intval($b['total_price']) - intval($b['amount_paid']), $now);
+    awardPoints($conn, $id);
     $conn->commit();
   } catch (\Throwable $e) {
     $conn->rollback();
@@ -141,7 +142,7 @@ if ($action === 'toggle_student') {
   try {
     $conn->begin_transaction();
     $stmt = $conn->prepare("
-      SELECT b.duration, b.start_time, b.with_nintendo, b.is_student, b.amount_paid,
+      SELECT b.duration, b.start_time, b.with_nintendo, b.is_student, b.amount_paid, b.discount,
              r.price, r.weekend_extra, r.nintendo_extra
       FROM bookings b JOIN rooms r ON r.id = b.room_id
       WHERE b.id = ? AND b.payment_status <> 'cancelled' FOR UPDATE
@@ -164,7 +165,9 @@ if ($action === 'toggle_student') {
       exit;
     }
     $student = $b['is_student'] ? 0 : 1;
-    $total = bookingPrice($b, intval($b['duration']), intval($b['start_time']), (bool) $b['with_nintendo'], (bool) $student);
+    // Potongan dari penukaran poin tetap berlaku
+    $total = max(0, bookingPrice($b, intval($b['duration']), intval($b['start_time']), (bool) $b['with_nintendo'], (bool) $student)
+                    - intval($b['discount']));
     $stmt = $conn->prepare("UPDATE bookings SET is_student = ?, total_price = ? WHERE id = ?");
     $stmt->bind_param("iii", $student, $total, $id);
     $stmt->execute();
@@ -177,6 +180,93 @@ if ($action === 'toggle_student') {
     exit;
   }
   echo json_encode(["status" => "ok", "is_student" => (bool) $student, "total_price" => $total]);
+  exit;
+}
+
+// ================= TUKAR POIN: GRATIS 1 JAM =================
+// Pasang/lepas potongan 1 jam (tarif per jam ruangan) dengan 10 poin milik akun pemesan.
+// Hanya untuk booking yang belum lunas, supaya uang yang sudah diterima tidak berubah.
+if ($action === 'redeem_points') {
+  $id = intval($_POST['id'] ?? 0);
+  try {
+    $conn->begin_transaction();
+    $stmt = $conn->prepare("
+      SELECT b.user_id, b.discount, b.total_price, b.amount_paid, b.payment_status, r.price
+      FROM bookings b JOIN rooms r ON r.id = b.room_id
+      WHERE b.id = ? FOR UPDATE
+    ");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $b = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    $error = null;
+    if (!$b || $b['payment_status'] === 'cancelled') $error = "Booking tidak ditemukan atau sudah dibatalkan";
+    elseif ($b['payment_status'] === 'paid') $error = "Booking sudah lunas, poin tidak bisa dipakai/dikembalikan lagi";
+    elseif ($b['user_id'] === null) $error = "Poin hanya untuk booking dari akun website";
+    if ($error) {
+      $conn->rollback();
+      echo json_encode(["status" => "error", "message" => $error]);
+      exit;
+    }
+    $uid = intval($b['user_id']);
+    // Kunci baris user supaya poin tidak terpakai dua kali oleh dua booking bersamaan
+    $lock = $conn->prepare("SELECT id FROM users WHERE id = ? FOR UPDATE");
+    $lock->bind_param("i", $uid);
+    $lock->execute();
+    $lock->get_result();
+    $lock->close();
+
+    if (intval($b['discount']) > 0) {
+      // Batal pakai poin: harga kembali normal, 10 poin dikembalikan
+      $stmt = $conn->prepare("UPDATE bookings SET total_price = total_price + discount, discount = 0 WHERE id = ?");
+      $stmt->bind_param("i", $id);
+      $stmt->execute();
+      $stmt->close();
+      $stmt = $conn->prepare("DELETE FROM loyalty_points WHERE booking_id = ? AND points < 0");
+      $stmt->bind_param("i", $id);
+      $stmt->execute();
+      $stmt->close();
+      $redeemed = false;
+    } else {
+      if (pointsBalance($conn, $uid) < POINTS_PER_FREE_HOUR) {
+        $conn->rollback();
+        echo json_encode(["status" => "error", "message" => "Poin belum cukup (butuh " . POINTS_PER_FREE_HOUR . " poin)"]);
+        exit;
+      }
+      $discount = min(intval($b['price']), intval($b['total_price']) - intval($b['amount_paid']));
+      $stmt = $conn->prepare("UPDATE bookings SET discount = ?, total_price = total_price - ? WHERE id = ?");
+      $stmt->bind_param("iii", $discount, $discount, $id);
+      $stmt->execute();
+      $stmt->close();
+      $minus = -POINTS_PER_FREE_HOUR;
+      $note = "Tukar gratis 1 jam";
+      $stmt = $conn->prepare("INSERT INTO loyalty_points (user_id, booking_id, points, note) VALUES (?, ?, ?, ?)");
+      $stmt->bind_param("iiis", $uid, $id, $minus, $note);
+      $stmt->execute();
+      $stmt->close();
+      $redeemed = true;
+    }
+    $conn->commit();
+  } catch (\Throwable $e) {
+    $conn->rollback();
+    error_log("redeem_points failed: " . $e->getMessage());
+    echo json_encode(["status" => "error", "message" => "Gagal memproses poin"]);
+    exit;
+  }
+  echo json_encode(["status" => "ok", "redeemed" => $redeemed]);
+  exit;
+}
+
+// ================= HAPUS ULASAN =================
+// Untuk ulasan yang tidak pantas (spam, kata kasar)
+if ($action === 'delete_review') {
+  $id = intval($_POST['id'] ?? 0);
+  $stmt = $conn->prepare("DELETE FROM room_reviews WHERE id = ?");
+  $stmt->bind_param("i", $id);
+  $stmt->execute();
+  $stmt->close();
+  echo json_encode(["status" => "ok"]);
   exit;
 }
 

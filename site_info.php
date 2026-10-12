@@ -8,7 +8,9 @@ const SITE_ADDRESS  = 'Ruko Greenland Blok M No. 3A, Teluk Tering, Batam Kota, B
 const SITE_MAPS_URL = 'https://share.google/ykIgS5mqs2e0vyDJt';
 const SITE_WA       = '6282285575076';   // nomor WhatsApp format 62xxx
 const SITE_WA_SHOW  = '0822-8557-5076';  // nomor yang ditampilkan
+const SITE_INSTAGRAM = 'optimum.playstation'; // akun IG (syarat Paket Pelajar di pricelist)
 
-function siteWaLink($text = 'Halo Optimum Playzone, saya mau tanya ketersediaan ruangan.') {
+// Untuk pertanyaan umum. Cek ruangan kosong & booking dilakukan di website, bukan lewat chat.
+function siteWaLink($text = 'Halo Optimum Playzone, saya mau bertanya.') {
   return 'https://wa.me/' . SITE_WA . '?text=' . rawurlencode($text);
 }

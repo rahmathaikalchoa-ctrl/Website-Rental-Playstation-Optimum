@@ -82,6 +82,69 @@ function bookingPrice(room, hours, startTs, withNintendo = false) {
   return total;
 }
 
+// ===== PENGINGAT BOOKING =====
+// Tombol "Simpan ke Kalender" (.ics, alarm 1 jam sebelum). Booking website sudah sah
+// begitu tersimpan (masuk Jadwal kasir), jadi tidak perlu konfirmasi lewat WhatsApp.
+// b: { order_code, room, start_time, end_time }
+function reminderButtons(b) {
+  return `<div class="reminder-actions">
+      <button type="button" class="btn-ghost reminder-btn" data-ics="${escapeHtml(JSON.stringify({ code: b.order_code, room: b.room, start: Number(b.start_time), end: Number(b.end_time) }))}">${icon("clock")} Simpan ke Kalender</button>
+    </div>`;
+}
+
+// File kalender (.ics) dibuat di browser, tanpa server
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-ics]");
+  if (!btn) return;
+  const d = JSON.parse(btn.dataset.ics);
+  const stamp = (u) => new Date(u * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const esc = (s) => String(s).replace(/[\\;,]/g, (c) => "\\" + c);
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Optimum Playzone//Booking//ID", "BEGIN:VEVENT",
+    `UID:${d.code}@optimum-playzone`, `DTSTAMP:${stamp(Math.floor(Date.now() / 1000))}`,
+    `DTSTART:${stamp(d.start)}`, `DTEND:${stamp(d.end)}`,
+    `SUMMARY:${esc(`Main di Optimum Playzone (${d.room})`)}`,
+    `DESCRIPTION:${esc(`Kode booking ${d.code}. Lapor ke kasir paling lambat 15 menit setelah jam mulai.`)}`,
+    "BEGIN:VALARM", "TRIGGER:-PT60M", "ACTION:DISPLAY", "DESCRIPTION:Booking Optimum Playzone 1 jam lagi", "END:VALARM",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `booking-${d.code}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+// Isi otomatis form booking (dari hasil "Cari Ruangan Kosong"). Jam & durasi dipasang
+// setelah jadwal terpesan ruangan selesai dimuat (lihat fetchBookedSlots).
+let pendingBookingPrefill = null;
+function prefillBooking(p) {
+  showView("booking");
+  const dateSel = $("bookingDate");
+  if ([...dateSel.options].some((o) => o.value === p.date)) dateSel.value = p.date;
+  pendingBookingPrefill = p;
+  $("roomSelect").value = String(p.roomId);
+  dateSel.dispatchEvent(new Event("change", { bubbles: true }));
+  $("roomSelect").dispatchEvent(new Event("change", { bubbles: true }));
+}
+function applyPendingPrefill() {
+  const p = pendingBookingPrefill;
+  if (!p || $("roomSelect").value !== String(p.roomId)) return;
+  pendingBookingPrefill = null;
+  const t = [...timeSelect.options].find((o) => o.value === p.time && !o.disabled);
+  if (!t) return;
+  timeSelect.value = p.time;
+  timeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  if ([...durationSelect.options].some((o) => o.value === String(p.duration))) durationSelect.value = String(p.duration);
+  const n = $("withNintendo");
+  if (n) n.checked = !!p.nintendo;
+  durationSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  $("name")?.focus();
+}
+
 // Minta login, lalu setelah login berhasil user dibawa kembali ke halaman tujuan
 // (dan ruangan yang tadi dipilih, jika ada) — lihat onLoginSuccess.
 function requireLogin(message, view, roomId = null) {
@@ -115,6 +178,7 @@ const views = {
   consoles: "view-consoles",
   "room-detail": "view-room-detail",
   booking: "view-booking",
+  promo: "view-promo",
   fasilitas: "view-fasilitas",
   game: "view-game",
   menu: "view-menu",
@@ -240,6 +304,13 @@ document.addEventListener("DOMContentLoaded", () => {
     chip.className = `badge badge-${String(room.consoleType).toLowerCase()}`;
     chip.textContent = room.consoleModel;
     h.appendChild(chip);
+    if (room.reviewCount) {
+      const star = document.createElement("span");
+      star.className = "rating-chip";
+      star.textContent = `★ ${room.avgRating.toFixed(1)} (${room.reviewCount})`;
+      star.title = `${room.reviewCount} ulasan`;
+      h.appendChild(star);
+    }
     const spec = document.createElement("p");
     spec.className = "room-spec small";
     spec.textContent = roomSpecText(room);
@@ -310,6 +381,8 @@ document.addEventListener("DOMContentLoaded", () => {
       nintendoExtra: r.nintendo_extra !== null ? Number(r.nintendo_extra) : 0,
       maxPlayers:    Number(r.max_players),
       hasNetflix:    Number(r.has_netflix) === 1,
+      avgRating:     r.avg_rating !== null ? Number(r.avg_rating) : null,
+      reviewCount:   Number(r.review_count) || 0,
       // Daftar game khusus ruangan (kosong = semua game konsolnya)
       gameIds:       r.game_ids ? r.game_ids.split(",").map(Number) : [],
       img:           r.image ? `assets/images/rooms/${r.image}` : "assets/images/rooms/default.svg",
@@ -449,8 +522,33 @@ document.addEventListener("DOMContentLoaded", () => {
         <div id="roomTimeline" class="room-timeline"><span class="muted small">Memuat jadwal...</span></div>
       </div>
       <div style="margin-top:24px">${gamesSection}</div>
+      <div style="margin-top:24px">
+        <h3 style="color:var(--neon);margin-bottom:8px">Ulasan Pelanggan</h3>
+        <div id="roomReviews"><span class="muted small">Memuat ulasan...</span></div>
+      </div>
     `;
     showView("room-detail");
+
+    fetch(`review_api.php?room_id=${room.id}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const box = document.getElementById("roomReviews");
+        if (!box) return;
+        if (!d.count) {
+          box.innerHTML = `<p class="muted small">Belum ada ulasan. Main di sini lalu beri ulasan dari halaman Profil.</p>`;
+          return;
+        }
+        box.innerHTML = `<p class="rating-summary">★ ${d.avg_rating.toFixed(1)} <span class="muted small">dari ${d.count} ulasan</span></p>`
+          + d.reviews.map((rv) => `
+            <div class="review-item">
+              <div><strong>${escapeHtml(rv.username)}</strong> <span class="review-stars">${"★".repeat(rv.rating)}${"☆".repeat(5 - rv.rating)}</span> <span class="muted small">${escapeHtml(rv.date)}</span></div>
+              ${rv.comment ? `<p class="small">${escapeHtml(rv.comment)}</p>` : ""}
+            </div>`).join("");
+      })
+      .catch(() => {
+        const box = document.getElementById("roomReviews");
+        if (box) box.innerHTML = `<p class="muted small">Gagal memuat ulasan.</p>`;
+      });
 
     fetch(`booked_slots_api.php?room_id=${room.id}`)
       .then((r) => r.json())
@@ -537,6 +635,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const weekend = isWeekendTs(startTs);
     // Hemat dari Paket Main Seru dibanding tarif x jam (tanpa biaya weekend)
     const saving  = rate * dur + (weekend ? room.weekendExtra * dur : 0) - total;
+    // Saran naik 1 jam bila harga paket membuat jam tambahan lebih murah dari tarif biasa
+    let upsellHtml = "";
+    const nextOpt = [...($("duration")?.options || [])].find((o) => o.value === String(dur + 1) && !o.disabled);
+    if (nextOpt && PRICING.packages?.[rate] && dur < 5) {
+      const add = bookingPrice(room, dur + 1, startTs, withN) - total;
+      const normalAdd = rate + (weekend ? room.weekendExtra : 0);
+      if (add < normalAdd) {
+        upsellHtml = `<div class="upsell-box">
+            <span>Tambah 1 jam jadi <strong>${dur + 1} jam</strong> hanya <strong>+${formatRup(add)}</strong> (hemat ${formatRup(normalAdd - add)})</span>
+            <button type="button" class="btn-ghost" data-upsell="${dur + 1}">Tambah 1 jam</button>
+          </div>`;
+      }
+    }
 
     const [h, m] = timeVal.split(":").map(Number);
     const endTime = secToHHMM(Math.min(h * 3600 + m * 60 + dur * 3600, CLOSE_SEC));
@@ -572,6 +683,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="sr-label">Total</span>
         <span class="sr-val">${formatRup(total)}</span>
       </div>
+      ${upsellHtml}
     `;
   }
 
@@ -594,7 +706,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fmtTime = (d) => d.toLocaleTimeString("id-ID", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
     const dateText = start.toLocaleDateString("id-ID", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
     const checkin = b.expires_at ? fmtTime(new Date(b.expires_at * 1000)) : null;
-    const note = `Tunjukkan kode ini dan bayar di kasir saat datang.${checkin ? ` Lapor paling lambat <strong>${checkin}</strong>, lewat dari itu booking batal otomatis.` : ""}`;
+    const note = `Booking kamu sudah tercatat di sistem kasir, <strong>tidak perlu konfirmasi lagi</strong>. Cukup datang, tunjukkan kode ini, dan bayar di kasir.${checkin ? ` Lapor paling lambat <strong>${checkin}</strong>, lewat dari itu booking batal otomatis.` : ""}`;
     box.innerHTML = `
       <div class="confirm-card">
         <div class="confirm-head">${icon('check')} Booking berhasil</div>
@@ -607,6 +719,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="summary-row"><span class="sr-label">Sesi</span><span class="sr-val">${fmtTime(start)} – ${fmtTime(new Date(b.end_time * 1000))}</span></div>
         <div class="summary-row total-row"><span class="sr-label">Total</span><span class="sr-val">${formatRup(b.total_price)}</span></div>
         <p class="confirm-note">${note}</p>
+        ${reminderButtons({ order_code: b.order_code, room: b.room, start_time: b.start_time, end_time: b.end_time })}
         <button type="button" class="btn-ghost" data-view="profile">Lihat di Profil</button>
       </div>`;
   }
@@ -1476,7 +1589,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Escape menekan tombol Batal modal yang terbuka (logika reset tiap modal tetap dipakai).
   // Saat modal terbuka fokus pindah ke input pertama, dan kembali ke elemen asal saat ditutup.
   const MODAL_CLOSE_BTN = { loginModal: "closeLogin", registerModal: "closeRegister",
-                            orderModal: "closeOrderModal", forgotModal: "closeForgot" };
+                            orderModal: "closeOrderModal", forgotModal: "closeForgot", reviewModal: "closeReview" };
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     const open = document.querySelector(".modal.show");
@@ -1756,6 +1869,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (myOrdersList) myOrdersList.innerHTML = "";
     const profileSince = document.getElementById("profileSince");
     if (profileSince) profileSince.textContent = "-";
+    renderPoints(0, 10);
   }
 
   function onLoginSuccess(username) {
@@ -1966,12 +2080,23 @@ document.addEventListener("DOMContentLoaded", () => {
                   </button>
                 </div>` : '';
 
+              const reminderHtml = isUpcoming && b.order_code
+                ? reminderButtons({ order_code: b.order_code, room: b.room, start_time: start, end_time: end })
+                : "";
+              // Ulasan hanya untuk sesi yang benar-benar dimainkan (sudah check-in)
+              const reviewHtml = isDone && !b.expires_at
+                ? (b.reviewed
+                    ? `<span class="small muted review-done">★ Sudah diulas</span>`
+                    : `<button class="btn-ghost review-btn" data-review="${b.id}" data-room="${escapeHtml(b.room)}" style="font-size:0.78rem;padding:4px 10px">★ Beri Ulasan</button>`)
+                : "";
+
               const reorderHtml = isDone ? `
                 <div style="margin-top:8px">
                   <button class="btn-ghost reorder-btn" data-roomid="${b.room_id}"
                     style="font-size:0.78rem;padding:4px 10px">
                     Pesan Lagi
                   </button>
+                  ${reviewHtml}
                 </div>` : '';
 
               const extendHtml = isActive && !notCheckedIn ? `
@@ -2004,10 +2129,11 @@ document.addEventListener("DOMContentLoaded", () => {
               box.innerHTML += `
                 <div class="booking-item">
                   <strong>${escapeHtml(b.room)}</strong>${b.with_nintendo ? ' <span class="small muted">+ Nintendo Switch</span>' : ''}${b.is_student ? ' <span class="small muted">· Harga pelajar</span>' : ''}<br>
-                  <span class="small muted">${new Date(start * 1000).toLocaleDateString("id-ID", { timeZone: TZ, day: "numeric", month: "short" })} &bull; Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam &bull; ${formatRup(b.total_price)}</span><br>
+                  <span class="small muted">${new Date(start * 1000).toLocaleDateString("id-ID", { timeZone: TZ, day: "numeric", month: "short" })} &bull; Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam &bull; ${formatRup(b.total_price)}${b.discount && !isCancelled ? ` (potongan poin ${formatRup(b.discount)})` : ""}</span><br>
                   ${statusHtml}
                   ${metaHtml}
                   ${checkinHtml}
+                  ${reminderHtml}
                   ${extendHtml}
                   ${cancelHtml}
                   ${reorderHtml}
@@ -2070,6 +2196,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (d.error || !IS_LOGGED_IN) return;
           if (uname) uname.textContent = d.username || "User";
           if (sinceEl) sinceEl.textContent = d.since || "-";
+          renderPoints(d.points || 0, d.points_per_hour || 10);
         })
         .catch(() => {
           if (uname) uname.textContent = "User";
@@ -2086,8 +2213,154 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // ===== CARI RUANGAN KOSONG =====
+  const finderForm = $("finderForm");
+  function fillFinderOptions() {
+    const dateSel = $("finderDate"), timeSel = $("finderTime");
+    if (!dateSel) return;
+    const prevDate = dateSel.value, prevTime = timeSel.value;
+    dateSel.innerHTML = "";
+    ["Hari ini", "Besok", "Lusa"].forEach((label, i) => {
+      const noon = wibDayStart() + i * 86400 + 12 * 3600;
+      const d = new Date(noon * 1000);
+      dateSel.add(new Option(`${label} · ${d.toLocaleDateString("id-ID", { timeZone: TZ, day: "numeric", month: "short" })}`, wibISODate(noon)));
+    });
+    if ([...dateSel.options].some((o) => o.value === prevDate)) dateSel.value = prevDate;
+    const dayStart = wibTs(dateSel.value);
+    timeSel.innerHTML = "";
+    for (let t = OPEN_SEC; t + 3600 <= CLOSE_SEC; t += SLOT_SEC) {
+      if (dayStart + t <= nowSec()) continue;
+      timeSel.add(new Option(secToHHMM(t), secToHHMM(t)));
+    }
+    if (!timeSel.options.length) timeSel.add(new Option("Tidak ada jam tersisa", ""));
+    if ([...timeSel.options].some((o) => o.value === prevTime)) timeSel.value = prevTime;
+  }
+  fillFinderOptions();
+  $("finderDate")?.addEventListener("change", fillFinderOptions);
+
+  finderForm?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const out = $("finderResult");
+    const q = {
+      date: $("finderDate").value, time: $("finderTime").value, duration: $("finderDuration").value,
+      players: $("finderPlayers").value, nintendo: $("finderNintendo").checked ? "1" : "",
+    };
+    if (!q.time) { out.innerHTML = `<p class="muted small">Pilih tanggal lain, jam hari ini sudah habis.</p>`; return; }
+    out.innerHTML = `<p class="muted small">Mencari ruangan...</p>`;
+    fetch(`available_rooms_api.php?${new URLSearchParams(q)}`)
+      .then((r) => r.json())
+      .then((r) => {
+        if (r.status !== "ok") { out.innerHTML = `<p class="muted small">${escapeHtml(r.message || "Gagal mencari ruangan")}</p>`; return; }
+        if (!r.rooms.length) {
+          out.innerHTML = `<p class="muted small">Tidak ada ruangan kosong untuk jadwal ini. Coba jam lain atau ambil antrian "Main Sekarang".</p>`;
+          return;
+        }
+        // Ruangan sekelas dengan harga sama digabung jadi satu baris (mis. 6 meja PS4 Slim)
+        const groups = [];
+        r.rooms.forEach((room) => {
+          const key = [room.tier, room.console_model, room.with_nintendo, room.total, room.max_players, room.has_netflix].join("|");
+          const g = groups.find((x) => x.key === key);
+          if (g) g.rooms.push(room); else groups.push({ key, rooms: [room] });
+        });
+        const names = (list) => list.length > 3
+          ? `${list.slice(0, 3).map((x) => x.title).join(", ")} +${list.length - 3} lainnya`
+          : list.map((x) => x.title).join(", ");
+        out.innerHTML = `<p class="small" style="margin-bottom:8px">${r.rooms.length} ruangan tersedia:</p>`
+          + `<div class="finder-list">` + groups.map(({ rooms: list }) => {
+            const room = list[0];
+            return `
+            <div class="finder-item">
+              <div>
+                <strong>${escapeHtml(room.tier === "Public" ? "Area Public" : room.tier)} · ${escapeHtml(room.console_model)}${room.with_nintendo ? " + Nintendo" : ""}</strong>
+                <div class="muted small">${escapeHtml(names(list))} · maks ${Number(room.max_players)} pemain${room.has_netflix ? " · Netflix" : ""}</div>
+              </div>
+              <div class="finder-price">
+                <strong>${formatRup(room.total)}</strong>
+                <button type="button" class="btn" data-finder-book="${escapeHtml(JSON.stringify({ roomId: room.id, date: q.date, time: q.time, duration: Number(q.duration), nintendo: room.with_nintendo }))}">Pesan ${escapeHtml(room.title)}</button>
+              </div>
+            </div>`;
+          }).join("") + `</div>`;
+      })
+      .catch(() => { out.innerHTML = `<p class="muted small">${escapeHtml(NETWORK_ERROR)}</p>`; });
+  });
+
+  document.addEventListener("click", (e) => {
+    const findBtn = e.target.closest("[data-finder-book]");
+    if (findBtn) prefillBooking(JSON.parse(findBtn.dataset.finderBook));
+
+    // Saran hemat paket: naikkan durasi 1 jam
+    const upBtn = e.target.closest("[data-upsell]");
+    if (upBtn) {
+      $("duration").value = upBtn.dataset.upsell;
+      $("duration").dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+
+  // ===== ULASAN =====
+  let reviewRating = 0;
+  const setStars = (n) => {
+    reviewRating = n;
+    document.querySelectorAll("#reviewModal .star-btn").forEach((b) => {
+      const on = Number(b.dataset.star) <= n;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", Number(b.dataset.star) === n ? "true" : "false");
+    });
+  };
+  document.addEventListener("click", (e) => {
+    const rBtn = e.target.closest("[data-review]");
+    if (rBtn) {
+      $("reviewBookingId").value = rBtn.dataset.review;
+      $("reviewRoom").textContent = rBtn.dataset.room;
+      $("reviewComment").value = "";
+      setStars(0);
+      $("reviewModal").classList.add("show");
+    }
+    const star = e.target.closest("#reviewModal .star-btn");
+    if (star) setStars(Number(star.dataset.star));
+  });
+  const closeReview = () => $("reviewModal").classList.remove("show");
+  $("closeReview")?.addEventListener("click", closeReview);
+  document.querySelector("#reviewModal .modal-overlay")?.addEventListener("click", closeReview);
+  $("reviewSubmit")?.addEventListener("click", () => {
+    if (!reviewRating) { alert("Pilih jumlah bintang dulu."); return; }
+    const btn = $("reviewSubmit");
+    btn.disabled = true;
+    fetch("review_api.php", {
+      method: "POST",
+      body: new URLSearchParams({ booking_id: $("reviewBookingId").value, rating: reviewRating, comment: $("reviewComment").value.trim() }),
+    })
+      .then((r) => r.json())
+      .then((r) => {
+        if (r.status !== "ok") { alert(r.message || "Gagal mengirim ulasan"); return; }
+        closeReview();
+        openProfileDetail(true);
+        loadRoomsFromDB();
+        const maps = document.body.dataset.maps;
+        if (reviewRating >= 4 && maps && confirm("Terima kasih atas ulasannya! Mau bantu kami juga dengan memberi rating di Google?")) {
+          window.open(maps, "_blank", "noopener");
+        } else if (reviewRating < 4) {
+          alert("Terima kasih atas ulasannya! Masukanmu membantu kami jadi lebih baik.");
+        }
+      })
+      .catch(() => alert(NETWORK_ERROR))
+      .finally(() => { btn.disabled = false; });
+  });
+
   showView("home");
 });
+
+// ===== POIN LOYALITAS =====
+function renderPoints(points, perHour) {
+  const el = document.getElementById("profilePoints");
+  if (!el) return;
+  el.textContent = `${points} poin`;
+  const progress = points % perHour;
+  document.getElementById("profilePointsBar").style.width = `${(progress / perHour) * 100}%`;
+  const free = Math.floor(points / perHour);
+  document.getElementById("profilePointsHint").textContent = free > 0
+    ? `Kamu bisa tukar ${free} jam gratis. Bilang ke kasir sebelum membayar. (${perHour - progress} poin lagi untuk jam gratis berikutnya)`
+    : `${perHour - progress} poin lagi untuk gratis 1 jam. Dapat 1 poin setiap 1 jam main yang lunas.`;
+}
 
 // JAM MULAI (tiap 30 menit dari jam buka sampai 1 jam sebelum tutup)
 const timeSelect = document.getElementById("timeStart");
@@ -2238,6 +2511,7 @@ function fetchBookedSlots(roomId) {
       if (reqId !== bookedSlotsReq) return;
       bookedSlots = data;
       applyBookedSlots();
+      applyPendingPrefill();
       if (infoEl) {
         if (data.length === 0) {
           infoEl.textContent = "";
@@ -2371,7 +2645,12 @@ function renderQueueEntry(entry) {
   cancelBtn.textContent = canCancelTurn ? "Batalkan Giliran" : "Batalkan Antrian";
 
   if (entry.state === "waiting") {
-    text.innerHTML = `Antrian <strong>${escapeHtml(entry.room_class)}</strong>${entry.with_nintendo ? " + Nintendo" : ""} · ${Number(entry.duration)} jam — posisi kamu: <strong>#${Number(entry.position)}</strong>`;
+    text.innerHTML = `Antrian <strong>${escapeHtml(entry.room_class)}</strong>${entry.with_nintendo ? " + Nintendo" : ""} · ${Number(entry.duration)} jam — posisi kamu: <strong>#${Number(entry.position)}</strong>`
+      + (entry.estimate
+          ? `<br><span class="small muted">${entry.estimate <= nowSec() + 60
+              ? "Perkiraan: ruangan segera tersedia"
+              : `Perkiraan giliran sekitar jam <strong>${new Date(entry.estimate * 1000).toLocaleTimeString("id-ID", { timeZone: TZ, hour: "2-digit", minute: "2-digit" })}</strong> (bisa lebih cepat atau lambat)`}</span>`
+          : "");
   } else if (entry.state === "expired") {
     text.innerHTML = `${icon('alert')} Giliranmu di <strong>${escapeHtml(entry.room)}</strong> dibatalkan karena tidak datang dalam 15 menit.`;
   } else if (entry.state === "cancelled") {

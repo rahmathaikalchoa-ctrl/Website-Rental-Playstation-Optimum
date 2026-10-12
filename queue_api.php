@@ -140,6 +140,7 @@ if ($action === 'status') {
   ];
   if ($e['status'] === 'waiting') {
     $out['position'] = queuePosition($conn, $e);
+    $out['estimate'] = queueEstimate($conn, $e);
   } else {
     $out['room']     = $e['room_title'];
     $out['end_time'] = intval($e['end_time']);

@@ -173,3 +173,42 @@ function queuePosition($conn, $entry) {
   $stmt->close();
   return $n + 1;
 }
+
+// Perkiraan kapan antrian $entry mendapat ruangan: tiap ruangan di kelasnya kosong saat
+// sesinya yang berjalan selesai, lalu antrian di depan mengisi ruangan yang paling cepat
+// kosong. Reservasi terjadwal tidak ikut dihitung, jadi ini hanya perkiraan.
+function queueEstimate($conn, $entry, $now = null) {
+  $now = $now ?? time();
+  $class = $entry['room_class'];
+  $stmt = $conn->prepare("
+    SELECT r.id,
+      (SELECT MAX(b.end_time) FROM bookings b
+        WHERE b.room_id = r.id AND b.payment_status <> 'cancelled' AND b.start_time <= ? AND b.end_time > ?) AS busy_until
+    FROM rooms r
+    WHERE r.status = 'available' AND " . ROOM_CLASS_SQL . " = ?
+      AND (? = 0 OR r.nintendo_extra IS NOT NULL)
+  ");
+  $n = $entry['with_nintendo'] ? 1 : 0;
+  $stmt->bind_param("iisi", $now, $now, $class, $n);
+  $stmt->execute();
+  $freeAt = array_map(fn($r) => max($now, intval($r['busy_until'])), $stmt->get_result()->fetch_all(MYSQLI_ASSOC));
+  $stmt->close();
+  if (!$freeAt) return null;
+
+  // Antrian di depan (kelas sama) memakai ruangan lebih dulu
+  $stmt = $conn->prepare("
+    SELECT duration FROM booking_queue
+    WHERE status = 'waiting' AND room_class = ?
+      AND (created_at < ? OR (created_at = ? AND id < ?))
+    ORDER BY created_at, id
+  ");
+  $id = intval($entry['id']);
+  $stmt->bind_param("sssi", $class, $entry['created_at'], $entry['created_at'], $id);
+  $stmt->execute();
+  foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $ahead) {
+    sort($freeAt);
+    $freeAt[0] += intval($ahead['duration']) * 3600;
+  }
+  $stmt->close();
+  return min($freeAt);
+}

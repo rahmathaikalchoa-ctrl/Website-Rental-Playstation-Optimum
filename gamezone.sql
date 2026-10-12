@@ -102,6 +102,7 @@ CREATE TABLE `bookings` (
   `start_time` bigint(20) NOT NULL,
   `end_time` bigint(20) NOT NULL,
   `total_price` int(11) NOT NULL DEFAULT 0,
+  `discount` int(11) NOT NULL DEFAULT 0,
   `amount_paid` int(11) NOT NULL DEFAULT 0,
   `payment_status` enum('unpaid','paid','cancelled') NOT NULL DEFAULT 'unpaid',
   `source` enum('online','walkin') NOT NULL DEFAULT 'online',
@@ -125,7 +126,7 @@ CREATE TABLE `bookings` (
 
 LOCK TABLES `bookings` WRITE;
 /*!40000 ALTER TABLE `bookings` DISABLE KEYS */;
-INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,0,0,1777816800,1777824000,50000,0,'unpaid','online','GZ-20',NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,0,0,1777816800,1777820400,55000,0,'unpaid','online','GZ-21',NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,0,0,1777816800,1777820400,25000,0,'unpaid','online','GZ-22',NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,0,0,1777802400,1777806000,25000,0,'unpaid','online','GZ-23',NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,0,0,1777899600,1777914000,220000,0,'unpaid','online','GZ-24',NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,0,0,1778162400,1778166000,55000,0,'unpaid','online','GZ-25',NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,0,0,1778306400,1778313600,110000,0,'unpaid','online','GZ-26',NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,0,0,1778392800,1778400000,110000,0,'unpaid','online','GZ-28',NULL,'2026-05-10 05:58:14');
+INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,0,0,1777816800,1777824000,50000,0,0,'unpaid','online','GZ-20',NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,0,0,1777816800,1777820400,55000,0,0,'unpaid','online','GZ-21',NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,0,0,1777816800,1777820400,25000,0,0,'unpaid','online','GZ-22',NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,0,0,1777802400,1777806000,25000,0,0,'unpaid','online','GZ-23',NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,0,0,1777899600,1777914000,220000,0,0,'unpaid','online','GZ-24',NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,0,0,1778162400,1778166000,55000,0,0,'unpaid','online','GZ-25',NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,0,0,1778306400,1778313600,110000,0,0,'unpaid','online','GZ-26',NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,0,0,1778392800,1778400000,110000,0,0,'unpaid','online','GZ-28',NULL,'2026-05-10 05:58:14');
 /*!40000 ALTER TABLE `bookings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -182,6 +183,37 @@ LOCK TABLES `games` WRITE;
 /*!40000 ALTER TABLE `games` DISABLE KEYS */;
 INSERT INTO `games` VALUES (28,'FC 26','Sports','cover_fc26.jpg',1,'2026-10-11 17:36:24'),(29,'FC 25','Sports','cover_fc25.jpg',1,'2026-10-11 17:36:24'),(30,'eFootball','Sports','cover_efootball.jpg',1,'2026-10-11 17:36:24'),(31,'NBA 2K26','Sports','cover_nba2k26.jpg',1,'2026-10-11 17:36:24'),(32,'NBA 2K25','Sports','cover_nba2k25.jpg',1,'2026-10-11 17:36:24'),(33,'NBA 2K24','Sports',NULL,1,'2026-10-11 17:36:24'),(34,'WWE 2K25','Sports','cover_wwe2k25.jpg',1,'2026-10-11 17:36:24'),(35,'WWE 2K24','Sports','cover_wwe2k24.jpg',1,'2026-10-11 17:36:24'),(36,'UFC 5','Sports','cover_ufc5.jpg',1,'2026-10-11 17:36:24'),(37,'Rocket League','Sports','cover_rocket_league.jpg',1,'2026-10-11 17:36:24'),(38,'Madden NFL 24','Sports',NULL,1,'2026-10-11 17:36:24'),(39,'Captain Tsubasa: Rise of New Champions','Sports',NULL,1,'2026-10-11 17:36:24'),(40,'Nintendo Switch Sports','Sports','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(41,'Instant Sports','Sports','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(42,'Gran Turismo 7','Racing','cover_gt7.jpg',1,'2026-10-11 17:36:24'),(43,'F1 25','Racing','cover_f1_25.jpg',1,'2026-10-11 17:36:24'),(44,'MotoGP 24','Racing','cover_motogp24.jpg',1,'2026-10-11 17:36:24'),(45,'Crash Team Racing Nitro-Fueled','Racing','cover_ctr.jpg',1,'2026-10-11 17:36:24'),(46,'Sonic Racing: CrossWorlds','Racing','cover_sonic_crossworlds.jpg',1,'2026-10-11 17:36:24'),(47,'Asphalt Legends Unite','Racing','cover_asphalt.jpg',1,'2026-10-11 17:36:24'),(48,'DIRT 5','Racing',NULL,1,'2026-10-11 17:36:24'),(49,'Need for Speed Unbound','Racing',NULL,1,'2026-10-11 17:36:24'),(50,'Mario Kart 8 Deluxe','Racing','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(51,'Tekken 8','Fighting','cover_tekken8.jpg',1,'2026-10-11 17:36:24'),(52,'Tekken 7','Fighting','cover_tekken7.jpg',1,'2026-10-11 17:36:24'),(53,'Mortal Kombat 1','Fighting','cover_mk1.jpg',1,'2026-10-11 17:36:24'),(54,'Mortal Kombat XL','Fighting',NULL,1,'2026-10-11 17:36:24'),(55,'Street Fighter V','Fighting','cover_sf5.jpg',1,'2026-10-11 17:36:24'),(56,'Naruto x Boruto Ultimate Ninja Storm Connections','Fighting','cover_naruto_boruto.jpg',1,'2026-10-11 17:36:24'),(57,'Naruto Shippuden: Ultimate Ninja Storm 4','Fighting',NULL,1,'2026-10-11 17:36:24'),(58,'Dragon Ball FighterZ','Fighting',NULL,1,'2026-10-11 17:36:24'),(59,'Super Smash Bros. Ultimate','Fighting','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(60,'ARMS','Fighting','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(61,'Call of Duty: Black Ops 6','Shooter','cover_cod_bo6.jpg',1,'2026-10-11 17:36:24'),(62,'Call of Duty: Black Ops III','Shooter','cover_cod_bo3.jpg',1,'2026-10-11 17:36:24'),(63,'Battlefield 6','Shooter','cover_battlefield6.jpg',1,'2026-10-11 17:36:24'),(64,'Borderlands 3','Shooter','cover_borderlands3.jpg',1,'2026-10-11 17:36:24'),(65,'Fortnite','Shooter','cover_fortnite.jpg',1,'2026-10-11 17:36:24'),(66,'Back 4 Blood','Shooter','cover_back4blood.jpg',1,'2026-10-11 17:36:24'),(67,'The Ascent','Shooter','cover_the_ascent.jpg',1,'2026-10-11 17:36:24'),(68,'Plants vs. Zombies: Battle for Neighborville','Shooter','cover_pvz.jpg',1,'2026-10-11 17:36:24'),(69,'Ghost of Yotei','Action','cover_ghost_yotei.jpg',1,'2026-10-11 17:36:24'),(70,'Marvel\'s Spider-Man 2','Action','cover_spiderman2.jpg',1,'2026-10-11 17:36:24'),(71,'Assassin\'s Creed Shadows','Action','cover_ac_shadows.jpg',1,'2026-10-11 17:36:24'),(72,'Grand Theft Auto V','Action',NULL,1,'2026-10-11 17:36:24'),(73,'Star Wars Jedi: Fallen Order','Action',NULL,1,'2026-10-11 17:36:24'),(74,'Streets of Rage 4','Action','cover_sor4.jpg',1,'2026-10-11 17:36:24'),(75,'Batman: Arkham Knight','Action',NULL,1,'2026-10-11 17:36:24'),(76,'Batman: Return to Arkham','Action',NULL,1,'2026-10-11 17:36:24'),(77,'Dragon Ball Z: Kakarot','Action',NULL,1,'2026-10-11 17:36:24'),(78,'One Piece: Pirate Warriors 4','Action',NULL,1,'2026-10-11 17:36:24'),(79,'Bayonetta 3','Action','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(80,'Metroid Prime 4: Beyond','Action','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(81,'Monster Hunter Rise: Sunbreak','Action','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(82,'LEGO Star Wars','Action','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(83,'LEGO Marvel Super Heroes','Action','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(84,'Resident Evil 4','Horror',NULL,1,'2026-10-11 17:36:24'),(85,'Resident Evil 3','Horror','cover_re3.jpg',1,'2026-10-11 17:36:24'),(86,'Resident Evil 2','Horror','cover_re2.jpg',1,'2026-10-11 17:36:24'),(87,'The Quarry','Horror','cover_the_quarry.jpg',1,'2026-10-11 17:36:24'),(88,'It Takes Two','Adventure','cover_it_takes_two.jpg',1,'2026-10-11 17:36:24'),(89,'Split Fiction','Adventure','cover_split_fiction.jpg',1,'2026-10-11 17:36:24'),(90,'A Way Out','Adventure','cover_a_way_out.jpg',1,'2026-10-11 17:36:24'),(91,'Hogwarts Legacy','Adventure','cover_hogwarts.jpg',1,'2026-10-11 17:36:24'),(92,'Unravel','Adventure',NULL,1,'2026-10-11 17:36:24'),(93,'The Legend of Zelda: Tears of the Kingdom','Adventure','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(94,'Luigi\'s Mansion 3','Adventure','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(95,'River Tails: Stronger Together','Adventure','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(96,'Pokemon Legends: Z-A','RPG','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(97,'Xenoblade Chronicles X','RPG','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(98,'Fire Emblem Engage','RPG','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(99,'Super Mario Odyssey','Platformer','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(100,'Super Mario 3D World + Bowser\'s Fury','Platformer','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(101,'Donkey Kong Country','Platformer','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(102,'Hollow Knight: Silksong','Platformer','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(103,'Cuphead','Platformer','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(104,'Overcooked! All You Can Eat','Party','cover_overcooked_ayce.jpg',1,'2026-10-11 17:36:24'),(105,'Overcooked! 2','Party','cover_overcooked2.jpg',1,'2026-10-11 17:36:24'),(106,'Moving Out 2','Party','cover_moving_out2.jpg',1,'2026-10-11 17:36:24'),(107,'Moving Out','Party',NULL,1,'2026-10-11 17:36:24'),(108,'Gang Beasts','Party','cover_gang_beasts.jpg',1,'2026-10-11 17:36:24'),(109,'Human: Fall Flat','Party','cover_human_fall_flat.jpg',1,'2026-10-11 17:36:24'),(110,'Fall Guys','Party','cover_fall_guys.jpg',1,'2026-10-11 17:36:24'),(111,'Stumble Guys','Party','cover_stumble_guys.jpg',1,'2026-10-11 17:36:24'),(112,'LEGO Party!','Party','cover_lego_party.jpg',1,'2026-10-11 17:36:24'),(113,'Tricky Towers','Party','cover_tricky_towers.jpg',1,'2026-10-11 17:36:24'),(114,'Rubber Bandits','Party','cover_rubber_bandits.jpg',1,'2026-10-11 17:36:24'),(115,'Get Packed','Party','cover_get_packed.jpg',1,'2026-10-11 17:36:24'),(116,'Crossy Road Castle','Party','cover_crossy_road.jpg',1,'2026-10-11 17:36:24'),(117,'Hamster Playground','Party','cover_hamster.jpg',1,'2026-10-11 17:36:24'),(118,'1-2-Switch','Party','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(119,'Tools Up!','Party','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(120,'Minecraft','Sandbox','cover_minecraft.jpg',1,'2026-10-11 17:36:24'),(121,'Roblox','Sandbox','cover_roblox.jpg',1,'2026-10-11 17:36:24'),(122,'Farm Together 2','Simulation','cover_farm_together2.jpg',1,'2026-10-11 17:36:24'),(123,'Puyo Puyo Tetris','Puzzle','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(124,'Taiko no Tatsujin','Rhythm','cover_switch_games.jpg',1,'2026-10-11 17:36:24'),(125,'Just Dance','Rhythm','cover_switch_games.jpg',1,'2026-10-11 17:36:24');
 /*!40000 ALTER TABLE `games` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `loyalty_points`
+--
+
+DROP TABLE IF EXISTS `loyalty_points`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `loyalty_points` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `booking_id` int(11) DEFAULT NULL,
+  `points` int(11) NOT NULL,
+  `note` varchar(100) NOT NULL DEFAULT '',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  KEY `booking_id` (`booking_id`),
+  CONSTRAINT `loyalty_points_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `loyalty_points_ibfk_2` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `loyalty_points`
+--
+
+LOCK TABLES `loyalty_points` WRITE;
+/*!40000 ALTER TABLE `loyalty_points` DISABLE KEYS */;
+/*!40000 ALTER TABLE `loyalty_points` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
@@ -304,6 +336,40 @@ INSERT INTO `room_games` VALUES (9,28),(9,29),(9,30),(9,31),(9,34),(9,35),(9,37)
 UNLOCK TABLES;
 
 --
+-- Table structure for table `room_reviews`
+--
+
+DROP TABLE IF EXISTS `room_reviews`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `room_reviews` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `booking_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `rating` tinyint(4) NOT NULL,
+  `comment` varchar(300) NOT NULL DEFAULT '',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `booking_id` (`booking_id`),
+  KEY `room_id` (`room_id`),
+  KEY `user_id` (`user_id`),
+  CONSTRAINT `room_reviews_ibfk_1` FOREIGN KEY (`booking_id`) REFERENCES `bookings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `room_reviews_ibfk_2` FOREIGN KEY (`room_id`) REFERENCES `rooms` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `room_reviews_ibfk_3` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `room_reviews`
+--
+
+LOCK TABLES `room_reviews` WRITE;
+/*!40000 ALTER TABLE `room_reviews` DISABLE KEYS */;
+/*!40000 ALTER TABLE `room_reviews` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `rooms`
 --
 
@@ -378,4 +444,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-12 22:51:59
+-- Dump completed on 2026-10-12 23:15:59

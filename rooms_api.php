@@ -11,6 +11,8 @@ $sql = "
     r.nintendo_extra, r.max_players, r.has_netflix, r.image, r.description, r.status,
     -- Daftar game khusus ruangan ini (kosong = pakai semua game konsolnya)
     (SELECT GROUP_CONCAT(rg.game_id) FROM room_games rg WHERE rg.room_id = r.id) AS game_ids,
+    (SELECT ROUND(AVG(rv.rating), 1) FROM room_reviews rv WHERE rv.room_id = r.id) AS avg_rating,
+    (SELECT COUNT(*) FROM room_reviews rv WHERE rv.room_id = r.id) AS review_count,
     CASE
       WHEN r.status = 'unavailable' THEN 'in_service'
       WHEN EXISTS (

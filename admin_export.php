@@ -18,7 +18,7 @@ releaseNoShows($conn);
 $f = riwayatFilter($_GET);
 $stmt = $conn->prepare("
   SELECT b.order_code, b.customer_name, b.phone, b.source, r.title AS room_title,
-         b.start_time, b.end_time, b.duration, b.with_nintendo, b.is_student,
+         b.start_time, b.end_time, b.duration, b.with_nintendo, b.is_student, b.discount,
          b.total_price, b.amount_paid, b.payment_status, b.created_at
   FROM bookings b
   LEFT JOIN rooms r ON r.id = b.room_id
@@ -57,7 +57,8 @@ while ($b = $rows->fetch_assoc()) {
     date('H:i', intval($b['start_time'])),
     date('H:i', intval($b['end_time'])),
     intval($b['duration']),
-    implode(', ', array_filter([$b['with_nintendo'] ? 'Tambah Nintendo' : '', $b['is_student'] ? 'Harga pelajar' : ''])),
+    implode(', ', array_filter([$b['with_nintendo'] ? 'Tambah Nintendo' : '', $b['is_student'] ? 'Harga pelajar' : '',
+                                $b['discount'] > 0 ? 'Potongan poin ' . intval($b['discount']) : ''])),
     intval($b['total_price']),
     intval($b['amount_paid']),
     $statusLabel[$b['payment_status']] ?? $b['payment_status'],

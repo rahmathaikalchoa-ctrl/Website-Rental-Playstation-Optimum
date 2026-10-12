@@ -32,7 +32,9 @@ $sql = "
     b.start_time,
     b.end_time,
     b.total_price,
+    b.discount,
     b.order_code,
+    EXISTS (SELECT 1 FROM room_reviews rv WHERE rv.booking_id = b.id) AS reviewed,
     b.payment_status,
     b.expires_at,
     b.source
@@ -73,6 +75,8 @@ while ($row = $res->fetch_assoc()) {
     'with_nintendo'  => (bool) $row['with_nintendo'],
     'is_student'     => (bool) $row['is_student'],
     'extend_costs'   => $extendCosts,
+    'discount'       => intval($row['discount']),
+    'reviewed'       => (bool) $row['reviewed'],
   ];
 }
 

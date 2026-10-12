@@ -3,6 +3,7 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
+require_once __DIR__ . '/booking_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
   // Sesi login habis: script.js membaca header ini lalu membuka modal login
@@ -30,4 +31,7 @@ $ts = $user['created_at'] ? strtotime($user['created_at']) : null;
 echo json_encode([
   'username' => $user['username'],
   'since'    => $ts ? date('j', $ts) . ' ' . $bulan[intval(date('n', $ts)) - 1] . ' ' . date('Y', $ts) : '-',
+  // Poin loyalitas: 1 poin per jam lunas, ditukar gratis 1 jam di kasir
+  'points'          => pointsBalance($conn, $id),
+  'points_per_hour' => POINTS_PER_FREE_HOUR,
 ]);

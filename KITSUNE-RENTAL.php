@@ -27,6 +27,13 @@ $listTitles = function ($where) use ($conn) {
 };
 $switchRooms = $listTitles("console_type = 'SWITCH'");
 $addonRooms  = $listTitles("nintendo_extra IS NOT NULL");
+// Label kelas untuk setiap tarif paket, mis. 30000 => "VIP PS5, VIP Nintendo Switch"
+$rateLabels = [];
+foreach ($conn->query("SELECT DISTINCT " . ROOM_CLASS_SQL . " AS cls, price, nintendo_extra FROM rooms WHERE status = 'available'") as $row) {
+  $rateLabels[intval($row['price'])][] = $row['cls'];
+  if ($row['nintendo_extra'] !== null) $rateLabels[intval($row['price']) + intval($row['nintendo_extra'])][] = $row['cls'] . ' + Nintendo';
+}
+$rateLabels = array_map(fn($l) => implode(', ', array_unique($l)), $rateLabels);
 $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switchRooms && $addonRooms ? ', atau sebagai tambahan di ' : ($addonRooms ? 'Bisa ditambahkan di ' : '')) . $addonRooms) . '.';
 ?>
 
@@ -40,7 +47,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
     <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__ . '/style.css') ?>">
   </head>
 
-  <body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>" data-pricing="<?= htmlspecialchars(pricingJson()) ?>">
+  <body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>" data-pricing="<?= htmlspecialchars(pricingJson()) ?>" data-maps="<?= htmlspecialchars(SITE_MAPS_URL) ?>">
     <header class="site-header">
       <div class="header-inner">
         <!-- left: brand -->
@@ -65,6 +72,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
             <a href="#" data-view="home">Beranda</a>
             <a href="#" data-view="consoles">Ruangan</a>
             <a href="#" data-view="booking">Booking</a>
+            <a href="#" data-view="promo">Promo</a>
             <a href="#" data-view="fasilitas">Fasilitas</a>
             <a href="#" data-view="game">Game</a>
             <a href="#" data-view="menu" id="menuNavLink" style="display:none">Menu</a>
@@ -102,7 +110,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
               plus meja Public PS4 dan PS5. Booking jam tertentu atau ambil antrian untuk main sekarang.
             </p>
             <div style="display: flex; gap: 12px; margin-top: 12px">
-              <button class="btn" data-view="consoles">Lihat Ruangan</button>
+              <button class="btn" data-view="consoles">Cek Ruangan Kosong</button>
               <button class="btn-ghost" data-view="booking">
                 Booking Sekarang
               </button>
@@ -168,7 +176,25 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
       <section id="view-consoles" class="view" style="display: none">
         <div class="container">
           <h1 style="color: var(--neon)">Daftar Ruangan</h1>
-          <p class="muted">Pilih ruangan sesuai tipe:</p>
+          <div class="booking-form-card finder-card">
+            <h3 class="bsection-title"><?= icon('search') ?> Cari Ruangan Kosong</h3>
+            <p class="muted small" style="margin-bottom:12px">Pilih jadwal main, kami tampilkan semua ruangan yang masih kosong beserta total harganya.</p>
+            <form id="finderForm" class="finder-form">
+              <div class="bfield"><label for="finderDate">Tanggal</label><select id="finderDate"></select></div>
+              <div class="bfield"><label for="finderTime">Jam mulai</label><select id="finderTime"></select></div>
+              <div class="bfield"><label for="finderDuration">Durasi</label>
+                <select id="finderDuration"><?php for ($i = 1; $i <= 5; $i++): ?><option value="<?= $i ?>"<?= $i === 2 ? ' selected' : '' ?>><?= $i ?> jam</option><?php endfor; ?></select>
+              </div>
+              <div class="bfield"><label for="finderPlayers">Pemain</label>
+                <select id="finderPlayers"><?php for ($i = 1; $i <= 4; $i++): ?><option value="<?= $i ?>"<?= $i === 2 ? ' selected' : '' ?>><?= $i ?> orang</option><?php endfor; ?></select>
+              </div>
+              <label class="bcheck finder-check"><input type="checkbox" id="finderNintendo"> <span>Mau main Nintendo</span></label>
+              <button type="submit" class="btn">Cari</button>
+            </form>
+            <div id="finderResult" class="finder-result" aria-live="polite"></div>
+          </div>
+
+          <p class="muted" style="margin-top:22px">Atau lihat semua ruangan sesuai tipe:</p>
 
           <div id="roomCatTabs" class="genre-filters" style="margin-top:16px"></div>
           <div id="allRoomsGrid" class="rooms-grid" style="margin-top:14px"></div>
@@ -302,7 +328,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
                 </div>
 
                 <div class="form-actions">
-                  <button type="submit" class="btn" style="flex:1">Konfirmasi Booking</button>
+                  <button type="submit" class="btn" style="flex:1">Booking Sekarang</button>
                   <button type="button" class="btn-ghost" id="clearBookings">Reset</button>
                 </div>
               </form>
@@ -319,6 +345,72 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
             </div>
 
           </div><!-- /booking-layout -->
+        </div>
+      </section>
+
+      <!-- PROMO -->
+      <section id="view-promo" class="view" style="display: none">
+        <div class="container">
+          <h1 style="color: var(--neon)">Promo &amp; Paket Hemat</h1>
+          <p class="muted">Harga paket dipakai otomatis saat kamu booking. Paket Pelajar dipasang kasir.</p>
+
+          <div class="promo-grid">
+            <div class="room-card promo-card promo-wide">
+              <h3><?= icon('check') ?> Paket Main Seru</h3>
+              <p class="muted small">Makin lama main, makin hemat. Berlaku setiap hari untuk 1-5 jam.</p>
+              <div class="table-scroll">
+                <table class="price-table">
+                  <thead><tr><th>Kelas</th><th>1 jam</th><th>2 jam</th><th>3 jam</th><th>4 jam</th><th>5 jam</th></tr></thead>
+                  <tbody>
+                    <?php foreach (PRICE_PACKAGES as $rate => $pkg): ?>
+                      <?php if (empty($rateLabels[$rate])) continue; ?>
+                      <tr>
+                        <th><?= htmlspecialchars($rateLabels[$rate]) ?></th>
+                        <?php foreach ($pkg as $i => $p): ?>
+                          <td><?= $fmtRp($p) ?><?php if ($p < $rate * ($i + 1)): ?><span class="price-old"><?= $fmtRp($rate * ($i + 1)) ?></span><?php endif; ?></td>
+                        <?php endforeach; ?>
+                      </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+              <?php if ($weekendInfo): ?><p class="muted small" style="margin-top:8px">Sabtu-Minggu <?= htmlspecialchars(implode(' / ', $weekendInfo)) ?> per jam.</p><?php endif; ?>
+            </div>
+
+            <div class="room-card promo-card">
+              <h3><?= icon('user') ?> Paket Pelajar</h3>
+              <p class="muted small">Berlaku Senin-Jumat, jam <?= secToHHMM(BOOKING_OPEN_SEC) ?>-<?= secToHHMM(BOOKING_CLOSE_SEC) ?>.</p>
+              <div class="table-scroll">
+                <table class="price-table price-table-compact">
+                  <thead><tr><th>Kelas</th><th>1 jam</th><th>3 jam</th></tr></thead>
+                  <tbody>
+                    <?php foreach (STUDENT_PRICES as $rate => [$one, $three]): ?>
+                      <?php if (empty($rateLabels[$rate])) continue; ?>
+                      <tr>
+                        <th><?= htmlspecialchars($rateLabels[$rate]) ?></th>
+                        <td><?= $fmtRp($one) ?><span class="price-old"><?= $fmtRp($rate) ?></span></td>
+                        <td><?= $fmtRp($three) ?><span class="price-old"><?= $fmtRp($rate * 3) ?></span></td>
+                      </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+              <p class="small" style="margin-top:10px"><strong>Syarat:</strong></p>
+              <ul class="promo-terms">
+                <li>Follow Instagram <a href="https://instagram.com/<?= htmlspecialchars(SITE_INSTAGRAM) ?>" target="_blank" rel="noopener">@<?= htmlspecialchars(SITE_INSTAGRAM) ?></a></li>
+                <li>Beri rating kami di <a href="<?= htmlspecialchars(SITE_MAPS_URL) ?>" target="_blank" rel="noopener">Google</a></li>
+                <li>Tunjukkan kartu pelajar ke kasir</li>
+              </ul>
+            </div>
+
+            <div class="room-card promo-card">
+              <h3><?= icon('gamepad') ?> Poin Main</h3>
+              <p class="muted small">Setiap 1 jam main yang lunas lewat akun website mendapat 1 poin.</p>
+              <p class="promo-big"><?= POINTS_PER_FREE_HOUR ?> poin = gratis 1 jam</p>
+              <p class="muted small">Tukar poin di kasir sebelum membayar. Cek saldo poin di halaman Profil.</p>
+              <button class="btn" data-view="booking" style="margin-top:12px">Booking Sekarang</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -388,6 +480,11 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
       <p><strong>Username:</strong> <span id="profileUsername">-</span></p>
       <p><strong>Terdaftar sejak:</strong> <span id="profileSince">-</span></p>
       <p style="margin-top:8px"><strong>Total Jam Dimainkan:</strong> <span id="profileTotalHours" style="color:var(--neon)">0 jam</span></p>
+      <div class="points-box">
+        <div><strong>Poin Main:</strong> <span id="profilePoints" style="color:var(--neon)">0</span></div>
+        <div class="points-bar"><div id="profilePointsBar" style="width:0%"></div></div>
+        <p class="muted small" id="profilePointsHint"></p>
+      </div>
     </div>
 
     <!-- RIWAYAT BOOKING -->
@@ -494,6 +591,27 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
         Sudah punya akun? <a href="#" id="backToLogin" style="color:var(--neon)">Kembali ke Login</a>
       </p>
     </form>
+  </div>
+</div>
+
+<!-- REVIEW MODAL -->
+<div id="reviewModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="reviewTitle">
+  <div class="modal-overlay"></div>
+  <div class="modal-content">
+    <h2 id="reviewTitle">Beri Ulasan</h2>
+    <p class="small muted" id="reviewRoom" style="margin-bottom:12px"></p>
+    <input type="hidden" id="reviewBookingId">
+    <div class="star-input" role="radiogroup" aria-label="Rating">
+      <?php for ($i = 1; $i <= 5; $i++): ?>
+        <button type="button" class="star-btn" data-star="<?= $i ?>" role="radio" aria-checked="false" aria-label="<?= $i ?> bintang">&#9733;</button>
+      <?php endfor; ?>
+    </div>
+    <label for="reviewComment" class="small" style="display:block;margin-top:12px">Komentar (opsional)</label>
+    <textarea id="reviewComment" maxlength="300" rows="3" placeholder="Ceritakan pengalaman main kamu"></textarea>
+    <div class="form-actions" style="margin-top:14px">
+      <button type="button" class="btn" id="reviewSubmit" style="flex:1">Kirim Ulasan</button>
+      <button type="button" class="btn-ghost" id="closeReview">Batal</button>
+    </div>
   </div>
 </div>
 

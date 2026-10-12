@@ -85,6 +85,61 @@ function pricingJson() {
   return json_encode(['packages' => PRICE_PACKAGES, 'student' => STUDENT_PRICES]);
 }
 
+// ===== POIN LOYALITAS =====
+// 1 poin per jam main yang lunas (akun online). 10 poin ditukar gratis 1 jam di kasir.
+const POINTS_PER_FREE_HOUR = 10;
+
+// Baris poin dari booking yang dibatalkan tidak dihitung: poin yang didapat hilang dan
+// poin yang sudah ditukar kembali, dari jalur pembatalan mana pun (user, kasir, no-show).
+function pointsBalance($conn, $userId) {
+  $uid = intval($userId);
+  $stmt = $conn->prepare("
+    SELECT COALESCE(SUM(lp.points), 0) AS p
+    FROM loyalty_points lp LEFT JOIN bookings b ON b.id = lp.booking_id
+    WHERE lp.user_id = ? AND (b.id IS NULL OR b.payment_status <> 'cancelled')
+  ");
+  $stmt->bind_param("i", $uid);
+  $stmt->execute();
+  $p = intval($stmt->get_result()->fetch_assoc()['p']);
+  $stmt->close();
+  return $p;
+}
+
+// Beri poin untuk booking yang baru lunas. Booking yang diperpanjang lalu dilunasi lagi
+// poinnya disesuaikan dengan durasi terbaru (tidak dobel).
+function awardPoints($conn, $bookingId) {
+  $bid = intval($bookingId);
+  $stmt = $conn->prepare("SELECT user_id, duration FROM bookings WHERE id = ? AND payment_status = 'paid'");
+  $stmt->bind_param("i", $bid);
+  $stmt->execute();
+  $b = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$b || $b['user_id'] === null) return;
+  $uid = intval($b['user_id']);
+  $dur = intval($b['duration']);
+
+  $stmt = $conn->prepare("SELECT id, points FROM loyalty_points WHERE booking_id = ? AND points > 0 LIMIT 1");
+  $stmt->bind_param("i", $bid);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if ($row) {
+    if ($dur > intval($row['points'])) {
+      $rid = intval($row['id']);
+      $stmt = $conn->prepare("UPDATE loyalty_points SET points = ? WHERE id = ?");
+      $stmt->bind_param("ii", $dur, $rid);
+      $stmt->execute();
+      $stmt->close();
+    }
+    return;
+  }
+  $note = "Main $dur jam";
+  $stmt = $conn->prepare("INSERT INTO loyalty_points (user_id, booking_id, points, note) VALUES (?, ?, ?, ?)");
+  $stmt->bind_param("iiis", $uid, $bid, $dur, $note);
+  $stmt->execute();
+  $stmt->close();
+}
+
 // Catat uang yang diterima kasir ke buku pembayaran. Dashboard menghitung pendapatan dari
 // tabel ini menurut waktu bayar, jadi pelunasan tambahan jam di hari lain tidak memindahkan
 // pembayaran sebelumnya ke tanggal baru.

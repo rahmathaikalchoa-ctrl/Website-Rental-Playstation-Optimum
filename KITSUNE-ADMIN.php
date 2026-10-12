@@ -323,8 +323,8 @@ $offset  = ($pageNum - 1) * $perPage;
     $schedRooms = mysqli_query($conn, "SELECT id, title, tier, console_model, status, price, nintendo_extra FROM rooms ORDER BY id")
       ->fetch_all(MYSQLI_ASSOC);
     $stmt = $conn->prepare("
-      SELECT id, room_id, customer_name, phone, order_code, source, start_time, end_time, duration,
-             total_price, amount_paid, payment_status, expires_at, with_nintendo, is_student
+      SELECT id, room_id, user_id, customer_name, phone, order_code, source, start_time, end_time, duration,
+             total_price, amount_paid, payment_status, expires_at, with_nintendo, is_student, discount
       FROM bookings
       WHERE payment_status <> 'cancelled' AND start_time < ? AND end_time > ?
       ORDER BY start_time
@@ -412,7 +412,8 @@ $offset  = ($pageNum - 1) * $perPage;
               'code' => $b['order_code'] ?? '-', 'room' => $r['title'],
               'time' => date('d/m H:i', intval($b['start_time'])) . ' – ' . date('H:i', intval($b['end_time'])) . ' (' . intval($b['duration']) . ' jam)',
               'tags' => implode(' · ', $tags),
-              'total' => $fmtRp($b['total_price']), 'paid' => $fmtRp($b['amount_paid']), 'due' => $due,
+              'total' => $fmtRp($b['total_price']) . (intval($b['discount']) > 0 ? ' (potongan poin ' . $fmtRp($b['discount']) . ')' : ''),
+              'paid' => $fmtRp($b['amount_paid']), 'due' => $due,
               'status' => $waiting ? 'Menunggu datang' : ($paid ? 'Lunas' : (intval($b['amount_paid']) > 0 ? 'Kurang ' . $fmtRp($due) : 'Belum bayar')),
               'canCheckin' => $waiting && intval($b['start_time']) - $now <= BOOKING_CHECKIN_SEC && intval($b['end_time']) > $now,
               'canPay'     => !$paid,
@@ -420,6 +421,9 @@ $offset  = ($pageNum - 1) * $perPage;
                               && ($b['is_student'] || studentEligible($roomById[$rid], (bool) $b['with_nintendo'], intval($b['start_time']))),
               'isStudent'  => (bool) $b['is_student'],
               'canCancel'  => intval($b['end_time']) > $now,
+              'hasDiscount' => intval($b['discount']) > 0,
+              'canRedeem'  => $b['user_id'] !== null && !$paid
+                              && (intval($b['discount']) > 0 || pointsBalance($conn, $b['user_id']) >= POINTS_PER_FREE_HOUR),
               'amountPaid' => intval($b['amount_paid']),
             ];
           ?>
@@ -558,8 +562,9 @@ $offset  = ($pageNum - 1) * $perPage;
           <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?> · <?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?></span>
         </td>
         <td><?= htmlspecialchars($b['room_title'] ?? '-') ?>
-          <?php if ($b['with_nintendo'] || $b['is_student']): ?>
-            <span class="cell-sub"><?= implode(' · ', array_filter([$b['with_nintendo'] ? '+Nintendo' : '', $b['is_student'] ? 'Harga pelajar' : ''])) ?></span>
+          <?php if ($b['with_nintendo'] || $b['is_student'] || $b['discount'] > 0): ?>
+            <span class="cell-sub"><?= implode(' · ', array_filter([$b['with_nintendo'] ? '+Nintendo' : '', $b['is_student'] ? 'Harga pelajar' : '',
+              $b['discount'] > 0 ? 'Poin -Rp' . number_format(intval($b['discount']), 0, ',', '.') : ''])) ?></span>
           <?php endif; ?>
         </td>
         <?php $st = intval($b['start_time']); ?>
@@ -605,8 +610,8 @@ $offset  = ($pageNum - 1) * $perPage;
     $dayEnd = strtotime(date('Y-m-d', $now)) + 24 * 3600;
 
     $curStmt  = $conn->prepare("
-      SELECT id, customer_name, source, start_time, end_time, expires_at, payment_status, total_price, amount_paid,
-             with_nintendo, is_student
+      SELECT id, user_id, customer_name, source, start_time, end_time, expires_at, payment_status, total_price, amount_paid,
+             with_nintendo, is_student, discount
       FROM bookings
       WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time <= ? AND end_time > ? LIMIT 1
     ");
@@ -874,6 +879,14 @@ $offset  = ($pageNum - 1) * $perPage;
               <?php if ($noShow): ?>
                 <button class="btn-outline" onclick="releaseNoShow(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)">Lepas Ruangan</button>
               <?php endif; ?>
+              <?php
+                // Tukar 10 poin = gratis 1 jam (akun website, belum lunas)
+                $canRedeem = $cur['user_id'] !== null && $cur['payment_status'] !== 'paid'
+                  && (intval($cur['discount']) > 0 || pointsBalance($conn, $cur['user_id']) >= POINTS_PER_FREE_HOUR);
+              ?>
+              <?php if ($canRedeem): ?>
+                <button class="btn-ghost-sm" onclick="redeemPoints(<?= intval($cur['id']) ?>, <?= intval($cur['discount']) > 0 ? 'true' : 'false' ?>)"><?= intval($cur['discount']) > 0 ? 'Batal Pakai Poin' : 'Pakai ' . POINTS_PER_FREE_HOUR . ' Poin' ?></button>
+              <?php endif; ?>
               <?php if (intval($cur['amount_paid']) === 0 && ($cur['is_student'] || studentEligible($r, (bool) $cur['with_nintendo'], intval($cur['start_time'])))): ?>
                 <button class="btn-ghost-sm" onclick="toggleStudent(<?= intval($cur['id']) ?>, <?= $cur['is_student'] ? 'true' : 'false' ?>)"><?= $cur['is_student'] ? 'Batal Harga Pelajar' : 'Harga Pelajar' ?></button>
               <?php endif; ?>
@@ -996,6 +1009,34 @@ $offset  = ($pageNum - 1) * $perPage;
             ]) ?>)">Edit</button>
             <button class="<?= $active ? 'btn-warn-sm' : 'btn-ghost-sm' ?>" onclick="toggleRoom(<?= intval($r['id']) ?>, <?= jsArg($r['title']) ?>, <?= $active ? 'true' : 'false' ?>, <?= intval($r['upcoming']) ?>)"><?= $active ? 'Set Perawatan' : 'Aktifkan' ?></button>
           </div>
+        </td>
+      </tr>
+      <?php endwhile; ?>
+    </table>
+  </div>
+
+  <?php
+    $reviews = mysqli_query($conn, "
+      SELECT rv.id, rv.rating, rv.comment, rv.created_at, u.username, r.title AS room_title
+      FROM room_reviews rv JOIN users u ON u.id = rv.user_id JOIN rooms r ON r.id = rv.room_id
+      ORDER BY rv.created_at DESC LIMIT 30
+    ");
+  ?>
+  <h3 class="section-title" style="margin-top:32px"><?= icon('check') ?> Ulasan Pelanggan Terbaru</h3>
+  <div class="table-wrap">
+    <table class="users-table">
+      <tr><th>Ruangan</th><th>Rating</th><th>Komentar</th><th>Pengguna</th><th class="col-actions">Aksi</th></tr>
+      <?php if (mysqli_num_rows($reviews) === 0): ?>
+        <tr><td colspan="5" class="empty-row">Belum ada ulasan.</td></tr>
+      <?php endif; ?>
+      <?php while ($rv = mysqli_fetch_assoc($reviews)): ?>
+      <tr>
+        <td><?= htmlspecialchars($rv['room_title']) ?></td>
+        <td class="review-stars-admin"><?= str_repeat('★', intval($rv['rating'])) . str_repeat('☆', 5 - intval($rv['rating'])) ?></td>
+        <td class="wrap-cell"><?= $rv['comment'] !== '' ? htmlspecialchars($rv['comment']) : '<span class="muted-dash">—</span>' ?></td>
+        <td><?= htmlspecialchars($rv['username']) ?><span class="cell-sub"><?= date('d M Y', strtotime($rv['created_at'])) ?></span></td>
+        <td class="col-actions">
+          <button class="btn-icon" title="Hapus ulasan" aria-label="Hapus ulasan" onclick="deleteReview(<?= intval($rv['id']) ?>)"><?= icon('x') ?></button>
         </td>
       </tr>
       <?php endwhile; ?>

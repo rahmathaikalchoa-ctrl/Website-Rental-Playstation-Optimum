@@ -74,6 +74,17 @@ function markOrderDone(id) {
   adminAction({ action: "mark_order_done", id }, "Tandai pesanan ini sudah sampai ke user?");
 }
 
+// Tukar 10 poin pelanggan untuk gratis 1 jam (atau batalkan penukaran)
+function redeemPoints(id, undo) {
+  adminAction({ action: "redeem_points", id },
+    undo ? "Batalkan penukaran poin? Harga kembali normal dan 10 poin dikembalikan."
+         : "Pakai 10 poin pelanggan untuk gratis 1 jam? Total tagihan akan dipotong tarif 1 jam ruangan.");
+}
+
+function deleteReview(id) {
+  adminAction({ action: "delete_review", id }, "Hapus ulasan ini? Ulasan tidak tampil lagi di website.");
+}
+
 function cancelMenuOrder(id, itemName) {
   adminAction({ action: "cancel_menu_order", id }, `Batalkan pesanan "${itemName}"? Pesanan tidak akan diantar.`);
 }
@@ -861,6 +872,7 @@ function openScheduleBooking(b) {
   };
   if (b.canCheckin) addBtn("Hadir", "btn-checkin", () => checkinBooking(b.id, b.name));
   if (b.canPay) addBtn("Lunas", "btn-paid", () => markPaid(b.id, b.name, b.due));
+  if (b.canRedeem) addBtn(b.hasDiscount ? "Batal Pakai Poin" : "Pakai 10 Poin", "btn-ghost-sm", () => redeemPoints(b.id, b.hasDiscount));
   if (b.canStudent) addBtn(b.isStudent ? "Batal Harga Pelajar" : "Harga Pelajar", "btn-ghost-sm", () => toggleStudent(b.id, b.isStudent));
   if (b.canCancel) addBtn("Batalkan Booking", "btn-warn-sm", () => cancelBooking(b.id, b.name, b.amountPaid));
   addBtn("Tutup", "btn-ghost-sm", () => closeEditModal("scheduleModal"));
