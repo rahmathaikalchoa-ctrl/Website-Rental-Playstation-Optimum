@@ -24,7 +24,11 @@ $sql = "
     b.room_id,
     r.title AS room,
     r.price,
+    r.weekend_extra,
+    r.nintendo_extra,
     b.duration,
+    b.with_nintendo,
+    b.is_student,
     b.start_time,
     b.end_time,
     b.total_price,
@@ -46,6 +50,12 @@ $res = $stmt->get_result();
 $data = [];
 
 while ($row = $res->fetch_assoc()) {
+  // Biaya tambah 1-3 jam dihitung server (paket, weekend, Nintendo, pelajar ikut terhitung)
+  $extendCosts = [];
+  for ($h = 1; $h <= BOOKING_EXTEND_MAX; $h++) {
+    $extendCosts[$h] = bookingPrice($row, $row['duration'] + $h, (int) $row['start_time'], (bool) $row['with_nintendo'], (bool) $row['is_student'])
+                     - bookingPrice($row, $row['duration'], (int) $row['start_time'], (bool) $row['with_nintendo'], (bool) $row['is_student']);
+  }
   $data[] = [
     'id'             => $row['id'],
     'room_id'        => $row['room_id'],
@@ -60,6 +70,9 @@ while ($row = $res->fetch_assoc()) {
     'payment_status' => $row['payment_status'],
     'expires_at'     => $row['expires_at'] !== null ? (int) $row['expires_at'] : null,
     'source'         => $row['source'],
+    'with_nintendo'  => (bool) $row['with_nintendo'],
+    'is_student'     => (bool) $row['is_student'],
+    'extend_costs'   => $extendCosts,
   ];
 }
 

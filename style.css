@@ -570,7 +570,7 @@ body {
   font-weight: 700;
   border: 1px solid transparent;
 }
-.badge-ps3 {
+.badge-switch {
   color: #ff6b6b;
   background: rgba(255, 107, 107, 0.1);
   border-color: rgba(255, 107, 107, 0.4);
@@ -932,6 +932,12 @@ body {
   border: 1px solid rgba(0, 255, 157, 0.3);
 }
 
+.order-cancelled {
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
 /* Notifikasi pop-up "pesanan sudah sampai" */
 .order-notif {
   position: fixed;
@@ -1264,3 +1270,17 @@ p .field-hint { display: inline; margin-left: 4px; }
 .timeline-past { opacity: 0.35; filter: grayscale(1); }
 
 .search-note { grid-column: 1 / -1; }
+
+/* Spesifikasi ruangan (kelas, Netflix, maks pemain) */
+.room-spec { color: var(--neon); font-size: 0.82rem; margin: 4px 0 6px; }
+
+/* Tabel harga paket di detail ruangan */
+.table-scroll { overflow-x: auto; }
+.price-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; min-width: 420px; }
+.price-table th, .price-table td { padding: 8px 10px; border-bottom: 1px solid #ffffff14; text-align: right; white-space: nowrap; }
+.price-table th:first-child { text-align: left; color: var(--muted); font-weight: 600; }
+.price-table thead th { color: var(--muted); font-weight: 600; }
+
+/* Pilihan tambah Nintendo Switch di form booking */
+.bcheck { display: flex; align-items: center; gap: 10px; margin-top: 12px; cursor: pointer; font-size: 0.9rem; }
+.bcheck input { width: 18px; height: 18px; accent-color: var(--neon); }

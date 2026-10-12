@@ -7,7 +7,10 @@ releaseNoShows($conn);
 
 $sql = "
   SELECT
-    r.id, r.title, r.console_type, r.price, r.image, r.description, r.status,
+    r.id, r.title, r.category, r.tier, r.console_type, r.console_model, r.price, r.weekend_extra,
+    r.nintendo_extra, r.max_players, r.has_netflix, r.image, r.description, r.status,
+    -- Daftar game khusus ruangan ini (kosong = pakai semua game konsolnya)
+    (SELECT GROUP_CONCAT(rg.game_id) FROM room_games rg WHERE rg.room_id = r.id) AS game_ids,
     CASE
       WHEN r.status = 'unavailable' THEN 'in_service'
       WHEN EXISTS (

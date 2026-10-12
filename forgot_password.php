@@ -5,7 +5,7 @@ header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-  echo json_encode(["status" => "error"]);
+  echo json_encode(["status" => "error", "message" => "Permintaan tidak valid"]);
   exit;
 }
 
@@ -15,8 +15,9 @@ $username    = trim($_POST['username'] ?? '');
 $oldPassword = trim($_POST['old_password'] ?? '');
 $newPassword = trim($_POST['new_password'] ?? '');
 
-if ($username === '' || $oldPassword === '' || strlen($newPassword) < 6) {
-  echo json_encode(["status" => "error", "message" => "Lengkapi semua kolom. Password baru minimal 6 karakter."]);
+// bcrypt hanya memakai 72 byte pertama; lebih dari itu dipotong diam-diam
+if ($username === '' || $oldPassword === '' || strlen($newPassword) < 6 || strlen($newPassword) > 72) {
+  echo json_encode(["status" => "error", "message" => "Lengkapi semua kolom. Password baru 6-72 karakter."]);
   exit;
 }
 
@@ -36,6 +37,12 @@ $stmt->close();
 // supaya tidak bisa dipakai untuk menebak username yang valid.
 if (!$user || !password_verify($oldPassword, $user['password'])) {
   echo json_encode(["status" => "error", "message" => "Username atau password lama salah"]);
+  exit;
+}
+
+// Password sama tidak diganti (dan tidak perlu mengeluarkan sesi perangkat lain)
+if (password_verify($newPassword, $user['password'])) {
+  echo json_encode(["status" => "error", "message" => "Password baru harus berbeda dari password lama"]);
   exit;
 }
 

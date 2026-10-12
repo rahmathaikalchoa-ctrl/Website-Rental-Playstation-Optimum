@@ -74,6 +74,28 @@ function markOrderDone(id) {
   adminAction({ action: "mark_order_done", id }, "Tandai pesanan ini sudah sampai ke user?");
 }
 
+function cancelMenuOrder(id, itemName) {
+  adminAction({ action: "cancel_menu_order", id }, `Batalkan pesanan "${itemName}"? Pesanan tidak akan diantar.`);
+}
+
+// Buat password sementara untuk konsumen yang lupa password lama
+function resetUserPassword(id, username) {
+  if (!confirm(`Reset password akun "${username}"? Password lama tidak berlaku lagi dan akun keluar dari semua perangkat.`)) return;
+  adminBusy = true;
+  postAdmin({ action: "reset_password", id })
+    .then((r) => {
+      if (r.status === "ok") {
+        // prompt() supaya password mudah disalin
+        prompt(`Password sementara untuk "${username}". Berikan ke konsumen, lalu minta ganti lewat menu Lupa Password:`, r.temp_password);
+      } else {
+        alert("Gagal: " + (r.message || "Terjadi kesalahan"));
+        if (r.status === "unauthorized") location.reload();
+      }
+    })
+    .catch(() => alert("Server error"))
+    .finally(() => { adminBusy = false; });
+}
+
 function toggleMenuItem(id) {
   adminAction({ action: "toggle_menu_item", id });
 }
@@ -104,16 +126,87 @@ function closeEditModal(id) {
   if (m) m.style.display = "none";
 }
 
+// room = null untuk tambah ruangan baru
 function openEditRoom(room) {
   const f = document.getElementById("editRoomForm");
   if (!f) return;
-  f.elements.id.value = room.id;
-  f.elements.title.value = room.title;
-  f.elements.console.value = room.console_type;
-  f.elements.price.value = room.price;
-  f.elements.description.value = room.description || "";
+  f.reset();
+  f.elements.id.value = room ? room.id : "";
+  document.querySelector("[data-room-modal-title]").textContent = room ? "Edit Ruangan" : "Tambah Ruangan";
+  if (room) {
+    f.elements.title.value = room.title;
+    f.elements.category.value = room.category;
+    f.elements.tier.value = room.tier;
+    f.elements.console.value = room.console_type;
+    f.elements.console_model.value = room.console_model;
+    f.elements.price.value = room.price;
+    f.elements.weekend_extra.value = room.weekend_extra;
+    f.elements.nintendo_extra.value = room.nintendo_extra;
+    f.elements.max_players.value = room.max_players;
+    f.elements.has_netflix.checked = room.has_netflix;
+    f.elements.description.value = room.description || "";
+  }
   openEditModal("editRoomModal");
 }
+
+// ===== GAME PER RUANGAN =====
+// Daftar checkbox berisi game yang bisa dimainkan di konsol ruangan
+function openRoomGames(room) {
+  const f = document.getElementById("roomGamesForm");
+  if (!f) return;
+  const games = JSON.parse(f.dataset.games || "[]").filter((g) => g.consoles.includes(room.console_type));
+  f.elements.id.value = room.id;
+  f.querySelector("[data-room-games-title]").textContent = `Game di ${room.title}`;
+  f.querySelector("[data-room-games-search]").value = "";
+  const list = f.querySelector("[data-room-games-list]");
+  list.innerHTML = "";
+  games.forEach((g) => {
+    const label = document.createElement("label");
+    label.className = "check-opt";
+    label.dataset.title = g.title.toLowerCase();
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.name = "game_ids[]";
+    box.value = g.id;
+    box.checked = room.game_ids.includes(g.id);
+    label.append(box, " " + g.title);
+    list.appendChild(label);
+  });
+  updateRoomGamesCount();
+  openEditModal("roomGamesModal");
+}
+
+function updateRoomGamesCount() {
+  const f = document.getElementById("roomGamesForm");
+  const n = f.querySelectorAll("[data-room-games-list] input:checked").length;
+  f.querySelector("[data-room-games-count]").textContent = n
+    ? `${n} game dipilih`
+    : "Belum ada yang dipilih: website menampilkan semua game konsol ini.";
+}
+
+(function initRoomGamesModal() {
+  const f = document.getElementById("roomGamesForm");
+  if (!f) return;
+  const visibleBoxes = () => [...f.querySelectorAll("[data-room-games-list] label:not([hidden]) input")];
+  f.querySelector("[data-room-games-search]").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    f.querySelectorAll("[data-room-games-list] label").forEach((l) => { l.hidden = !!q && !l.dataset.title.includes(q); });
+  });
+  // "Pilih semua" / "Kosongkan" hanya untuk game yang sedang tampil (hasil pencarian)
+  f.querySelector("[data-room-games-all]").addEventListener("click", () => {
+    visibleBoxes().forEach((b) => { b.checked = true; });
+    updateRoomGamesCount();
+  });
+  f.querySelector("[data-room-games-none]").addEventListener("click", () => {
+    visibleBoxes().forEach((b) => { b.checked = false; });
+    updateRoomGamesCount();
+  });
+  f.addEventListener("change", updateRoomGamesCount);
+  f.addEventListener("submit", function (e) {
+    e.preventDefault();
+    submitEditForm(this, "update_room_games", "roomGamesModal");
+  });
+})();
 
 function openEditMenu(item) {
   const f = document.getElementById("editMenuForm");
@@ -151,7 +244,7 @@ function submitEditForm(form, action, modalId) {
 
 document.getElementById("editRoomForm")?.addEventListener("submit", function (e) {
   e.preventDefault();
-  submitEditForm(this, "update_room", "editRoomModal");
+  submitEditForm(this, this.elements.id.value ? "update_room" : "add_room", "editRoomModal");
 });
 document.getElementById("editMenuForm")?.addEventListener("submit", function (e) {
   e.preventDefault();
@@ -182,37 +275,6 @@ document.querySelectorAll(".modal-backdrop").forEach((m) =>
   });
 })();
 
-// =====================
-// ADD ROOM
-// =====================
-document
-  .getElementById("addRoomForm")
-  ?.addEventListener("submit", function (e) {
-    e.preventDefault();
-    const btn = this.querySelector("[type=submit]");
-    if (btn?.disabled) return;
-    if (btn) btn.disabled = true;
-
-    const formData = new FormData(this);
-    formData.append("action", "add_room");
-
-    adminFetch({
-      method: "POST",
-      body: formData,
-    })
-      .then((res) => res.json())
-      .then((res) => {
-        if (res.status === "ok") {
-          alert("Room berhasil ditambahkan");
-          location.reload();
-        } else {
-          alert("Gagal menambah room:\n" + (res.message || res.msg));
-          if (res.status === "unauthorized") location.reload();
-        }
-      })
-      .catch(() => alert("Server error"))
-      .finally(() => { if (btn) btn.disabled = false; });
-  });
 
 // =====================
 // EDIT CONSOLE GAME
@@ -221,15 +283,15 @@ function openEditGame(id, title, currentConsoles) {
   document.getElementById("editGameId").value = id;
   document.getElementById("editGameTitle").textContent = title;
 
-  const checks = { PS3: "editPS3", PS4: "editPS4", PS5: "editPS5" };
-  const labels = { PS3: "editLabelPS3", PS4: "editLabelPS4", PS5: "editLabelPS5" };
+  const checks = { SWITCH: "editSWITCH", PS4: "editPS4", PS5: "editPS5" };
+  const labels = { SWITCH: "editLabelSWITCH", PS4: "editLabelPS4", PS5: "editLabelPS5" };
   const colors = {
-    PS3: { checked: "linear-gradient(135deg,#ff6b6b,#ff3b3b)", text: "#000", shadow: "rgba(255,107,107,0.5)" },
+    SWITCH: { checked: "linear-gradient(135deg,#ff6b6b,#ff3b3b)", text: "#000", shadow: "rgba(255,107,107,0.5)" },
     PS4: { checked: "linear-gradient(135deg,#4da6ff,#1e90ff)", text: "#000", shadow: "rgba(77,166,255,0.5)" },
     PS5: { checked: "linear-gradient(135deg,#b26bff,#8a2be2)",  text: "#000", shadow: "rgba(178,107,255,0.5)" },
   };
 
-  ["PS3","PS4","PS5"].forEach(ps => {
+  ["SWITCH","PS4","PS5"].forEach(ps => {
     const chk = document.getElementById(checks[ps]);
     const lbl = document.getElementById(labels[ps]);
     chk.checked = currentConsoles.includes(ps);
@@ -243,8 +305,8 @@ function openEditGame(id, title, currentConsoles) {
 }
 
 function applyCheckStyle(ps, lbl, checked, color) {
-  const borderColors = { PS3: "rgba(255,107,107,0.5)", PS4: "rgba(77,166,255,0.5)", PS5: "rgba(178,107,255,0.5)" };
-  const textColors   = { PS3: "#ff6b6b", PS4: "#4da6ff", PS5: "#b26bff" };
+  const borderColors = { SWITCH: "rgba(255,107,107,0.5)", PS4: "rgba(77,166,255,0.5)", PS5: "rgba(178,107,255,0.5)" };
+  const textColors   = { SWITCH: "#ff6b6b", PS4: "#4da6ff", PS5: "#b26bff" };
   if (checked) {
     lbl.style.background  = color.checked;
     lbl.style.color       = color.text;
@@ -264,7 +326,7 @@ function closeEditGame() {
 
 document.getElementById("saveEditGame")?.addEventListener("click", () => {
   const id = document.getElementById("editGameId").value;
-  const consoles = ["PS3","PS4","PS5"].filter(ps =>
+  const consoles = ["SWITCH","PS4","PS5"].filter(ps =>
     document.getElementById("edit" + ps).checked
   );
 
@@ -305,9 +367,40 @@ const offlinePanel = document.getElementById("offlinePanel");
 const walkinForm   = document.getElementById("walkinForm");
 const reserveForm  = document.getElementById("reserveForm");
 const roomOptions  = JSON.parse(offlinePanel?.dataset.rooms || "[]");
-const minPrices    = JSON.parse(offlinePanel?.dataset.prices || "{}");
+// Info per kelas ruangan: tarif termurah, tambahan weekend, tambahan Nintendo (0 = tidak ada)
+const classPrices  = JSON.parse(offlinePanel?.dataset.classes || "{}");
 
 const rupiah = (n) => "Rp " + Number(n).toLocaleString("id-ID");
+
+// Estimasi harga, rumus sama dengan bookingPrice() di booking_lib.php
+const PRICING = (() => {
+  try { return JSON.parse(document.body.dataset.pricing || "{}"); } catch (e) { return {}; }
+})();
+const isWeekendTs = (ts) => [0, 6].includes(new Date((ts + 7 * 3600) * 1000).getUTCDay());
+function estimatePrice(room, hours, startTs, withNintendo, isStudent) {
+  const rate = room.price + (withNintendo && room.nintendoExtra ? room.nintendoExtra : 0);
+  const student = PRICING.student?.[rate];
+  if (isStudent && student && !isWeekendTs(startTs)) {
+    return Math.floor(hours / 3) * student[1] + (hours % 3) * student[0];
+  }
+  const pkg = PRICING.packages?.[rate];
+  let total = pkg ? (hours <= 5 ? pkg[hours - 1] : pkg[4] + (hours - 5) * rate) : rate * hours;
+  if (isWeekendTs(startTs)) total += room.weekendExtra * hours;
+  return total;
+}
+// Pilihan Nintendo hanya tampil untuk ruangan yang menyediakannya
+function syncNintendoOpt(form, room) {
+  const opt = form.querySelector("[data-nintendo]");
+  if (!opt) return;
+  opt.hidden = !room?.nintendoExtra;
+  if (opt.hidden) opt.querySelector("input").checked = false;
+}
+
+// Pasang/lepas harga Paket Pelajar (kasir sudah cek kartu pelajar)
+function toggleStudent(id, isStudent) {
+  adminAction({ action: "toggle_student", id },
+    isStudent ? "Kembalikan ke harga biasa?" : "Pakai harga pelajar? Pastikan konsumen menunjukkan kartu pelajar.");
+}
 
 // due = sisa yang harus dibayar (total dikurangi yang sudah diterima sebelumnya)
 function markPaid(id, name, due) {
@@ -353,20 +446,30 @@ function updateWalkinEstimate() {
   const roomId = Number(walkinForm.elements.room_id.value);
   const dur = Number(walkinForm.elements.duration.value) || 0;
   const room = roomOptions.find((o) => o.id === roomId);
-  const price = room ? room.price : minPrices[walkinForm.elements.console_type.value];
-  out.textContent = price ? (room ? "" : "mulai ") + rupiah(price * dur) : "Tidak ada ruangan aktif";
+  const f = walkinForm.elements;
+  // Ruangan Otomatis: Nintendo & estimasi mengikuti kelas (tarif termurah di kelas itu)
+  const cls = classPrices[f.room_class.value];
+  syncNintendoOpt(walkinForm, room || cls);
+  const now = Math.floor(Date.now() / 1000);
+  if (room) {
+    out.textContent = rupiah(estimatePrice(room, dur, now, f.nintendo.checked, f.student.checked));
+  } else {
+    out.textContent = cls
+      ? "mulai " + rupiah(estimatePrice(cls, dur, now, f.nintendo.checked, f.student.checked))
+      : "Tidak ada ruangan aktif";
+  }
 }
 
 walkinForm?.addEventListener("change", (e) => {
   const f = walkinForm.elements;
-  // Pilih ruangan: konsol ikut ruangan. Ganti konsol: ruangan kembali ke Otomatis bila beda konsol.
+  // Pilih ruangan: kelas ikut ruangan. Ganti kelas: ruangan kembali ke Otomatis bila beda kelas.
   if (e.target.name === "room_id" && Number(f.room_id.value) > 0) {
     const room = roomOptions.find((o) => o.id === Number(f.room_id.value));
-    if (room) f.console_type.value = room.console;
+    if (room) f.room_class.value = room.class;
   }
-  if (e.target.name === "console_type") {
+  if (e.target.name === "room_class") {
     const room = roomOptions.find((o) => o.id === Number(f.room_id.value));
-    if (room && room.console !== f.console_type.value) f.room_id.value = "0";
+    if (room && room.class !== f.room_class.value) f.room_id.value = "0";
   }
   updateWalkinEstimate();
 });
@@ -389,7 +492,7 @@ walkinForm?.addEventListener("submit", function (e) {
       if (r.assigned) {
         alert(`Konsumen dapat ${r.room}. Sesi dimulai sekarang dan ditandai lunas.`);
       } else {
-        alert(`Belum ada ruangan ${params.console_type} yang bisa dipakai sekarang. ` +
+        alert(`Belum ada ruangan ${params.room_class} yang bisa dipakai sekarang. ` +
           `Konsumen masuk daftar tunggu nomor ${r.position}.` + (r.hint ? `\n\n${r.hint}` : ""));
       }
       location.reload();
@@ -401,10 +504,12 @@ walkinForm?.addEventListener("submit", function (e) {
 // ----- Reservasi Jam Tertentu -----
 let reserveSlots = [];
 let reserveReq = 0;
+// Jam yang dipilih lewat halaman Jadwal (?time=HH:MM), dipakai sampai admin mengubah pilihan
+let reservePrefillTime = "";
 
-// Jam operasional dari booking_lib.php (atribut <body>): buka 10:30, tutup 22:00,
+// Jam operasional dari booking_lib.php (atribut <body>): buka 10:00, tutup 22:00,
 // jam mulai reservasi kelipatan 30 menit
-const OPEN_SEC  = Number(document.body.dataset.openSec) || 37800;
+const OPEN_SEC  = Number(document.body.dataset.openSec) || 36000;
 const CLOSE_SEC = Number(document.body.dataset.closeSec) || 79200;
 const SLOT_SEC  = 1800;
 const secToHHMM = (sec) =>
@@ -439,6 +544,9 @@ function renderReserveTimes() {
     items.push({ value: hhmm, label: `${hhmm}${booked ? " — terpesan" : ""}`, disabled: booked });
   }
   fillSelect(f.time, items.length ? items : [{ value: "", label: "Jam habis", disabled: true }]);
+  // Jam dari klik slot di halaman Jadwal dipilih bila masih tersedia
+  const picked = [...f.time.options].find((o) => o.value === reservePrefillTime && !o.disabled);
+  if (picked) f.time.value = picked.value;
   renderReserveDurations();
 }
 
@@ -461,7 +569,10 @@ function updateReserveEstimate() {
   const f = reserveForm.elements;
   const room = roomOptions.find((o) => o.id === Number(f.room_id.value));
   const dur = Number(f.duration.value) || 0;
-  reserveForm.querySelector("[data-estimate]").textContent = room && dur ? rupiah(room.price * dur) : "-";
+  syncNintendoOpt(reserveForm, room);
+  const start = f.time.value ? slotTs(f.date.value, f.time.value) : 0;
+  reserveForm.querySelector("[data-estimate]").textContent = room && dur
+    ? rupiah(estimatePrice(room, dur, start, f.nintendo.checked, f.student.checked)) : "-";
 }
 
 function loadReserveSlots() {
@@ -489,7 +600,20 @@ function loadReserveSlots() {
 }
 
 if (reserveForm) {
+  // Datang dari klik slot kosong di halaman Jadwal: isi ruangan, tanggal, dan jam otomatis
+  const pre = new URLSearchParams(location.search);
+  if (pre.get("tab") === "reserveForm") {
+    showFormTab("reserveForm");
+    const f = reserveForm.elements;
+    if ([...f.room_id.options].some((o) => o.value === pre.get("room"))) f.room_id.value = pre.get("room");
+    if ([...f.date.options].some((o) => o.value === pre.get("date"))) f.date.value = pre.get("date");
+    reservePrefillTime = pre.get("time") || "";
+    // Bersihkan parameter supaya auto-refresh/reload tidak mengisi ulang form
+    history.replaceState(null, "", "?page=booking");
+    setTimeout(() => f.name.focus(), 0);
+  }
   reserveForm.addEventListener("change", (e) => {
+    if (["room_id", "date", "time"].includes(e.target.name)) reservePrefillTime = "";
     if (e.target.name === "room_id" || e.target.name === "date") loadReserveSlots();
     else if (e.target.name === "time") renderReserveDurations();
     else updateReserveEstimate();
@@ -694,7 +818,9 @@ document.addEventListener("DOMContentLoaded", () => {
         .then((res) => {
           if (res.status === "ok") {
             const imgMsg = res.image_saved === false ? "\nCatatan: gambar gagal tersimpan (cek format/ukuran file)." : "";
-            alert("Game berhasil ditambahkan!" + imgMsg);
+            // Ruangan dengan daftar game khusus tidak otomatis memuat game baru
+            alert("Game berhasil ditambahkan!" + imgMsg +
+              "\n\nTambahkan game ini ke ruangan lewat menu Room > Atur Game supaya tampil di detail ruangan.");
             location.reload();
           } else {
             alert("Gagal menambahkan game:\n" + (res.message || res.msg));
@@ -705,3 +831,134 @@ document.addEventListener("DOMContentLoaded", () => {
         .finally(() => { if (btn) btn.disabled = false; });
     });
 });
+
+// =====================
+// JADWAL RUANGAN
+// =====================
+// Modal detail booking dari grid Jadwal. Aksi memakai fungsi yang sama dengan halaman Booking.
+function openScheduleBooking(b) {
+  const modal = document.getElementById("scheduleModal");
+  if (!modal) return;
+  const set = (key, text) => { modal.querySelector(`[data-sched="${key}"]`).textContent = text; };
+  set("name", b.name);
+  set("sub", `${b.code} · ${b.tags}`);
+  set("room", b.room);
+  set("time", b.time);
+  set("phone", b.phone || "-");
+  set("total", b.total);
+  set("paid", b.paid);
+  set("status", b.status);
+
+  const actions = modal.querySelector('[data-sched="actions"]');
+  actions.innerHTML = "";
+  const addBtn = (label, cls, onClick) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = cls;
+    btn.textContent = label;
+    btn.addEventListener("click", onClick);
+    actions.appendChild(btn);
+  };
+  if (b.canCheckin) addBtn("Hadir", "btn-checkin", () => checkinBooking(b.id, b.name));
+  if (b.canPay) addBtn("Lunas", "btn-paid", () => markPaid(b.id, b.name, b.due));
+  if (b.canStudent) addBtn(b.isStudent ? "Batal Harga Pelajar" : "Harga Pelajar", "btn-ghost-sm", () => toggleStudent(b.id, b.isStudent));
+  if (b.canCancel) addBtn("Batalkan Booking", "btn-warn-sm", () => cancelBooking(b.id, b.name, b.amountPaid));
+  addBtn("Tutup", "btn-ghost-sm", () => closeEditModal("scheduleModal"));
+  openEditModal("scheduleModal");
+}
+
+// Jadwal diperbarui berkala, kecuali modal detail sedang terbuka atau ada aksi berjalan
+if (document.querySelector(".sched-grid")) {
+  setInterval(() => {
+    const modalOpen = document.getElementById("scheduleModal")?.style.display === "flex";
+    if (!adminBusy && !modalOpen) location.reload();
+  }, 30000);
+}
+
+// =====================
+// NOTIFIKASI BOOKING ONLINE BARU
+// =====================
+// Id terakhir yang sudah dilihat disimpan di browser kasir. Pertama kali dibuka langsung
+// disamakan dengan data terbaru supaya tidak muncul notifikasi untuk booking lama.
+(function initAdminNotify() {
+  const nav = document.querySelector("[data-nav]");
+  if (!nav) return; // halaman login admin
+  const store = {
+    get(key) { try { return Number(localStorage.getItem(key)) || 0; } catch (e) { return 0; } },
+    set(key, val) { try { localStorage.setItem(key, String(val)); } catch (e) {} },
+  };
+  const KEY_B = "adminSeenBooking", KEY_Q = "adminSeenQueue";
+  const KEY_NB = "adminNewBooking", KEY_NQ = "adminNewQueue";
+  const page = new URLSearchParams(location.search).get("page") || "dashboard";
+  const baseTitle = document.title;
+
+  // Membuka halaman tujuan = notifikasinya sudah dilihat
+  if (page === "jadwal") store.set(KEY_NB, 0);
+  if (page === "booking") store.set(KEY_NQ, 0);
+
+  const setBadge = (key, n) => {
+    const link = document.querySelector(`[data-nav="${key}"]`);
+    if (!link) return;
+    let badge = link.querySelector(".notify-badge");
+    if (n > 0) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "nav-badge notify-badge";
+        link.appendChild(badge);
+      }
+      badge.textContent = n;
+      badge.title = key === "jadwal" ? "Reservasi online baru" : "Antrian online baru";
+    } else if (badge) {
+      badge.remove();
+    }
+  };
+  const renderBadges = () => {
+    const nb = store.get(KEY_NB), nq = store.get(KEY_NQ);
+    setBadge("jadwal", nb);
+    setBadge("booking", nq);
+    document.title = nb + nq > 0 ? `(${nb + nq}) ${baseTitle}` : baseTitle;
+  };
+
+  const toastBox = document.createElement("div");
+  toastBox.className = "notify-stack";
+  toastBox.setAttribute("role", "status");
+  toastBox.setAttribute("aria-live", "polite");
+  document.body.appendChild(toastBox);
+  const toast = (title, text, href) => {
+    const el = document.createElement("a");
+    el.className = "notify-toast";
+    el.href = href;
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const span = document.createElement("span");
+    span.textContent = text;
+    el.append(strong, span);
+    toastBox.prepend(el);
+    setTimeout(() => el.remove(), 15000);
+  };
+
+  let first = !store.get(KEY_B) && !store.get(KEY_Q);
+  const poll = () => {
+    fetch(`admin_notify.php?after_booking=${store.get(KEY_B)}&after_queue=${store.get(KEY_Q)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((r) => {
+        if (r.status !== "ok") return;
+        if (!first) {
+          r.bookings.slice().reverse().forEach((b) =>
+            toast("Reservasi online baru", `${b.name} · ${b.room} · ${b.when}`, `?page=jadwal&d=${b.date}`));
+          r.queue.slice().reverse().forEach((q) =>
+            toast("Antrian online baru", `${q.name} · ${q.class} · ${q.hours} jam`, "?page=booking"));
+          if (r.bookings.length && page !== "jadwal") store.set(KEY_NB, store.get(KEY_NB) + r.bookings.length);
+          if (r.queue.length && page !== "booking") store.set(KEY_NQ, store.get(KEY_NQ) + r.queue.length);
+        }
+        first = false;
+        store.set(KEY_B, Math.max(store.get(KEY_B), r.max_booking_id));
+        store.set(KEY_Q, Math.max(store.get(KEY_Q), r.max_queue_id));
+        renderBadges();
+      })
+      .catch(() => {});
+  };
+  renderBadges();
+  poll();
+  setInterval(poll, 20000);
+})();

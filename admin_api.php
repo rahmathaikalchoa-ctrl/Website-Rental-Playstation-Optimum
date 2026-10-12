@@ -60,17 +60,19 @@ function offlineCustomerError($name, $phone) {
 
 // Penjelasan kenapa walk-in masuk daftar tunggu padahal ada ruangan kosong:
 // ruangan kosong sekarang tapi ada reservasi sebelum durasi yang diminta selesai.
-function walkinHint($conn, $console, $duration, $now) {
+// Antrian dengan tambahan Nintendo hanya melihat ruangan yang menyediakan Nintendo.
+function walkinHint($conn, $class, $duration, $now, $withNintendo = false) {
   $stmt = $conn->prepare("
     SELECT r.title,
       (SELECT MIN(b.start_time) FROM bookings b
         WHERE b.room_id = r.id AND b.payment_status <> 'cancelled' AND b.start_time > ?) AS next_start
     FROM rooms r
-    WHERE r.console_type = ? AND r.status = 'available'
+    WHERE " . ROOM_CLASS_SQL . " = ? AND r.status = 'available'
+      " . ($withNintendo ? "AND r.nintendo_extra IS NOT NULL" : "") . "
       AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.room_id = r.id AND b.payment_status <> 'cancelled'
                       AND b.start_time <= ? AND b.end_time > ?)
   ");
-  $stmt->bind_param("isii", $now, $console, $now, $now);
+  $stmt->bind_param("isii", $now, $class, $now, $now);
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
   $stmt->close();
@@ -131,6 +133,53 @@ if ($action === 'mark_paid') {
   exit;
 }
 
+// ================= HARGA PELAJAR (kasir cek kartu pelajar) =================
+// Pasang/lepas harga Paket Pelajar. Hanya sebelum ada pembayaran, supaya uang yang sudah
+// diterima tidak perlu dikembalikan sebagian.
+if ($action === 'toggle_student') {
+  $id = intval($_POST['id'] ?? 0);
+  try {
+    $conn->begin_transaction();
+    $stmt = $conn->prepare("
+      SELECT b.duration, b.start_time, b.with_nintendo, b.is_student, b.amount_paid,
+             r.price, r.weekend_extra, r.nintendo_extra
+      FROM bookings b JOIN rooms r ON r.id = b.room_id
+      WHERE b.id = ? AND b.payment_status <> 'cancelled' FOR UPDATE
+    ");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $b = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $error = null;
+    if (!$b) {
+      $error = "Booking tidak ditemukan atau sudah dibatalkan";
+    } elseif (intval($b['amount_paid']) > 0) {
+      $error = "Booking ini sudah ada pembayaran. Harga pelajar dipilih sebelum konsumen membayar.";
+    } elseif (!$b['is_student'] && !studentEligible($b, (bool) $b['with_nintendo'], intval($b['start_time']))) {
+      $error = "Harga pelajar hanya untuk hari Senin-Jumat dan ruangan yang ada di Paket Pelajar";
+    }
+    if ($error) {
+      $conn->rollback();
+      echo json_encode(["status" => "error", "message" => $error]);
+      exit;
+    }
+    $student = $b['is_student'] ? 0 : 1;
+    $total = bookingPrice($b, intval($b['duration']), intval($b['start_time']), (bool) $b['with_nintendo'], (bool) $student);
+    $stmt = $conn->prepare("UPDATE bookings SET is_student = ?, total_price = ? WHERE id = ?");
+    $stmt->bind_param("iii", $student, $total, $id);
+    $stmt->execute();
+    $stmt->close();
+    $conn->commit();
+  } catch (\Throwable $e) {
+    $conn->rollback();
+    error_log("toggle_student failed: " . $e->getMessage());
+    echo json_encode(["status" => "error", "message" => "Gagal mengubah harga"]);
+    exit;
+  }
+  echo json_encode(["status" => "ok", "is_student" => (bool) $student, "total_price" => $total]);
+  exit;
+}
+
 // ================= RESERVASI JAM TERTENTU UNTUK KONSUMEN OFFLINE =================
 if ($action === 'admin_reserve') {
   $name  = trim($_POST['name'] ?? '');
@@ -151,6 +200,8 @@ if ($action === 'admin_reserve') {
     'customer_name'  => $name,
     'phone'          => $phone,
     'user_id'        => null,
+    'with_nintendo'  => !empty($_POST['nintendo']),
+    'is_student'     => !empty($_POST['student']),
     'source'         => 'walkin',
     'payment_status' => 'unpaid',
     'expires_at'     => $slot['start'] + BOOKING_CHECKIN_SEC,
@@ -220,7 +271,7 @@ if ($action === 'checkin_booking') {
 if ($action === 'walkin_join') {
   $name     = trim($_POST['name'] ?? '');
   $phone    = trim($_POST['phone'] ?? '');
-  $console  = $_POST['console_type'] ?? '';
+  $class    = $_POST['room_class'] ?? '';
   $duration = intval($_POST['duration'] ?? 0);
   $roomId   = intval($_POST['room_id'] ?? 0);
 
@@ -232,13 +283,14 @@ if ($action === 'walkin_join') {
     echo json_encode(["status" => "error", "message" => "Durasi harus 1-" . BOOKING_MAX_DURATION . " jam"]);
     exit;
   }
+
   $now = time();
   if ($now < openTs($now)) {
-    echo json_encode(["status" => "error", "message" => "Belum jam buka. Layanan mulai jam 10:30"]);
+    echo json_encode(["status" => "error", "message" => "Belum jam buka. Layanan mulai jam " . secToHHMM(BOOKING_OPEN_SEC)]);
     exit;
   }
   if ($now + $duration * 3600 > closeTs($now)) {
-    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (22:00)"]);
+    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (" . secToHHMM(BOOKING_CLOSE_SEC) . ")"]);
     exit;
   }
 
@@ -247,8 +299,8 @@ if ($action === 'walkin_join') {
     // Bersihkan antrian basi dulu supaya tidak salah dihitung sebagai "masih menunggu"
     processQueue($conn);
     $stmt = $conn->prepare("
-      SELECT r.console_type,
-        (SELECT COUNT(*) FROM booking_queue q WHERE q.status = 'waiting' AND q.console_type = r.console_type) AS waiting
+      SELECT " . ROOM_CLASS_SQL . " AS room_class,
+        (SELECT COUNT(*) FROM booking_queue q WHERE q.status = 'waiting' AND q.room_class = " . ROOM_CLASS_SQL . ") AS waiting
       FROM rooms r WHERE r.id = ?
     ");
     $stmt->bind_param("i", $roomId);
@@ -261,7 +313,7 @@ if ($action === 'walkin_join') {
     }
     // Jaga keadilan urutan: kalau ada yang menunggu konsol ini, jangan disalip
     if (intval($info['waiting']) > 0) {
-      echo json_encode(["status" => "error", "message" => "Masih ada {$info['waiting']} konsumen menunggu {$info['console_type']}. Pilih ruangan \"Otomatis\" agar sesuai urutan."]);
+      echo json_encode(["status" => "error", "message" => "Masih ada {$info['waiting']} konsumen menunggu {$info['room_class']}. Pilih ruangan \"Otomatis\" agar sesuai urutan."]);
       exit;
     }
     $res = createBooking($conn, [
@@ -271,6 +323,8 @@ if ($action === 'walkin_join') {
       'customer_name'  => $name,
       'phone'          => $phone,
       'user_id'        => null,
+      'with_nintendo'  => !empty($_POST['nintendo']),
+      'is_student'     => !empty($_POST['student']),
       'source'         => 'walkin',
       'payment_status' => 'paid',
       'expires_at'     => null,
@@ -281,14 +335,16 @@ if ($action === 'walkin_join') {
     exit;
   }
 
-  if (!in_array($console, QUEUE_CONSOLES, true)) {
-    echo json_encode(["status" => "error", "message" => "Pilih konsol terlebih dahulu"]);
+  $withN   = !empty($_POST['nintendo']) ? 1 : 0;
+  $student = !empty($_POST['student']) ? 1 : 0;
+  if ($err = queueOptionError($conn, $class, $withN, $student)) {
+    echo json_encode(["status" => "error", "message" => $err]);
     exit;
   }
 
   $phoneVal = $phone === '' ? null : $phone;
-  $stmt = $conn->prepare("INSERT INTO booking_queue (source, customer_name, phone, console_type, duration) VALUES ('walkin', ?, ?, ?, ?)");
-  $stmt->bind_param("sssi", $name, $phoneVal, $console, $duration);
+  $stmt = $conn->prepare("INSERT INTO booking_queue (source, customer_name, phone, room_class, duration, with_nintendo, is_student) VALUES ('walkin', ?, ?, ?, ?, ?, ?)");
+  $stmt->bind_param("sssiii", $name, $phoneVal, $class, $duration, $withN, $student);
   $stmt->execute();
   $queueId = $stmt->insert_id;
   $stmt->close();
@@ -316,7 +372,7 @@ if ($action === 'walkin_join') {
       "status"   => "ok",
       "assigned" => false,
       "position" => queuePosition($conn, $entry),
-      "hint"     => walkinHint($conn, $console, $duration, $now),
+      "hint"     => walkinHint($conn, $class, $duration, $now, (bool) $withN),
     ]);
   }
   exit;
@@ -384,24 +440,49 @@ if ($action === 'release_noshow') {
   exit;
 }
 
+// Baca & validasi isian form ruangan (tambah/edit). Return [data, pesan error].
+const ROOM_CATEGORIES = ['private', 'private_pro', 'public'];
+const ROOM_TIERS      = ['VVIP', 'VIP', 'Public'];
+function roomInput() {
+  $nExtra = trim($_POST['nintendo_extra'] ?? '');
+  $d = [
+    'title'          => trim($_POST['title'] ?? ''),
+    'category'       => $_POST['category'] ?? '',
+    'tier'           => $_POST['tier'] ?? '',
+    'console_type'   => $_POST['console'] ?? '',
+    'console_model'  => trim($_POST['console_model'] ?? ''),
+    'price'          => intval($_POST['price'] ?? 0),
+    'weekend_extra'  => intval($_POST['weekend_extra'] ?? 0),
+    'nintendo_extra' => $nExtra === '' ? null : intval($nExtra),
+    'max_players'    => intval($_POST['max_players'] ?? 2),
+    'has_netflix'    => !empty($_POST['has_netflix']) ? 1 : 0,
+    'description'    => trim($_POST['description'] ?? ''),
+  ];
+  if ($d['title'] === '' || mb_strlen($d['title']) > 100) return [null, "Nama ruangan wajib diisi (maks 100 karakter)"];
+  if (!in_array($d['category'], ROOM_CATEGORIES, true) || !in_array($d['tier'], ROOM_TIERS, true)) return [null, "Kategori atau kelas ruangan tidak valid"];
+  // Kelas "Public" hanya untuk kategori public (dan sebaliknya) supaya kelas antrian tetap rapi
+  if (($d['category'] === 'public') !== ($d['tier'] === 'Public')) return [null, "Kategori Public harus memakai kelas Public, kategori Private memakai VIP/VVIP"];
+  if (!in_array($d['console_type'], CONSOLE_TYPES, true)) return [null, "Jenis konsol tidak valid"];
+  if ($d['console_model'] === '' || mb_strlen($d['console_model']) > 30) return [null, "Model konsol wajib diisi (maks 30 karakter)"];
+  if ($d['price'] <= 0 || $d['weekend_extra'] < 0 || ($d['nintendo_extra'] !== null && $d['nintendo_extra'] <= 0)) return [null, "Harga tidak valid"];
+  if ($d['max_players'] < 1 || $d['max_players'] > 8) return [null, "Maksimal pemain harus 1-8"];
+  if (mb_strlen($d['description']) > 255) return [null, "Keterangan maksimal 255 karakter"];
+  return [$d, null];
+}
+
 // ================= ADD ROOM =================
 if ($action === 'add_room') {
-  $title       = trim($_POST['title'] ?? '');
-  $console     = trim($_POST['console'] ?? '');
-  $price       = intval($_POST['price'] ?? 0);
-  $description = trim($_POST['description'] ?? '');
-
-  if ($title === '' || mb_strlen($title) > 100 || mb_strlen($description) > 255
-      || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
-    echo json_encode(["status" => "error", "message" => "Data room tidak lengkap atau tidak valid (nama maks 100, keterangan maks 255 karakter)"]);
+  [$d, $err] = roomInput();
+  if ($err) {
+    echo json_encode(["status" => "error", "message" => $err]);
     exit;
   }
-
   $stmt = $conn->prepare("
-    INSERT INTO rooms (title, console_type, price, description, status)
-    VALUES (?, ?, ?, ?, 'available')
+    INSERT INTO rooms (title, category, tier, console_type, console_model, price, weekend_extra, nintendo_extra, max_players, has_netflix, description, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')
   ");
-  $stmt->bind_param("ssis", $title, $console, $price, $description);
+  $stmt->bind_param("sssssiiiiis", $d['title'], $d['category'], $d['tier'], $d['console_type'], $d['console_model'],
+    $d['price'], $d['weekend_extra'], $d['nintendo_extra'], $d['max_players'], $d['has_netflix'], $d['description']);
   $stmt->execute();
   $stmt->close();
 
@@ -412,20 +493,75 @@ if ($action === 'add_room') {
 // ================= EDIT ROOM =================
 // Harga baru hanya berlaku untuk booking baru (total_price booking lama sudah tersimpan)
 if ($action === 'update_room') {
-  $id          = intval($_POST['id'] ?? 0);
-  $title       = trim($_POST['title'] ?? '');
-  $console     = trim($_POST['console'] ?? '');
-  $price       = intval($_POST['price'] ?? 0);
-  $description = trim($_POST['description'] ?? '');
-
-  if ($id <= 0 || $title === '' || mb_strlen($title) > 100 || mb_strlen($description) > 255 || !in_array($console, QUEUE_CONSOLES, true) || $price <= 0) {
-    echo json_encode(["status" => "error", "message" => "Data room tidak lengkap atau tidak valid"]);
+  $id = intval($_POST['id'] ?? 0);
+  [$d, $err] = roomInput();
+  if ($id <= 0 || $err) {
+    echo json_encode(["status" => "error", "message" => $err ?? "Ruangan tidak valid"]);
     exit;
   }
-  $stmt = $conn->prepare("UPDATE rooms SET title = ?, console_type = ?, price = ?, description = ? WHERE id = ?");
-  $stmt->bind_param("ssisi", $title, $console, $price, $description, $id);
+  $stmt = $conn->prepare("
+    UPDATE rooms SET title = ?, category = ?, tier = ?, console_type = ?, console_model = ?, price = ?,
+      weekend_extra = ?, nintendo_extra = ?, max_players = ?, has_netflix = ?, description = ?
+    WHERE id = ?
+  ");
+  $stmt->bind_param("sssssiiiiisi", $d['title'], $d['category'], $d['tier'], $d['console_type'], $d['console_model'],
+    $d['price'], $d['weekend_extra'], $d['nintendo_extra'], $d['max_players'], $d['has_netflix'], $d['description'], $id);
   $stmt->execute();
   $stmt->close();
+
+  // Konsol ruangan diganti: buang game di daftar ruangan yang tidak bisa dimainkan di konsol baru
+  $stmt = $conn->prepare("
+    DELETE rg FROM room_games rg
+    WHERE rg.room_id = ?
+      AND NOT EXISTS (SELECT 1 FROM game_consoles gc WHERE gc.game_id = rg.game_id AND gc.console_type = ?)
+  ");
+  $stmt->bind_param("is", $id, $d['console_type']);
+  $stmt->execute();
+  $stmt->close();
+  echo json_encode(["status" => "ok"]);
+  exit;
+}
+
+// ================= GAME PER RUANGAN =================
+// Daftar kosong = ruangan memakai semua game untuk konsolnya (lihat rooms_api.php)
+if ($action === 'update_room_games') {
+  $id = intval($_POST['id'] ?? 0);
+  $gameIds = array_values(array_unique(array_map('intval', (array) ($_POST['game_ids'] ?? []))));
+
+  $stmt = $conn->prepare("SELECT console_type FROM rooms WHERE id = ?");
+  $stmt->bind_param("i", $id);
+  $stmt->execute();
+  $room = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$room) {
+    echo json_encode(["status" => "error", "message" => "Ruangan tidak ditemukan"]);
+    exit;
+  }
+
+  $conn->begin_transaction();
+  try {
+    $del = $conn->prepare("DELETE FROM room_games WHERE room_id = ?");
+    $del->bind_param("i", $id);
+    $del->execute();
+    $del->close();
+
+    // Hanya game yang bisa dimainkan di konsol ruangan ini yang disimpan
+    $ins = $conn->prepare("
+      INSERT INTO room_games (room_id, game_id)
+      SELECT ?, gc.game_id FROM game_consoles gc WHERE gc.game_id = ? AND gc.console_type = ?
+    ");
+    foreach ($gameIds as $gid) {
+      $ins->bind_param("iis", $id, $gid, $room['console_type']);
+      $ins->execute();
+    }
+    $ins->close();
+    $conn->commit();
+  } catch (Throwable $e) {
+    $conn->rollback();
+    error_log("Update room games failed: " . $e->getMessage());
+    echo json_encode(["status" => "error", "message" => "Gagal menyimpan daftar game"]);
+    exit;
+  }
   echo json_encode(["status" => "ok"]);
   exit;
 }
@@ -445,6 +581,35 @@ if ($action === 'toggle_room') {
 }
 
 // ================= TOGGLE ROLE =================
+// ================= RESET PASSWORD AKUN =================
+// Untuk konsumen yang lupa password lama (Lupa Password di website butuh password lama).
+// Password sementara ditampilkan sekali ke admin; sesi lama akun itu otomatis keluar
+// karena sidik password berubah (lihat passwordSig di db.php).
+if ($action === 'reset_password') {
+  $id = intval($_POST['id'] ?? 0);
+  if ($id === intval($_SESSION['admin_id'])) {
+    echo json_encode(["status" => "error", "message" => "Ganti password akun sendiri lewat menu Lupa Password"]);
+    exit;
+  }
+  // Tanpa karakter yang mirip (0/O, 1/l/I) supaya mudah didiktekan ke konsumen
+  $chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  $temp = '';
+  for ($i = 0; $i < 8; $i++) $temp .= $chars[random_int(0, strlen($chars) - 1)];
+  $hash = password_hash($temp, PASSWORD_DEFAULT);
+
+  $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+  $stmt->bind_param("si", $hash, $id);
+  $stmt->execute();
+  $ok = $stmt->affected_rows > 0;
+  $stmt->close();
+  if (!$ok) {
+    echo json_encode(["status" => "error", "message" => "Akun tidak ditemukan"]);
+    exit;
+  }
+  echo json_encode(["status" => "ok", "temp_password" => $temp]);
+  exit;
+}
+
 if ($action === 'toggle_role') {
   $id = intval($_POST['id'] ?? 0);
   if ($id === intval($_SESSION['admin_id'])) {
@@ -484,7 +649,7 @@ if ($action === 'add_game') {
   $title   = trim($_POST['title'] ?? '');
   $genre   = trim($_POST['genre'] ?? '');
   $consoles = array_filter((array) ($_POST["consoles"] ?? []), function($c) {
-    return in_array($c, QUEUE_CONSOLES, true);
+    return in_array($c, CONSOLE_TYPES, true);
   });
 
   if ($title === '' || $genre === '' || empty($consoles)) {
@@ -554,7 +719,7 @@ if ($action === 'delete_game') {
 // ================= UPDATE GAME CONSOLES =================
 if ($action === 'update_game_consoles') {
     $id = intval($_POST['id'] ?? 0);
-    $consoles = array_filter((array) ($_POST["consoles"] ?? []), fn($c) => in_array($c, QUEUE_CONSOLES, true));
+    $consoles = array_filter((array) ($_POST["consoles"] ?? []), fn($c) => in_array($c, CONSOLE_TYPES, true));
 
     if ($id <= 0 || empty($consoles)) {
         echo json_encode(["status" => "error", "message" => "Data tidak valid"]);
@@ -575,6 +740,16 @@ if ($action === 'update_game_consoles') {
         }
         $ins->close();
 
+        // Konsol dicabut: game ini keluar dari daftar ruangan yang konsolnya tidak lagi didukung
+        $clean = $conn->prepare("
+          DELETE rg FROM room_games rg JOIN rooms r ON r.id = rg.room_id
+          WHERE rg.game_id = ?
+            AND NOT EXISTS (SELECT 1 FROM game_consoles gc WHERE gc.game_id = rg.game_id AND gc.console_type = r.console_type)
+        ");
+        $clean->bind_param("i", $id);
+        $clean->execute();
+        $clean->close();
+
         $conn->commit();
         echo json_encode(["status" => "ok"]);
     } catch (Throwable $e) {
@@ -588,11 +763,26 @@ if ($action === 'update_game_consoles') {
 // ================= MARK ORDER DONE =================
 if ($action === 'mark_order_done') {
     $id = intval($_POST['id'] ?? 0);
-    $stmt = $conn->prepare("UPDATE menu_orders SET status = 'selesai' WHERE id = ?");
+    // Pesanan yang sudah dibatalkan tidak boleh berubah jadi "selesai"
+    $stmt = $conn->prepare("UPDATE menu_orders SET status = 'selesai' WHERE id = ? AND status = 'pending'");
     $stmt->bind_param("i", $id);
     $stmt->execute();
+    $ok = $stmt->affected_rows > 0;
     $stmt->close();
-    echo json_encode(["status" => "ok"]);
+    echo json_encode($ok ? ["status" => "ok"] : ["status" => "error", "message" => "Pesanan sudah selesai atau dibatalkan"]);
+    exit;
+}
+
+// ================= BATALKAN PESANAN MENU =================
+// Mis. stok habis atau konsumen salah pesan. Hanya pesanan yang belum diantar.
+if ($action === 'cancel_menu_order') {
+    $id = intval($_POST['id'] ?? 0);
+    $stmt = $conn->prepare("UPDATE menu_orders SET status = 'batal' WHERE id = ? AND status = 'pending'");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $ok = $stmt->affected_rows > 0;
+    $stmt->close();
+    echo json_encode($ok ? ["status" => "ok"] : ["status" => "error", "message" => "Pesanan sudah selesai atau sudah dibatalkan"]);
     exit;
 }
 
@@ -604,7 +794,7 @@ if ($action === 'add_menu_item') {
     $description = trim($_POST['description'] ?? '');
 
     if ($name === '' || mb_strlen($name) > 100 || mb_strlen($description) > 255
-        || !in_array($category, ['makanan', 'minuman'], true) || $price <= 0) {
+        || !in_array($category, ['makanan', 'snack', 'minuman'], true) || $price <= 0) {
         echo json_encode(["status" => "error", "message" => "Data tidak lengkap atau tidak valid (nama maks 100, deskripsi maks 255 karakter)"]);
         exit;
     }
@@ -650,7 +840,7 @@ if ($action === 'update_menu_item') {
     $price       = intval($_POST['price'] ?? 0);
     $description = trim($_POST['description'] ?? '');
 
-    if ($id <= 0 || $name === '' || mb_strlen($name) > 100 || mb_strlen($description) > 255 || !in_array($category, ['makanan', 'minuman'], true) || $price <= 0) {
+    if ($id <= 0 || $name === '' || mb_strlen($name) > 100 || mb_strlen($description) > 255 || !in_array($category, ['makanan', 'snack', 'minuman'], true) || $price <= 0) {
         echo json_encode(["status" => "error", "message" => "Data menu tidak lengkap atau tidak valid"]);
         exit;
     }

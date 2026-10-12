@@ -4,12 +4,30 @@ session_start();
 require __DIR__ . '/icons.php';
 require __DIR__ . '/db.php';
 require __DIR__ . '/site_info.php';
-require_once __DIR__ . '/booking_lib.php';
+require_once __DIR__ . '/queue_lib.php';
 
-// Harga termurah per konsol dari ruangan aktif, untuk kartu "Info Singkat" di Beranda
+// Harga termurah per kategori dari ruangan aktif, untuk kartu "Info Singkat" di Beranda
+const CATEGORY_LABELS = ['public' => 'Public', 'private' => 'Private', 'private_pro' => 'Private Pro'];
 $priceFrom = [];
-$res = $conn->query("SELECT console_type, MIN(price) AS p FROM rooms WHERE status = 'available' GROUP BY console_type ORDER BY console_type");
-while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($row['p']);
+$res = $conn->query("SELECT category, MIN(price) AS p FROM rooms WHERE status = 'available' GROUP BY category ORDER BY p");
+while ($row = $res->fetch_assoc()) $priceFrom[CATEGORY_LABELS[$row['category']]] = intval($row['p']);
+$queueClasses = roomClasses($conn);
+
+// Teks info diambil dari data ruangan supaya tetap benar bila admin mengubah ruangan
+$fmtRp = fn($n) => 'Rp' . number_format($n, 0, ',', '.');
+// Tambahan weekend dikelompokkan per nominal, mis. "+Rp3.000 (Public) / +Rp5.000 (Private, Private Pro)"
+$weekendBy = [];
+$res = $conn->query("SELECT DISTINCT category, weekend_extra AS w FROM rooms WHERE status = 'available' AND weekend_extra > 0 ORDER BY w, category");
+while ($row = $res->fetch_assoc()) $weekendBy[intval($row['w'])][] = CATEGORY_LABELS[$row['category']];
+$weekendInfo = [];
+foreach ($weekendBy as $w => $cats) $weekendInfo[] = '+' . $fmtRp($w) . ' (' . implode(', ', array_unique($cats)) . ')';
+$listTitles = function ($where) use ($conn) {
+  $titles = array_column($conn->query("SELECT title FROM rooms WHERE status = 'available' AND $where ORDER BY id")->fetch_all(MYSQLI_ASSOC), 'title');
+  return count($titles) > 1 ? implode(', ', array_slice($titles, 0, -1)) . ' dan ' . end($titles) : ($titles[0] ?? '');
+};
+$switchRooms = $listTitles("console_type = 'SWITCH'");
+$addonRooms  = $listTitles("nintendo_extra IS NOT NULL");
+$nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switchRooms && $addonRooms ? ', atau sebagai tambahan di ' : ($addonRooms ? 'Bisa ditambahkan di ' : '')) . $addonRooms) . '.';
 ?>
 
 <!DOCTYPE html>
@@ -22,7 +40,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
     <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__ . '/style.css') ?>">
   </head>
 
-  <body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>">
+  <body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>" data-pricing="<?= htmlspecialchars(pricingJson()) ?>">
     <header class="site-header">
       <div class="header-inner">
         <!-- left: brand -->
@@ -80,8 +98,8 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
           <div>
             <h1>Optimum Playzone — Rental PlayStation</h1>
             <p class="muted">
-              Ruangan PS3, PS4, dan PS5 yang nyaman dengan kursi gaming dan koleksi game lengkap.
-              Booking jam tertentu atau ambil antrian untuk main sekarang.
+              Ruangan Private dan Private Pro dengan PS5, PS5 Pro, Nintendo Switch, dan Netflix,
+              plus meja Public PS4 dan PS5. Booking jam tertentu atau ambil antrian untuk main sekarang.
             </p>
             <div style="display: flex; gap: 12px; margin-top: 12px">
               <button class="btn" data-view="consoles">Lihat Ruangan</button>
@@ -99,11 +117,13 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                 <span><strong>Harga mulai</strong>
                   <?php if ($priceFrom): ?>
                     <?php foreach ($priceFrom as $c => $p): ?>
-                      <?= htmlspecialchars($c) ?> Rp<?= number_format($p, 0, ',', '.') ?>/jam<br>
+                      <?= htmlspecialchars($c) ?>: Rp<?= number_format($p, 0, ',', '.') ?>/jam<br>
                     <?php endforeach; ?>
                   <?php else: ?>Belum ada ruangan aktif<?php endif; ?>
                 </span>
               </li>
+              <li><?= icon('check') ?> <span><strong>Paket hemat</strong>Harga paket otomatis untuk 1-5 jam.<?php if ($weekendInfo): ?> Sabtu-Minggu <?= htmlspecialchars(implode(' / ', $weekendInfo)) ?> per jam.<?php endif; ?></span></li>
+              <li><?= icon('user') ?> <span><strong>Paket Pelajar</strong>Senin-Jumat, tunjukkan kartu pelajar ke kasir.</span></li>
               <li><?= icon('clipboard') ?> <span><strong>Pembayaran</strong>Bayar di kasir saat datang</span></li>
             </ul>
             <a class="btn-ghost info-wa" href="<?= htmlspecialchars(siteWaLink()) ?>" target="_blank" rel="noopener">Tanya via WhatsApp</a>
@@ -180,6 +200,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
             <div><strong>Mau main sekarang?</strong> Ambil antrian di bawah, ruangan diberikan sesuai urutan.</div>
             <div><strong>Mau main di jam tertentu?</strong> Isi form Reservasi Jam Tertentu.</div>
             <div>Pembayaran di kasir saat datang. Lapor ke kasir paling lambat 15 menit setelah jam mulai, lewat dari itu booking batal otomatis.</div>
+            <div>Pelajar? Harga Paket Pelajar (Senin-Jumat) dipasang kasir setelah kamu menunjukkan kartu pelajar.</div>
           </div>
 
           <!-- ANTRIAN MAIN SEKARANG -->
@@ -191,11 +212,11 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
             </p>
             <div id="queueJoinBox" class="brow">
               <div class="bfield">
-                <label for="queueConsole">Konsol</label>
-                <select id="queueConsole">
-                  <option value="PS3">PS3</option>
-                  <option value="PS4">PS4</option>
-                  <option value="PS5">PS5</option>
+                <label for="queueClass">Kelas Ruangan</label>
+                <select id="queueClass">
+                  <?php foreach ($queueClasses as $qc): ?>
+                    <option value="<?= htmlspecialchars($qc['room_class']) ?>" data-price="<?= intval($qc['price']) ?>" data-nintendo="<?= $qc['nintendo_extra'] !== null ? intval($qc['nintendo_extra']) : '' ?>"><?= htmlspecialchars($qc['room_class']) ?> · mulai Rp<?= number_format($qc['price'], 0, ',', '.') ?>/jam</option>
+                  <?php endforeach; ?>
                 </select>
               </div>
               <div class="bfield">
@@ -206,6 +227,10 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                 <button type="button" class="btn" id="queueJoinBtn">Ambil Antrian</button>
               </div>
             </div>
+            <label class="bcheck" id="queueNintendoField" style="display:none">
+              <input type="checkbox" id="queueNintendo">
+              <span>Tambah Nintendo Switch <strong id="queueNintendoExtra"></strong></span>
+            </label>
             <div id="queueStatusBox" style="display:none">
               <p id="queueStatusText" style="margin-bottom:10px"></p>
               <button type="button" class="btn-ghost" id="queueCancelBtn">Batalkan Antrian</button>
@@ -270,6 +295,10 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                       <select id="duration" required></select>
                     </div>
                   </div>
+                  <label class="bcheck" id="nintendoField" style="display:none">
+                    <input type="checkbox" id="withNintendo">
+                    <span>Tambah Nintendo Switch <strong id="nintendoExtra"></strong></span>
+                  </label>
                 </div>
 
                 <div class="form-actions">
@@ -297,7 +326,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
       <section id="view-fasilitas" class="view" style="display: none">
         <div class="container">
           <h1 style="color: var(--neon)">Fasilitas</h1>
-          <p class="muted">Fasilitas yang tersedia di setiap ruangan.</p>
+          <p class="muted">Fasilitas di ruangan Private dan Private Pro. Meja Public memakai PS4/PS5 tanpa Netflix.</p>
           <div class="facility-grid">
             <?php
               $facilities = [
@@ -306,6 +335,8 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                 ['speaker', 'Speaker',      'Audio jernih dan detail sehingga suasana game terasa lebih hidup.'],
                 ['light',   'Meja LED',     'Meja gaming dengan pencahayaan LED yang membuat suasana bermain lebih seru.'],
                 ['snow',    'AC',           'Ruangan berpendingin agar tetap sejuk dan fokus selama bermain.'],
+                ['tv',      'Netflix',      'Semua ruangan Private dan Private Pro sudah termasuk Netflix.'],
+                ['gamepad', 'Nintendo Switch', $nintendoInfo],
                 ['clipboard', 'Pesan Makanan', 'Makanan dan minuman bisa dipesan dari website dan diantar ke ruanganmu.'],
               ];
             ?>
@@ -314,7 +345,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
                 <span class="facility-icon"><?= icon($ic) ?></span>
                 <div>
                   <h3><?= $title ?></h3>
-                  <p class="muted small"><?= $desc ?></p>
+                  <p class="muted small"><?= htmlspecialchars($desc) ?></p>
                 </div>
               </div>
             <?php endforeach; ?>
@@ -381,7 +412,7 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
       <div class="footer-inner">
         <div>
           <strong class="footer-brand"><?= htmlspecialchars(SITE_NAME) ?></strong>
-          <p class="muted small">Rental ruangan PlayStation PS3, PS4, dan PS5.</p>
+          <p class="muted small">Rental ruangan PlayStation PS4, PS5, dan Nintendo Switch.</p>
         </div>
         <ul class="footer-list">
           <li><?= icon('clock') ?> <?= htmlspecialchars(SITE_HOURS) ?></li>
@@ -445,13 +476,13 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
 
       <label>
         Password
-        <input type="password" id="regPassword" required minlength="6" autocomplete="new-password" />
+        <input type="password" id="regPassword" maxlength="72" required minlength="6" autocomplete="new-password" />
         <small class="field-hint">Minimal 6 karakter.</small>
       </label>
 
       <label>
         Konfirmasi Password
-        <input type="password" id="regConfirm" required autocomplete="new-password" />
+        <input type="password" id="regConfirm" maxlength="72" required autocomplete="new-password" />
       </label>
 
       <div class="modal-actions">
@@ -506,11 +537,11 @@ while ($row = $res->fetch_assoc()) $priceFrom[$row['console_type']] = intval($ro
       </label>
       <label style="margin-top:8px">
         Password Baru
-        <input type="password" id="forgotNewPass" placeholder="Min. 6 karakter" required autocomplete="new-password" />
+        <input type="password" id="forgotNewPass" maxlength="72" placeholder="Min. 6 karakter" required autocomplete="new-password" />
       </label>
       <label style="margin-top:8px">
         Konfirmasi Password Baru
-        <input type="password" id="forgotConfirmPass" placeholder="Ulangi password baru" required autocomplete="new-password" />
+        <input type="password" id="forgotConfirmPass" maxlength="72" placeholder="Ulangi password baru" required autocomplete="new-password" />
       </label>
       <div class="modal-actions" style="margin-top:12px">
         <button type="button" class="btn" id="forgotResetBtn">Ganti Password</button>

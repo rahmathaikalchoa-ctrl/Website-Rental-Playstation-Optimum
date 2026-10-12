@@ -94,4 +94,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     exit;
 }
 
-echo json_encode(["status" => "error", "message" => "Invalid action"]);
+echo json_encode(["status" => "error", "message" => "Permintaan tidak valid"]);

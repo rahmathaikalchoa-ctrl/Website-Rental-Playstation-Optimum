@@ -32,20 +32,26 @@ function myLatestEntry($conn, $userId) {
 }
 
 if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-  $console  = $_POST['console_type'] ?? '';
+  $class    = $_POST['room_class'] ?? '';
   $duration = intval($_POST['duration'] ?? 0);
 
-  if (!in_array($console, QUEUE_CONSOLES, true) || $duration < 1 || $duration > BOOKING_MAX_DURATION) {
+  // Harga pelajar untuk antrian online dipasang kasir saat konsumen datang (cek kartu)
+  $withN = !empty($_POST['nintendo']) ? 1 : 0;
+  if ($duration < 1 || $duration > BOOKING_MAX_DURATION) {
     echo json_encode(["status" => "error", "message" => "Data antrian tidak valid"]);
+    exit;
+  }
+  if ($err = queueOptionError($conn, $class, $withN, false)) {
+    echo json_encode(["status" => "error", "message" => $err]);
     exit;
   }
   $now = time();
   if ($now < openTs($now)) {
-    echo json_encode(["status" => "error", "message" => "Antrian dibuka mulai jam 10:30"]);
+    echo json_encode(["status" => "error", "message" => "Antrian dibuka mulai jam " . secToHHMM(BOOKING_OPEN_SEC)]);
     exit;
   }
   if ($now + $duration * 3600 > closeTs($now)) {
-    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (22:00)"]);
+    echo json_encode(["status" => "error", "message" => "Durasi melewati jam tutup (" . secToHHMM(BOOKING_CLOSE_SEC) . ")"]);
     exit;
   }
 
@@ -78,8 +84,8 @@ if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 
   $name = $_SESSION['username'] ?? 'User';
-  $stmt = $conn->prepare("INSERT INTO booking_queue (source, user_id, customer_name, console_type, duration) VALUES ('online', ?, ?, ?, ?)");
-  $stmt->bind_param("issi", $userId, $name, $console, $duration);
+  $stmt = $conn->prepare("INSERT INTO booking_queue (source, user_id, customer_name, room_class, duration, with_nintendo) VALUES ('online', ?, ?, ?, ?, ?)");
+  $stmt->bind_param("issii", $userId, $name, $class, $duration, $withN);
   $stmt->execute();
   $stmt->close();
   $conn->commit();
@@ -128,7 +134,8 @@ if ($action === 'status') {
   $out = [
     "id"           => intval($e['id']),
     "state"        => $e['status'],
-    "console_type" => $e['console_type'],
+    "room_class"   => $e['room_class'],
+    "with_nintendo" => (bool) $e['with_nintendo'],
     "duration"     => intval($e['duration']),
   ];
   if ($e['status'] === 'waiting') {

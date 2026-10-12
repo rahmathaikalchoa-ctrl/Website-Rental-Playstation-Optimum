@@ -49,14 +49,37 @@ function wibTs(isoDate, hhmm = "00:00") {
   return Date.UTC(y, m - 1, d, h, mi) / 1000 - WIB_OFFSET;
 }
 
-// Jam operasional dari booking_lib.php (atribut <body>): buka 10:30, tutup 22:00.
+// Jam operasional dari booking_lib.php (atribut <body>): buka 10:00, tutup 22:00.
 // Jam mulai reservasi kelipatan 30 menit, sesi tidak boleh lewat jam tutup.
-const OPEN_SEC  = Number(document.body.dataset.openSec) || 37800;
+const OPEN_SEC  = Number(document.body.dataset.openSec) || 36000;
 const CLOSE_SEC = Number(document.body.dataset.closeSec) || 79200;
 const SLOT_SEC  = 1800;
 // "HH:MM" dari detik sejak 00:00
 function secToHHMM(sec) {
   return `${String(Math.floor(sec / 3600)).padStart(2, "0")}:${String(Math.floor(sec % 3600 / 60)).padStart(2, "0")}`;
+}
+
+// ===== HARGA =====
+// Paket Main Seru & Paket Pelajar dari booking_lib.php (atribut <body>). Rumus estimasi di
+// bawah sama dengan bookingPrice() di server; total akhir tetap dihitung server.
+const PRICING = (() => {
+  try { return JSON.parse(document.body.dataset.pricing || "{}"); } catch { return {}; }
+})();
+// Sabtu/Minggu menurut tanggal WIB
+function isWeekendTs(ts) {
+  const day = new Date((ts + WIB_OFFSET) * 1000).getUTCDay();
+  return day === 0 || day === 6;
+}
+function roomHourlyRate(room, withNintendo) {
+  return room.price + (withNintendo && room.nintendoExtra ? room.nintendoExtra : 0);
+}
+// Paket 1-5 jam (bila ada untuk tarif ini) lalu tambahan weekend per jam
+function bookingPrice(room, hours, startTs, withNintendo = false) {
+  const rate = roomHourlyRate(room, withNintendo);
+  const pkg = PRICING.packages?.[rate];
+  let total = pkg ? (hours <= 5 ? pkg[hours - 1] : pkg[4] + (hours - 5) * rate) : rate * hours;
+  if (isWeekendTs(startTs)) total += room.weekendExtra * hours;
+  return total;
 }
 
 // Minta login, lalu setelah login berhasil user dibawa kembali ke halaman tujuan
@@ -215,8 +238,11 @@ document.addEventListener("DOMContentLoaded", () => {
     h.textContent = room.title + " ";
     const chip = document.createElement("span");
     chip.className = `badge badge-${String(room.consoleType).toLowerCase()}`;
-    chip.textContent = room.consoleType;
+    chip.textContent = room.consoleModel;
     h.appendChild(chip);
+    const spec = document.createElement("p");
+    spec.className = "room-spec small";
+    spec.textContent = roomSpecText(room);
     const p = document.createElement("p");
     p.className = "muted small";
     p.textContent = room.desc;
@@ -251,6 +277,7 @@ document.addEventListener("DOMContentLoaded", () => {
     meta.appendChild(rightBox);
 
     body.appendChild(h);
+    body.appendChild(spec);
     body.appendChild(p);
     body.appendChild(meta);
     card.appendChild(media);
@@ -258,13 +285,33 @@ document.addEventListener("DOMContentLoaded", () => {
     return card;
   }
 
+  const CATEGORY_LABEL = { private: "Private", private_pro: "Private Pro", public: "Public" };
+
+  // "VVIP · Netflix · maks 4 pemain · +Nintendo" untuk kartu & detail ruangan
+  function roomSpecText(room) {
+    const parts = [room.tier === "Public" ? "Area Public" : `${CATEGORY_LABEL[room.category]} ${room.tier}`];
+    if (room.hasNetflix) parts.push("Netflix");
+    parts.push(`maks ${room.maxPlayers} pemain`);
+    if (room.nintendoExtra) parts.push("bisa tambah Nintendo Switch");
+    return parts.join(" · ");
+  }
+
   // Ubah baris ruangan dari API (rooms_api / popular_rooms_api) ke bentuk data kartu
   function toRoom(r) {
     return {
       id:            Number(r.id),
       title:         r.title,
+      category:      r.category,
+      tier:          r.tier,
       consoleType:   r.console_type,
+      consoleModel:  r.console_model,
       price:         Number(r.price),
+      weekendExtra:  Number(r.weekend_extra),
+      nintendoExtra: r.nintendo_extra !== null ? Number(r.nintendo_extra) : 0,
+      maxPlayers:    Number(r.max_players),
+      hasNetflix:    Number(r.has_netflix) === 1,
+      // Daftar game khusus ruangan (kosong = semua game konsolnya)
+      gameIds:       r.game_ids ? r.game_ids.split(",").map(Number) : [],
       img:           r.image ? `assets/images/rooms/${r.image}` : "assets/images/rooms/default.svg",
       desc:          r.description || "Tidak ada deskripsi",
       // Deskripsi asli (tanpa teks pengganti) untuk pencarian
@@ -293,12 +340,12 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
-  // Nama tab mengikuti nama ruangan yang dipakai (Reguler/Premium/VIP)
+  // Tab kategori ruangan sesuai pricelist (Private / Private Pro / Public)
   const roomCatMap = {
-    "Semua":         null,
-    "Reguler (PS3)": "PS3",
-    "Premium (PS4)": "PS4",
-    "VIP (PS5)":     "PS5",
+    "Semua":       null,
+    "Private":     "private",
+    "Private Pro": "private_pro",
+    "Public":      "public",
   };
   let activeRoomCat = "Semua";
 
@@ -315,9 +362,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!grid) return;
     grid.innerHTML = "";
 
-    const consoleFilter = roomCatMap[activeRoomCat];
-    const filtered = consoleFilter
-      ? roomsData.filter(r => r.consoleType === consoleFilter)
+    const catFilter = roomCatMap[activeRoomCat];
+    const filtered = catFilter
+      ? roomsData.filter(r => r.category === catFilter)
       : roomsData;
 
     if (filtered.length === 0) {
@@ -333,10 +380,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const room = roomsData.find((r) => r.id === id);
     if (!room) return;
 
-    const compatibleGames = gamesData.filter(g => g.platforms.includes(room.consoleType));
-
-    const gamesHtml = compatibleGames.length > 0
-      ? compatibleGames.map(g => {
+    // Game konsol utama ruangan, plus game Nintendo Switch bila bisa tambah Nintendo
+    const gameCard = (g) => {
           const cover = g.image ? `assets/images/games/${g.image}` : `assets/images/games/default.jpg`;
           return `
             <div class="game-mini-card">
@@ -346,8 +391,36 @@ document.addEventListener("DOMContentLoaded", () => {
                 <p class="muted small">${escapeHtml(g.genre)}</p>
               </div>
             </div>`;
-        }).join('')
-      : `<p class="muted small">Tidak ada game untuk konsol ini.</p>`;
+    };
+    const gameList = (list) =>
+      list.length ? list.map(gameCard).join('') : `<p class="muted small">Belum ada game untuk ruangan ini.</p>`;
+    const roomGames = roomGameList(room);
+    let gamesSection = `
+      <h3 style="color:var(--neon);margin-bottom:12px">Game di ${escapeHtml(room.title)} <span class="muted small">(${roomGames.length})</span></h3>
+      <div class="game-mini-list">${gameList(roomGames)}</div>`;
+    if (room.nintendoExtra) {
+      gamesSection += `
+        <h3 style="color:var(--neon);margin:20px 0 12px">Game Nintendo Switch <span class="muted small">(dengan tambahan Nintendo)</span></h3>
+        <div class="game-mini-list">${gameList(gamesData.filter(g => g.platforms.includes("SWITCH")))}</div>`;
+    }
+
+    // Tabel harga: tarif per jam, harga paket, dan tambahan weekend
+    const priceRow = (label, rate) => {
+      const pkg = PRICING.packages?.[rate];
+      const cells = [1, 2, 3, 4, 5].map(h => `<td>${formatRup(pkg ? pkg[h - 1] : rate * h)}</td>`).join("");
+      return `<tr><th>${label}</th>${cells}</tr>`;
+    };
+    let priceRows = priceRow(escapeHtml(room.consoleModel), room.price);
+    if (room.nintendoExtra) priceRows += priceRow("+ Nintendo Switch", room.price + room.nintendoExtra);
+    const student = PRICING.student?.[room.price];
+    const priceHtml = `
+      <div class="table-scroll">
+        <table class="price-table">
+          <thead><tr><th></th><th>1 jam</th><th>2 jam</th><th>3 jam</th><th>4 jam</th><th>5 jam</th></tr></thead>
+          <tbody>${priceRows}</tbody>
+        </table>
+      </div>
+      <p class="muted small" style="margin-top:6px">Sabtu & Minggu +${formatRup(room.weekendExtra)} per jam.${student ? ` Paket Pelajar (Senin-Jumat, tunjukkan kartu pelajar ke kasir): 1 jam ${formatRup(student[0])}, 3 jam ${formatRup(student[1])}.` : ""}</p>`;
 
     const stDetail = statusConfig[room.currentStatus] || statusConfig.available;
     const bookBtnHtml = room.currentStatus !== "in_service"
@@ -360,8 +433,12 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="room-status-badge ${stDetail.cls}" style="position:static;display:inline-block;margin-left:10px;vertical-align:middle">${stDetail.label}</span>
       </h2>
       <img src="${escapeHtml(room.img)}" alt="${escapeHtml(room.title)}" style="width:100%;height:300px;object-fit:cover;border-radius:10px;margin-bottom:12px">
+      <p class="room-spec">${escapeHtml(roomSpecText(room))}</p>
       <p class="muted">${escapeHtml(room.desc)}</p>
-      <p style="margin-top:6px"><strong>${formatRup(room.price)}/jam</strong></p>
+      <div style="margin-top:14px">
+        <h3 style="color:var(--neon);margin-bottom:8px">Harga</h3>
+        ${priceHtml}
+      </div>
       <div style="margin-top:12px;display:flex;gap:8px">
         ${bookBtnHtml}
         <button class="btn-ghost" data-action="back-to-rooms">Kembali ke list</button>
@@ -371,10 +448,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <p class="muted small" style="margin-bottom:8px">Untuk besok atau lusa, cek jam yang tersedia di form booking.</p>
         <div id="roomTimeline" class="room-timeline"><span class="muted small">Memuat jadwal...</span></div>
       </div>
-      <div style="margin-top:24px">
-        <h3 style="color:var(--neon);margin-bottom:12px">Game Tersedia di ${escapeHtml(room.consoleType)}</h3>
-        <div class="game-mini-list">${gamesHtml}</div>
-      </div>
+      <div style="margin-top:24px">${gamesSection}</div>
     `;
     showView("room-detail");
 
@@ -449,13 +523,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const dateLabel = dateSel?.options[dateSel.selectedIndex]?.text || dateVal;
 
     const room = roomsData.find((r) => String(r.id) === String(roomId));
+    syncNintendoField(room);
 
     if (!room || !dur || !timeVal) {
       box.innerHTML = `<div class="summary-placeholder"><p class="muted small">Pilih ruangan & durasi<br>untuk melihat estimasi biaya.</p></div>`;
       return;
     }
 
-    const total = room.price * dur;
+    const withN   = !!room.nintendoExtra && $("withNintendo")?.checked;
+    const startTs = slotStartTs(timeVal);
+    const rate    = roomHourlyRate(room, withN);
+    const total   = bookingPrice(room, dur, startTs, withN);
+    const weekend = isWeekendTs(startTs);
+    // Hemat dari Paket Main Seru dibanding tarif x jam (tanpa biaya weekend)
+    const saving  = rate * dur + (weekend ? room.weekendExtra * dur : 0) - total;
 
     const [h, m] = timeVal.split(":").map(Number);
     const endTime = secToHHMM(Math.min(h * 3600 + m * 60 + dur * 3600, CLOSE_SEC));
@@ -467,7 +548,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <div class="summary-row">
         <span class="sr-label">Konsol</span>
-        <span class="sr-val">${escapeHtml(room.consoleType)}</span>
+        <span class="sr-val">${escapeHtml(room.consoleModel)}${withN ? " + Nintendo Switch" : ""}</span>
       </div>
       <div class="summary-row">
         <span class="sr-label">Tanggal</span>
@@ -483,13 +564,26 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <div class="summary-row">
         <span class="sr-label">Harga/jam</span>
-        <span class="sr-val">${formatRup(room.price)}</span>
+        <span class="sr-val">${formatRup(rate)}</span>
       </div>
+      ${weekend ? `<div class="summary-row"><span class="sr-label">Weekend</span><span class="sr-val">+${formatRup(room.weekendExtra)}/jam</span></div>` : ""}
+      ${saving > 0 ? `<div class="summary-row"><span class="sr-label">Hemat paket</span><span class="sr-val">-${formatRup(saving)}</span></div>` : ""}
       <div class="summary-row total-row">
         <span class="sr-label">Total</span>
         <span class="sr-val">${formatRup(total)}</span>
       </div>
     `;
+  }
+
+  // Tampilkan pilihan "Tambah Nintendo Switch" hanya untuk ruangan yang menyediakannya
+  function syncNintendoField(room) {
+    const field = $("nintendoField");
+    const box = $("withNintendo");
+    if (!field || !box) return;
+    const available = !!room?.nintendoExtra;
+    field.style.display = available ? "" : "none";
+    if (!available) box.checked = false;
+    else $("nintendoExtra").textContent = `(+${formatRup(room.nintendoExtra)}/jam)`;
   }
 
   // Ganti isi kotak Ringkasan dengan bukti booking (kode, jadwal, total, cara bayar)
@@ -519,17 +613,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Update summary setiap kali room/durasi/waktu berubah
   document.addEventListener("change", (e) => {
-    if (["roomSelect", "duration", "timeStart", "bookingDate"].includes(e.target.id)) {
+    if (["roomSelect", "duration", "timeStart", "bookingDate", "withNintendo"].includes(e.target.id)) {
       updateBookingSummary();
     }
 
     // Update preview biaya saat jam perpanjangan berubah
     if (e.target.id?.startsWith("extend-hours-")) {
       const bid    = e.target.id.replace("extend-hours-", "");
-      const price  = parseInt(e.target.dataset.price) || 0;
-      const extra  = parseInt(e.target.value) || 1;
+      const costs  = JSON.parse(e.target.dataset.costs || "{}");
       const costEl = document.getElementById(`extend-cost-${bid}`);
-      if (costEl) costEl.textContent = `+${formatRup(price * extra)}`;
+      if (costEl) costEl.textContent = `+${formatRup(costs[e.target.value] || 0)}`;
     }
   });
 
@@ -543,6 +636,27 @@ document.addEventListener("DOMContentLoaded", () => {
     container.innerHTML = genres.map(g =>
       `<button class="genre-btn${g === activeGenre ? ' active' : ''}" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</button>`
     ).join('');
+  }
+
+  // Game yang tersedia di ruangan: daftar khusus ruangan (room_games) bila ada,
+  // selain itu semua game untuk konsol ruangan
+  function roomGameList(room) {
+    return room.gameIds.length
+      ? gamesData.filter(g => room.gameIds.includes(g.id))
+      : gamesData.filter(g => g.platforms.includes(room.consoleType));
+  }
+
+  // "Room 1, Room 3, Meja C +4 lainnya" untuk kartu game
+  function gameRoomsText(game) {
+    const names = roomsData
+      .filter(r => r.currentStatus !== "in_service")
+      .filter(r => r.gameIds.length ? r.gameIds.includes(game.id) : game.platforms.includes(r.consoleType))
+      .map(r => r.title);
+    if (game.platforms.includes("SWITCH") && roomsData.some(r => r.nintendoExtra && r.currentStatus !== "in_service")) {
+      names.push("ruangan dengan tambahan Nintendo");
+    }
+    if (!names.length) return "";
+    return names.length > 4 ? `${names.slice(0, 4).join(", ")} +${names.length - 4} lainnya` : names.join(", ");
   }
 
   function renderGames() {
@@ -570,10 +684,11 @@ document.addEventListener("DOMContentLoaded", () => {
       card.className = "room-card";
 
       const badges = g.platforms
-        .map((p) => `<span class="badge badge-${escapeHtml(p.toLowerCase())}">${escapeHtml(p)}</span>`)
+        .map((p) => `<span class="badge badge-${escapeHtml(p.toLowerCase())}">${p === "SWITCH" ? "Switch" : escapeHtml(p)}</span>`)
         .join(" ");
 
       const cover = g.image ? `assets/images/games/${g.image}` : `assets/images/games/default.jpg`;
+      const roomsText = gameRoomsText(g);
       const coverHtml = `<img class="game-cover-img" src="${escapeHtml(cover)}" alt="${escapeHtml(g.title)}" onerror="this.src='assets/images/games/default.jpg'">`;
 
       card.innerHTML = `
@@ -582,6 +697,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <h3 style="color:var(--neon)">${escapeHtml(g.title)}</h3>
         <p class="muted small">${escapeHtml(g.genre)}</p>
         <div style="margin-top:8px">${badges}</div>
+        ${roomsText ? `<p class="muted small" style="margin-top:8px">Tersedia di: ${escapeHtml(roomsText)}</p>` : ""}
       </div>
     `;
       wrap.appendChild(card);
@@ -741,6 +857,7 @@ document.addEventListener("DOMContentLoaded", () => {
         time,
         duration,
         date: bookingDate,
+        nintendo: $("withNintendo")?.checked ? "1" : "",
       }),
     })
       .then((r) => r.json())
@@ -748,6 +865,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (r.status === "success") {
           loadUpcomingBooking();
           $("bookingForm").reset();
+          syncNintendoField(null);
           generateDateOptions();
           generateTimeOptions();
           updateDurationOptions();
@@ -773,7 +891,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     stopMenuRefresh();
     const roomFound = roomsData.find((r) =>
-      (r.title + " " + r.rawDesc).toLowerCase().includes(q),
+      [r.title, r.tier, r.consoleModel, r.rawDesc].join(" ").toLowerCase().includes(q),
     );
     if (roomFound) {
       showDetail(roomFound.id);
@@ -889,7 +1007,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderMenuCatTabs() {
     const container = $("menuCatTabs");
     if (!container) return;
-    const cats = ['Semua', 'Makanan', 'Minuman'];
+    const cats = ['Semua', 'Makanan', 'Snack', 'Minuman'];
     container.innerHTML = cats.map(c =>
       `<button class="menu-cat-btn${c === activeMenuCat ? ' active' : ''}" data-cat="${c}">${c}</button>`
     ).join('');
@@ -921,7 +1039,7 @@ document.addEventListener("DOMContentLoaded", () => {
         : `<span class="menu-stock-badge stock-habis">Stok Habis</span>`;
 
       const btnPesan = item.is_available == 1
-        ? `<button class="btn menu-order-btn" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" data-price="${escapeHtml(item.price)}">Pesan</button>`
+        ? `<button class="btn menu-order-btn" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" data-price="${escapeHtml(item.price)}" data-desc="${escapeHtml(item.description || "")}">Pesan</button>`
         : `<button class="btn btn-disabled" disabled>Stok Habis</button>`;
 
       card.innerHTML = `
@@ -988,8 +1106,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         box.innerHTML = data.map(o => {
           const total = formatRup(o.price * o.quantity);
-          const statusCls = o.status === 'selesai' ? 'order-done' : 'order-pending';
-          const statusLabel = o.status === 'selesai' ? `${icon('check')} Sudah Sampai` : `${icon('clock')} Diproses`;
+          const statusCls = o.status === 'selesai' ? 'order-done' : o.status === 'batal' ? 'order-cancelled' : 'order-pending';
+          const statusLabel = o.status === 'selesai' ? `${icon('check')} Sudah Sampai`
+            : o.status === 'batal' ? `${icon('alert')} Dibatalkan kasir` : `${icon('clock')} Diproses`;
           const [cDate, cTime] = String(o.created_at).split(" ");
           const tgl = new Date(wibTs(cDate, (cTime || "00:00").slice(0, 5)) * 1000).toLocaleString('id-ID', { timeZone: TZ,
             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
@@ -1102,7 +1221,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const bid      = extBtn.dataset.bid;
       const roomId   = extBtn.dataset.roomid;
       const endTs    = parseInt(extBtn.dataset.end);
-      const price    = parseInt(extBtn.dataset.price) || 0;
       const curDur   = parseInt(extBtn.dataset.duration) || 0;
       const startTs  = parseInt(extBtn.dataset.start);
       const form     = document.getElementById(`extend-form-${bid}`);
@@ -1157,7 +1275,8 @@ document.addEventListener("DOMContentLoaded", () => {
           const first = Array.from(sel.options).find((o) => !o.disabled);
           if (first) {
             sel.value = first.value;
-            if (costEl) costEl.textContent = `+${formatRup(price * parseInt(first.value))}`;
+            const costs = JSON.parse(sel.dataset.costs || "{}");
+            if (costEl) costEl.textContent = `+${formatRup(costs[first.value] || 0)}`;
           }
         })
         .catch(() => {
@@ -1280,9 +1399,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn) return;
     $("orderItemId").value   = btn.dataset.id;
     $("orderItemName").textContent = btn.dataset.name;
-    $("orderItemPrice").textContent = formatRup(btn.dataset.price) + " / item";
+    // Item bervarian (mis. Mojito: Strawberry / Mangga / Lychee): minta pilihan ditulis di catatan
+    const variants = btn.dataset.desc && btn.dataset.desc.includes("/") ? btn.dataset.desc : "";
+    $("orderItemPrice").textContent = formatRup(btn.dataset.price) + " / item" + (variants ? ` · Pilihan: ${variants}` : "");
     $("orderQty").value  = 1;
     $("orderNote").value = "";
+    $("orderNote").placeholder = variants ? "Tulis pilihanmu, contoh: " + variants.split("/")[0].trim() : "Contoh: tidak pedas, es batu sedikit";
     document.getElementById("orderModal").classList.add("show");
   });
 
@@ -1856,7 +1978,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div style="margin-top:8px">
                   <button class="btn-ghost extend-btn"
                     data-bid="${b.id}" data-roomid="${b.room_id}"
-                    data-end="${b.end_time}" data-price="${b.price}"
+                    data-end="${b.end_time}"
                     data-duration="${b.duration}" data-start="${b.start_time}"
                     style="font-size:0.78rem;padding:4px 10px">+ Perpanjang</button>
                   <div id="extend-form-${b.id}" style="display:none;margin-top:8px">
@@ -1864,14 +1986,14 @@ document.addEventListener("DOMContentLoaded", () => {
                       Tidak ada jam tersedia untuk diperpanjang.
                     </p>
                     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">
-                      <select id="extend-hours-${b.id}" data-price="${b.price}"
+                      <select id="extend-hours-${b.id}" data-costs="${escapeHtml(JSON.stringify(b.extend_costs || {}))}"
                         style="padding:4px 8px;background:#1a2233;color:#fff;border:1px solid #00eaff44;border-radius:6px">
                         <option value="1">+1 jam</option>
                         <option value="2">+2 jam</option>
                         <option value="3">+3 jam</option>
                       </select>
                       <span id="extend-cost-${b.id}" style="color:#00eaff;font-size:0.82rem;font-weight:600">
-                        +${formatRup(b.price)}
+                        +${formatRup(b.extend_costs?.[1] || 0)}
                       </span>
                       <button class="btn" data-extend="${b.id}" style="font-size:0.78rem;padding:4px 12px">Konfirmasi</button>
                       <button class="btn-ghost" data-extend-cancel="${b.id}" style="font-size:0.78rem;padding:4px 10px">Batal</button>
@@ -1881,7 +2003,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
               box.innerHTML += `
                 <div class="booking-item">
-                  <strong>${escapeHtml(b.room)}</strong><br>
+                  <strong>${escapeHtml(b.room)}</strong>${b.with_nintendo ? ' <span class="small muted">+ Nintendo Switch</span>' : ''}${b.is_student ? ' <span class="small muted">· Harga pelajar</span>' : ''}<br>
                   <span class="small muted">${new Date(start * 1000).toLocaleDateString("id-ID", { timeZone: TZ, day: "numeric", month: "short" })} &bull; Jam: ${escapeHtml(b.time)} &bull; Durasi: ${escapeHtml(String(b.duration))} jam &bull; ${formatRup(b.total_price)}</span><br>
                   ${statusHtml}
                   ${metaHtml}
@@ -2226,6 +2348,7 @@ function renderQueueEntry(entry) {
 
   if (!entry) {
     joinBox.style.display = "";
+    syncQueueNintendo();
     // Tadinya masih menunggu lalu hilang tanpa dibatalkan sendiri: beri tahu user
     if (wasWaiting) {
       statusBox.style.display = "";
@@ -2240,6 +2363,7 @@ function renderQueueEntry(entry) {
   const ended = entry.state === "expired" || entry.state === "cancelled";
   // Kalau giliran sudah batal, user boleh ambil antrian lagi
   joinBox.style.display = ended ? "" : "none";
+  syncQueueNintendo();
   statusBox.style.display = "";
   // Giliran yang sudah didapat tapi belum lapor ke kasir juga boleh dibatalkan
   const canCancelTurn = entry.state === "assigned" && !!entry.checkin_until && entry.payment_status !== "paid";
@@ -2247,7 +2371,7 @@ function renderQueueEntry(entry) {
   cancelBtn.textContent = canCancelTurn ? "Batalkan Giliran" : "Batalkan Antrian";
 
   if (entry.state === "waiting") {
-    text.innerHTML = `Antrian <strong>${escapeHtml(entry.console_type)}</strong> · ${Number(entry.duration)} jam — posisi kamu: <strong>#${Number(entry.position)}</strong>`;
+    text.innerHTML = `Antrian <strong>${escapeHtml(entry.room_class)}</strong>${entry.with_nintendo ? " + Nintendo" : ""} · ${Number(entry.duration)} jam — posisi kamu: <strong>#${Number(entry.position)}</strong>`;
   } else if (entry.state === "expired") {
     text.innerHTML = `${icon('alert')} Giliranmu di <strong>${escapeHtml(entry.room)}</strong> dibatalkan karena tidak datang dalam 15 menit.`;
   } else if (entry.state === "cancelled") {
@@ -2281,8 +2405,23 @@ function postQueue(params) {
     .then((r) => r.json());
 }
 
+// Pilihan "Tambah Nintendo" hanya untuk kelas yang punya ruangan dengan Nintendo,
+// dan hanya tampil selama form ambil antrian terlihat
+function syncQueueNintendo() {
+  const field = $("queueNintendoField");
+  const opt = $("queueClass")?.selectedOptions[0];
+  if (!field || !opt) return;
+  const extra = Number(opt.dataset.nintendo) || 0;
+  const visible = !!extra && $("queueJoinBox").style.display !== "none";
+  field.style.display = visible ? "" : "none";
+  if (!extra) $("queueNintendo").checked = false;
+  else $("queueNintendoExtra").textContent = `(+Rp ${extra.toLocaleString("id-ID")}/jam)`;
+}
+
 (function initQueueForm() {
   const durSel = $("queueDuration");
+  $("queueClass")?.addEventListener("change", syncQueueNintendo);
+  syncQueueNintendo();
   // Durasi maksimal mengikuti sisa waktu sampai jam tutup, sama dengan aturan server
   const fillDurations = () => {
     if (!durSel) return;
@@ -2308,7 +2447,8 @@ function postQueue(params) {
     }
     const btn = $("queueJoinBtn");
     btn.disabled = true;
-    postQueue({ action: "join", console_type: $("queueConsole").value, duration: durSel.value })
+    postQueue({ action: "join", room_class: $("queueClass").value, duration: durSel.value,
+                nintendo: $("queueNintendo")?.checked ? "1" : "" })
       .then((res) => {
         if (res.status !== "ok") { alert(res.message || "Gagal mengambil antrian"); return; }
         renderQueueEntry(res.entry);

@@ -2,8 +2,8 @@
 // Logika inti pembuatan & perpanjangan booking, dipakai bersama oleh
 // halaman user (apikr.php, extend_booking.php) dan admin (admin_api.php).
 
-// Jam operasional (detik sejak 00:00 WIB): buka 10:30, tutup 22:00. Sesi tidak boleh lewat jam tutup.
-const BOOKING_OPEN_SEC     = 10 * 3600 + 30 * 60;
+// Jam operasional (detik sejak 00:00 WIB): buka 10:00, tutup 22:00. Sesi tidak boleh lewat jam tutup.
+const BOOKING_OPEN_SEC     = 10 * 3600;
 const BOOKING_CLOSE_SEC    = 22 * 3600;
 const BOOKING_MAX_DURATION = 12;
 const BOOKING_EXTEND_MAX   = 3;
@@ -22,6 +22,67 @@ function openTs($ts) {
 }
 function closeTs($ts) {
   return strtotime(date('Y-m-d', $ts)) + BOOKING_CLOSE_SEC;
+}
+// "HH:MM" dari detik sejak 00:00 (untuk pesan error)
+function secToHHMM($sec) {
+  return sprintf('%02d:%02d', intdiv($sec, 3600), intdiv($sec % 3600, 60));
+}
+
+// ===== HARGA (sesuai pricelist) =====
+// Paket Main Seru: tarif per jam => total harga 1-5 jam. Berlaku otomatis untuk ruangan
+// dengan tarif tersebut; jam ke-6 dst. memakai tarif biasa.
+const PRICE_PACKAGES = [
+  12000 => [12000, 22000, 31000, 40000, 48000],   // Public PS4 Slim
+  15000 => [15000, 28000, 40000, 52000, 63000],   // Public PS4 Pro
+  25000 => [25000, 47000, 68000, 89000, 108000],  // Public PS5
+  30000 => [30000, 55000, 80000, 105000, 130000], // VIP (PS5/Nintendo + Netflix)
+  50000 => [50000, 95000, 140000, 185000, 230000], // VVIP + Nintendo
+  55000 => [55000, 105000, 155000, 205000, 255000], // VIP Special (PS5 Pro + Nintendo)
+];
+// Paket Pelajar (Senin-Jumat, wajib kartu pelajar, diterapkan kasir): tarif => [1 jam, 3 jam]
+const STUDENT_PRICES = [
+  12000 => [10000, 27000],
+  15000 => [12000, 33000],
+  25000 => [20000, 57000],
+  30000 => [25000, 75000],
+];
+
+function isWeekendTs($ts) {
+  return intval(date('N', $ts)) >= 6;
+}
+
+// Tarif per jam hari biasa, termasuk tambahan Nintendo Switch bila dipilih
+function roomHourlyRate(array $room, $withNintendo) {
+  return intval($room['price']) + ($withNintendo && $room['nintendo_extra'] !== null ? intval($room['nintendo_extra']) : 0);
+}
+
+// Harga pelajar hanya untuk hari kerja dan tarif yang ada di daftar Paket Pelajar
+function studentEligible(array $room, $withNintendo, $startTs) {
+  return !isWeekendTs($startTs) && isset(STUDENT_PRICES[roomHourlyRate($room, $withNintendo)]);
+}
+
+// Total harga booking. Urutan: harga pelajar (bila berlaku) > paket 1-5 jam > tarif x jam,
+// lalu ditambah biaya weekend per jam (Sabtu/Minggu, menurut tanggal mulai).
+function bookingPrice(array $room, $hours, $startTs, $withNintendo = false, $isStudent = false) {
+  $hours = intval($hours);
+  $rate  = roomHourlyRate($room, $withNintendo);
+  if ($isStudent && studentEligible($room, $withNintendo, $startTs)) {
+    [$one, $three] = STUDENT_PRICES[$rate];
+    return intdiv($hours, 3) * $three + ($hours % 3) * $one;
+  }
+  if (isset(PRICE_PACKAGES[$rate])) {
+    $pkg   = PRICE_PACKAGES[$rate];
+    $total = $hours <= 5 ? $pkg[$hours - 1] : $pkg[4] + ($hours - 5) * $rate;
+  } else {
+    $total = $rate * $hours;
+  }
+  if (isWeekendTs($startTs)) $total += intval($room['weekend_extra']) * $hours;
+  return $total;
+}
+
+// Data harga untuk halaman (script.js / admin.js menghitung estimasi dengan rumus yang sama)
+function pricingJson() {
+  return json_encode(['packages' => PRICE_PACKAGES, 'student' => STUDENT_PRICES]);
 }
 
 // Catat uang yang diterima kasir ke buku pembayaran. Dashboard menghitung pendapatan dari
@@ -59,14 +120,14 @@ function scheduledStart($date, $time) {
   $allowed = [$today, date('Y-m-d', strtotime('+1 day')), date('Y-m-d', strtotime('+2 days'))];
   if (!in_array($date, $allowed, true)) return bookingFail("Tanggal booking tidak valid");
 
-  // Jam mulai kelipatan 30 menit (10:30, 11:00, ... 21:00)
+  // Jam mulai kelipatan 30 menit (10:00, 10:30, ... 21:00)
   if (!preg_match('/^([01]?\d|2[0-3]):(00|30)$/', $time)) return bookingFail("Format jam tidak valid");
 
   $start = strtotime("$date $time");
   if ($start === false) return bookingFail("Format waktu tidak valid");
-  // Minimal 1 jam sebelum tutup, jadi jam mulai terakhir 21:00
+  // Minimal 1 jam sebelum tutup, jadi jam mulai terakhir 1 jam sebelum tutup
   if ($start < openTs($start) || $start + 3600 > closeTs($start)) {
-    return bookingFail("Jam mulai harus di antara 10:30-21:00");
+    return bookingFail("Jam mulai harus di antara " . secToHHMM(BOOKING_OPEN_SEC) . "-" . secToHHMM(BOOKING_CLOSE_SEC - 3600));
   }
   if ($start < time()) return bookingFail("Jam mulai sudah lewat, pilih jam lain");
 
@@ -74,18 +135,22 @@ function scheduledStart($date, $time) {
 }
 
 // $o: room_id, start, duration, customer_name, email, phone, user_id,
-//     source ('online'|'walkin'), payment_status ('unpaid'|'paid'), expires_at
+//     source ('online'|'walkin'), payment_status ('unpaid'|'paid'), expires_at,
+//     with_nintendo (opsional, tambah Nintendo Switch bila ruangan menyediakan),
+//     is_student (opsional, harga Paket Pelajar; hanya dari kasir/admin)
 function createBooking($conn, array $o) {
   $roomId   = intval($o['room_id']);
   $start    = intval($o['start']);
   $duration = intval($o['duration']);
   $end      = $start + $duration * 3600;
+  $nintendo = !empty($o['with_nintendo']);
+  $student  = !empty($o['is_student']);
 
   if ($duration < 1 || $duration > BOOKING_MAX_DURATION) {
     return bookingFail("Durasi harus 1-" . BOOKING_MAX_DURATION . " jam");
   }
   if ($end > closeTs($start)) {
-    return bookingFail("Durasi melewati jam tutup (22:00)");
+    return bookingFail("Durasi melewati jam tutup (" . secToHHMM(BOOKING_CLOSE_SEC) . ")");
   }
 
   $name    = $o['customer_name'];
@@ -128,7 +193,7 @@ function createBooking($conn, array $o) {
       }
     }
 
-    $stmt = $conn->prepare("SELECT id, title, price, status FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
+    $stmt = $conn->prepare("SELECT id, title, price, weekend_extra, nintendo_extra, status FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
     $stmt->bind_param("i", $roomId);
     $stmt->execute();
     $room = $stmt->get_result()->fetch_assoc();
@@ -136,6 +201,14 @@ function createBooking($conn, array $o) {
 
     if (!$room) { $conn->rollback(); return bookingFail("Ruangan tidak ditemukan"); }
     if ($room['status'] !== 'available') { $conn->rollback(); return bookingFail("Ruangan sedang dalam perawatan"); }
+    if ($nintendo && $room['nintendo_extra'] === null) {
+      $conn->rollback();
+      return bookingFail("Ruangan ini tidak menyediakan tambahan Nintendo Switch");
+    }
+    if ($student && !studentEligible($room, $nintendo, $start)) {
+      $conn->rollback();
+      return bookingFail("Harga pelajar hanya untuk hari Senin-Jumat dan ruangan yang ada di Paket Pelajar");
+    }
 
     $stmt = $conn->prepare("
       SELECT start_time FROM bookings
@@ -152,16 +225,18 @@ function createBooking($conn, array $o) {
       return bookingFail("Ruangan sudah dibooking di jam tersebut. Pilih jam atau ruangan lain.");
     }
 
-    $total = intval($room['price']) * $duration;
+    $total = bookingPrice($room, $duration, $start, $nintendo, $student);
     $amountPaid = $payStat === 'paid' ? $total : 0;
+    $withN = $nintendo ? 1 : 0;
+    $isStu = $student ? 1 : 0;
     $stmt = $conn->prepare("
       INSERT INTO bookings
-      (customer_name, email, phone, room_id, duration, start_time, end_time, user_id,
+      (customer_name, email, phone, room_id, duration, with_nintendo, is_student, start_time, end_time, user_id,
        total_price, amount_paid, payment_status, source, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
-    $stmt->bind_param("sssiiiiiiissi",
-      $name, $email, $phone, $roomId, $duration, $start, $end, $userId,
+    $stmt->bind_param("sssiiiiiiiiissi",
+      $name, $email, $phone, $roomId, $duration, $withN, $isStu, $start, $end, $userId,
       $total, $amountPaid, $payStat, $source, $expires
     );
     $stmt->execute();
@@ -218,7 +293,7 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
   try {
     $conn->begin_transaction();
 
-    $stmt = $conn->prepare("SELECT price, status FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
+    $stmt = $conn->prepare("SELECT price, weekend_extra, nintendo_extra, status FROM rooms WHERE id = ? LIMIT 1 FOR UPDATE");
     $stmt->bind_param("i", $roomId);
     $stmt->execute();
     $room = $stmt->get_result()->fetch_assoc();
@@ -227,7 +302,7 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
     if ($room['status'] !== 'available') { $conn->rollback(); return bookingFail("Ruangan sedang dalam perawatan"); }
 
     $stmt = $conn->prepare("
-      SELECT start_time, end_time, duration, expires_at FROM bookings
+      SELECT start_time, end_time, duration, with_nintendo, is_student, expires_at FROM bookings
       WHERE id = ? AND room_id = ? AND payment_status <> 'cancelled'
       LIMIT 1 FOR UPDATE
     ");
@@ -260,7 +335,7 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
     $newEnd     = $currentEnd + $extraHours * 3600;
     if ($newEnd > closeTs(intval($booking['start_time']))) {
       $conn->rollback();
-      return bookingFail("Perpanjangan melewati jam tutup (22:00)");
+      return bookingFail("Perpanjangan melewati jam tutup (" . secToHHMM(BOOKING_CLOSE_SEC) . ")");
     }
 
     $stmt = $conn->prepare("
@@ -277,7 +352,13 @@ function extendBookingCore($conn, $bookingId, $extraHours, $userId = null) {
       return bookingFail("Ruangan sudah dibooking orang lain di jam tambahan tersebut");
     }
 
-    $extraCost = intval($room['price']) * $extraHours;
+    // Selisih harga durasi baru dan lama, supaya harga paket/pelajar/weekend tetap berlaku
+    $startTs   = intval($booking['start_time']);
+    $curDur    = intval($booking['duration']);
+    $nintendo  = (bool) $booking['with_nintendo'];
+    $student   = (bool) $booking['is_student'];
+    $extraCost = bookingPrice($room, $curDur + $extraHours, $startTs, $nintendo, $student)
+               - bookingPrice($room, $curDur, $startTs, $nintendo, $student);
     // Ada tambahan biaya: status kembali "belum bayar" supaya kasir menagih kekurangannya
     // (total_price - amount_paid). Yang sudah dibayar tetap tercatat di amount_paid.
     $stmt = $conn->prepare("

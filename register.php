@@ -5,7 +5,7 @@ header("Content-Type: application/json");
 require __DIR__ . "/db.php";
 
 if ($_SERVER["REQUEST_METHOD"] !== "POST") {
-  echo json_encode(["status" => "error", "message" => "Invalid request"]);
+  echo json_encode(["status" => "error", "message" => "Permintaan tidak valid"]);
   exit;
 }
 
@@ -29,8 +29,9 @@ if (!preg_match('/^[A-Za-z0-9_]{3,30}$/', $username)) {
   exit;
 }
 
-if (strlen($password) < 6) {
-  echo json_encode(["status" => "error", "message" => "Password minimal 6 karakter"]);
+// bcrypt hanya memakai 72 byte pertama; lebih dari itu dipotong diam-diam
+if (strlen($password) < 6 || strlen($password) > 72) {
+  echo json_encode(["status" => "error", "message" => "Password 6-72 karakter"]);
   exit;
 }
 

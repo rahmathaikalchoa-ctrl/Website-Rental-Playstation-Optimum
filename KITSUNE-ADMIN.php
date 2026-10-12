@@ -56,7 +56,7 @@ if (isset($_POST['logout']) && hash_equals($_SESSION['csrf'], (string) ($_POST['
 
 $isAdmin = isAdminSession($conn);
 
-$navItems = ['dashboard' => 'Dashboard', 'booking' => 'Booking', 'riwayat' => 'Riwayat Booking',
+$navItems = ['dashboard' => 'Dashboard', 'booking' => 'Booking', 'jadwal' => 'Jadwal', 'riwayat' => 'Riwayat Booking',
              'room' => 'Room', 'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
 $page    = $_GET['page'] ?? 'dashboard';
 if (!isset($navItems[$page])) $page = 'dashboard';
@@ -73,7 +73,7 @@ $offset  = ($pageNum - 1) * $perPage;
   <title>Admin Optimum Playzone</title>
   <link rel="stylesheet" href="admin.css?v=<?= filemtime(__DIR__ . '/admin.css') ?>">
 </head>
-<body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>">
+<body data-open-sec="<?= BOOKING_OPEN_SEC ?>" data-close-sec="<?= BOOKING_CLOSE_SEC ?>" data-pricing="<?= htmlspecialchars(pricingJson()) ?>">
 
 <?php if (!$isAdmin): ?>
   <div class="login-box">
@@ -99,7 +99,7 @@ $offset  = ($pageNum - 1) * $perPage;
       "SELECT COUNT(*) AS n FROM menu_orders WHERE status = 'pending'"))['n']);
   ?>
   <?php foreach ($navItems as $key => $label): ?>
-    <a href="?page=<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= $label ?>
+    <a href="?page=<?= $key ?>" data-nav="<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= $label ?>
       <?php if ($key === 'menu' && $pendingOrders > 0): ?><span class="nav-badge" title="Pesanan menu belum diantar"><?= $pendingOrders ?></span><?php endif; ?>
     </a>
   <?php endforeach; ?>
@@ -189,7 +189,7 @@ $offset  = ($pageNum - 1) * $perPage;
     $totalSource = max(1, array_sum($bySource));
 
     $stmt = $conn->prepare("
-      SELECT r.title, r.console_type, COUNT(b.id) AS n, COALESCE(SUM(b.amount_paid), 0) AS s
+      SELECT r.title, r.console_type, r.console_model, COUNT(b.id) AS n, COALESCE(SUM(b.amount_paid), 0) AS s
       FROM bookings b JOIN rooms r ON r.id = b.room_id
       WHERE b.payment_status <> 'cancelled' AND b.start_time >= ? AND b.start_time < ?
       GROUP BY r.id ORDER BY n DESC, s DESC LIMIT 5
@@ -287,7 +287,7 @@ $offset  = ($pageNum - 1) * $perPage;
               <span class="rank-no"><?= $i + 1 ?></span>
               <div class="rank-info">
                 <div class="hbar-head">
-                  <span><?= htmlspecialchars($r['title']) ?> <span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_type']) ?></span></span>
+                  <span><?= htmlspecialchars($r['title']) ?> <span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_model']) ?></span></span>
                   <strong><?= intval($r['n']) ?> booking</strong>
                 </div>
                 <div class="hbar-track"><div class="hbar" style="width:<?= round(intval($r['n']) / $maxRoom * 100) ?>%"></div></div>
@@ -300,6 +300,160 @@ $offset  = ($pageNum - 1) * $perPage;
     </section>
   </div>
   <div id="chartTip" class="chart-tip" hidden></div>
+
+  <!-- JADWAL: semua reservasi per ruangan dalam satu hari -->
+<?php elseif ($page === 'jadwal'): ?>
+  <?php
+    releaseNoShows($conn);
+    $now = time();
+    $bulan = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    $dayTabs = [];
+    foreach (['Hari ini', 'Besok', 'Lusa'] as $i => $lbl) {
+      $ts = strtotime("+$i day", $now);
+      $dayTabs[date('Y-m-d', $ts)] = $lbl . ' · ' . date('j', $ts) . ' ' . $bulan[intval(date('n', $ts)) - 1];
+    }
+    $day = $_GET['d'] ?? date('Y-m-d', $now);
+    if (!isset($dayTabs[$day])) $day = date('Y-m-d', $now);
+    $dayStart = strtotime("$day 00:00:00");
+    $openTs   = $dayStart + BOOKING_OPEN_SEC;
+    $closeTs  = $dayStart + BOOKING_CLOSE_SEC;
+    $slotSec  = 1800;
+    $slots    = intdiv(BOOKING_CLOSE_SEC - BOOKING_OPEN_SEC, $slotSec);
+
+    $schedRooms = mysqli_query($conn, "SELECT id, title, tier, console_model, status, price, nintendo_extra FROM rooms ORDER BY id")
+      ->fetch_all(MYSQLI_ASSOC);
+    $stmt = $conn->prepare("
+      SELECT id, room_id, customer_name, phone, order_code, source, start_time, end_time, duration,
+             total_price, amount_paid, payment_status, expires_at, with_nintendo, is_student
+      FROM bookings
+      WHERE payment_status <> 'cancelled' AND start_time < ? AND end_time > ?
+      ORDER BY start_time
+    ");
+    $stmt->bind_param("ii", $closeTs, $openTs);
+    $stmt->execute();
+    $byRoom = [];
+    $sum = ['total' => 0, 'wait' => 0, 'unpaid' => 0];
+    foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $b) {
+      $byRoom[intval($b['room_id'])][] = $b;
+      $sum['total']++;
+      if ($b['expires_at'] !== null) $sum['wait']++;
+      if ($b['payment_status'] !== 'paid') $sum['unpaid']++;
+    }
+    $stmt->close();
+    $roomById = array_column($schedRooms, null, 'id');
+    $fmtRp = fn($n) => 'Rp' . number_format($n, 0, ',', '.');
+  ?>
+  <div class="page-head">
+    <div>
+      <h2>Jadwal Ruangan</h2>
+      <p class="page-sub">Semua reservasi per ruangan. Klik booking untuk Hadir / Lunas / Batal, klik slot kosong untuk membuat reservasi.</p>
+    </div>
+    <span class="clock-chip"><?= icon('clock') ?> <?= date('H:i', $now) ?></span>
+  </div>
+
+  <div class="form-tabs sched-days" role="tablist">
+    <?php foreach ($dayTabs as $val => $lbl): ?>
+      <a class="form-tab<?= $val === $day ? ' active' : '' ?>" href="?page=jadwal&amp;d=<?= $val ?>"><?= $lbl ?></a>
+    <?php endforeach; ?>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-card stat-kosong"><span class="stat-num"><?= $sum['total'] ?></span><span class="stat-label">Booking hari itu</span></div>
+    <div class="stat-card stat-tunggu"><span class="stat-num"><?= $sum['wait'] ?></span><span class="stat-label">Menunggu datang</span></div>
+    <div class="stat-card stat-dipakai"><span class="stat-num"><?= $sum['unpaid'] ?></span><span class="stat-label">Belum lunas</span></div>
+  </div>
+
+  <div class="sched-legend">
+    <span><i class="sched-dot sched-wait"></i> Menunggu datang</span>
+    <span><i class="sched-dot sched-unpaid"></i> Hadir, belum lunas</span>
+    <span><i class="sched-dot sched-paid"></i> Lunas</span>
+  </div>
+
+  <div class="sched-wrap">
+    <div class="sched-grid" style="--slots: <?= $slots ?>">
+      <div class="sched-row sched-head">
+        <div class="sched-label">Ruangan</div>
+        <?php for ($i = 0; $i < $slots; $i++): ?>
+          <div class="sched-time" style="grid-column: <?= $i + 2 ?>"><?= $i % 2 === 0 ? date('H:i', $openTs + $i * $slotSec) : '' ?></div>
+        <?php endfor; ?>
+      </div>
+
+      <?php foreach ($schedRooms as $r): ?>
+      <?php $rid = intval($r['id']); $inService = $r['status'] !== 'available'; ?>
+      <div class="sched-row<?= $inService ? ' sched-off' : '' ?>">
+        <div class="sched-label"><?= htmlspecialchars($r['title']) ?>
+          <span class="cell-sub"><?= htmlspecialchars($r['tier'] . ' · ' . $r['console_model']) ?><?= $inService ? ' · Perawatan' : '' ?></span>
+        </div>
+        <?php for ($i = 0; $i < $slots; $i++): ?>
+          <?php $slotTs = $openTs + $i * $slotSec; ?>
+          <?php if (!$inService && $slotTs + 3600 <= $closeTs && $slotTs >= $now): ?>
+            <a class="sched-slot" style="grid-column: <?= $i + 2 ?>" title="Reservasi <?= htmlspecialchars($r['title']) ?> jam <?= date('H:i', $slotTs) ?>"
+               href="?page=booking&amp;tab=reserveForm&amp;room=<?= $rid ?>&amp;date=<?= $day ?>&amp;time=<?= date('H:i', $slotTs) ?>"></a>
+          <?php else: ?>
+            <span class="sched-slot is-off" style="grid-column: <?= $i + 2 ?>"></span>
+          <?php endif; ?>
+        <?php endfor; ?>
+
+        <?php foreach ($byRoom[$rid] ?? [] as $b): ?>
+          <?php
+            $bs = max(intval($b['start_time']), $openTs);
+            $be = min(intval($b['end_time']), $closeTs);
+            $col  = intdiv($bs - $openTs, $slotSec) + 2;
+            $span = max(1, (int) ceil(($be - $openTs) / $slotSec) + 2 - $col);
+            $waiting = $b['expires_at'] !== null;
+            $paid    = $b['payment_status'] === 'paid';
+            $state   = $waiting ? 'sched-wait' : ($paid ? 'sched-paid' : 'sched-unpaid');
+            $due     = intval($b['total_price']) - intval($b['amount_paid']);
+            // "Lunas" ditulis juga di bar karena warna "menunggu datang" lebih diutamakan
+            $tags    = array_filter([$b['source'] === 'walkin' ? 'Offline' : 'Online', $waiting && $paid ? 'Lunas' : '',
+                                     $b['with_nintendo'] ? '+Nintendo' : '', $b['is_student'] ? 'Pelajar' : '']);
+            $detail = [
+              'id' => intval($b['id']), 'name' => $b['customer_name'], 'phone' => $b['phone'] ?? '',
+              'code' => $b['order_code'] ?? '-', 'room' => $r['title'],
+              'time' => date('d/m H:i', intval($b['start_time'])) . ' – ' . date('H:i', intval($b['end_time'])) . ' (' . intval($b['duration']) . ' jam)',
+              'tags' => implode(' · ', $tags),
+              'total' => $fmtRp($b['total_price']), 'paid' => $fmtRp($b['amount_paid']), 'due' => $due,
+              'status' => $waiting ? 'Menunggu datang' : ($paid ? 'Lunas' : (intval($b['amount_paid']) > 0 ? 'Kurang ' . $fmtRp($due) : 'Belum bayar')),
+              'canCheckin' => $waiting && intval($b['start_time']) - $now <= BOOKING_CHECKIN_SEC && intval($b['end_time']) > $now,
+              'canPay'     => !$paid,
+              'canStudent' => intval($b['amount_paid']) === 0
+                              && ($b['is_student'] || studentEligible($roomById[$rid], (bool) $b['with_nintendo'], intval($b['start_time']))),
+              'isStudent'  => (bool) $b['is_student'],
+              'canCancel'  => intval($b['end_time']) > $now,
+              'amountPaid' => intval($b['amount_paid']),
+            ];
+          ?>
+          <button type="button" class="sched-bar <?= $state ?>" style="grid-column: <?= $col ?> / span <?= $span ?>"
+                  onclick="openScheduleBooking(<?= jsArg($detail) ?>)">
+            <strong><?= htmlspecialchars($b['customer_name']) ?></strong>
+            <span><?= date('H:i', intval($b['start_time'])) ?>–<?= date('H:i', intval($b['end_time'])) ?> · <?= htmlspecialchars(implode(' · ', $tags)) ?></span>
+          </button>
+        <?php endforeach; ?>
+      </div>
+      <?php endforeach; ?>
+
+      <?php if ($day === date('Y-m-d', $now) && $now > $openTs && $now < $closeTs): ?>
+        <div class="sched-now" style="--pos: <?= round(($now - $openTs) / ($closeTs - $openTs), 4) ?>" title="Sekarang <?= date('H:i', $now) ?>"></div>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <!-- MODAL DETAIL BOOKING DI JADWAL -->
+  <div id="scheduleModal" class="modal-backdrop" style="display:none">
+    <div class="modal-card">
+      <h3 class="panel-title" data-sched="name"></h3>
+      <p class="page-sub" data-sched="sub"></p>
+      <dl class="sched-detail">
+        <dt>Ruangan</dt><dd data-sched="room"></dd>
+        <dt>Jadwal</dt><dd data-sched="time"></dd>
+        <dt>No. HP</dt><dd data-sched="phone"></dd>
+        <dt>Total</dt><dd data-sched="total"></dd>
+        <dt>Dibayar</dt><dd data-sched="paid"></dd>
+        <dt>Status</dt><dd data-sched="status"></dd>
+      </dl>
+      <div class="modal-actions sched-actions" data-sched="actions"></div>
+    </div>
+  </div>
 
   <!-- RIWAYAT BOOKING -->
 <?php elseif ($page === 'riwayat'): ?>
@@ -403,7 +557,11 @@ $offset  = ($pageNum - 1) * $perPage;
         <td class="cell-main"><?= htmlspecialchars($b['customer_name']) ?>
           <span class="cell-sub"><?= htmlspecialchars($b['order_code'] ?? '-') ?> · <?= $b['source'] === 'walkin' ? 'Offline' : 'Online' ?></span>
         </td>
-        <td><?= htmlspecialchars($b['room_title'] ?? '-') ?></td>
+        <td><?= htmlspecialchars($b['room_title'] ?? '-') ?>
+          <?php if ($b['with_nintendo'] || $b['is_student']): ?>
+            <span class="cell-sub"><?= implode(' · ', array_filter([$b['with_nintendo'] ? '+Nintendo' : '', $b['is_student'] ? 'Harga pelajar' : ''])) ?></span>
+          <?php endif; ?>
+        </td>
         <?php $st = intval($b['start_time']); ?>
         <td><?= date(date('Y', $st) === date('Y') ? 'd M' : 'd M Y', $st) ?>
           <span class="cell-sub"><?= date('H:i', intval($b['start_time'])) ?> – <?= date('H:i', intval($b['end_time'])) ?> · <?= intval($b['duration']) ?> jam</span>
@@ -447,7 +605,9 @@ $offset  = ($pageNum - 1) * $perPage;
     $dayEnd = strtotime(date('Y-m-d', $now)) + 24 * 3600;
 
     $curStmt  = $conn->prepare("
-      SELECT id, customer_name, source, start_time, end_time, expires_at, payment_status, total_price, amount_paid FROM bookings
+      SELECT id, customer_name, source, start_time, end_time, expires_at, payment_status, total_price, amount_paid,
+             with_nintendo, is_student
+      FROM bookings
       WHERE room_id = ? AND payment_status <> 'cancelled' AND start_time <= ? AND end_time > ? LIMIT 1
     ");
     $nextStmt = $conn->prepare("
@@ -458,9 +618,12 @@ $offset  = ($pageNum - 1) * $perPage;
 
     $rooms = [];
     $roomOptions = [];
-    $minPrice = [];
     $stat = ['kosong' => 0, 'dipakai' => 0, 'menunggu' => 0, 'service' => 0];
-    $roomRes = mysqli_query($conn, "SELECT id, title, console_type, price, status FROM rooms ORDER BY console_type, id");
+    $roomRes = mysqli_query($conn, "
+      SELECT id, title, tier, console_type, console_model, price, weekend_extra, nintendo_extra, status,
+             " . ROOM_CLASS_SQL . " AS room_class
+      FROM rooms ORDER BY id
+    ");
     while ($r = mysqli_fetch_assoc($roomRes)) {
       $rid = intval($r['id']);
       $curStmt->bind_param("iii", $rid, $now, $now);
@@ -477,20 +640,22 @@ $offset  = ($pageNum - 1) * $perPage;
       if ($r['state'] === 'dipakai' && $r['cur']['expires_at'] !== null) $stat['menunggu']++;
       else $stat[$r['state']]++;
 
-      $ct = $r['console_type'];
       if ($r['status'] === 'available') {
-        $minPrice[$ct] = min($minPrice[$ct] ?? PHP_INT_MAX, intval($r['price']));
-        $roomOptions[] = ['id' => $rid, 'title' => $r['title'], 'console' => $ct,
-                          'price' => intval($r['price']), 'free' => $r['state'] === 'kosong'];
+        $roomOptions[] = ['id' => $rid, 'title' => $r['title'], 'class' => $r['room_class'],
+                          'price' => intval($r['price']), 'weekendExtra' => intval($r['weekend_extra']),
+                          'nintendoExtra' => $r['nintendo_extra'] !== null ? intval($r['nintendo_extra']) : 0,
+                          'free' => $r['state'] === 'kosong'];
       }
       $rooms[] = $r;
     }
     $curStmt->close();
     $nextStmt->close();
 
-    $queueBy = ['PS3' => [], 'PS4' => [], 'PS5' => []];
+    // Kelas ruangan aktif (urut tarif) untuk pilihan walk-in & kolom daftar tunggu
+    $classes = roomClasses($conn);
+    $queueBy = array_fill_keys(array_column($classes, 'room_class'), []);
     $qRes = mysqli_query($conn, "SELECT * FROM booking_queue WHERE status = 'waiting' ORDER BY created_at, id");
-    while ($q = mysqli_fetch_assoc($qRes)) $queueBy[$q['console_type']][] = $q;
+    while ($q = mysqli_fetch_assoc($qRes)) $queueBy[$q['room_class']][] = $q;
     $totalWaiting = array_sum(array_map('count', $queueBy));
 
     $stateLabel = ['kosong' => 'Kosong', 'dipakai' => 'Dipakai', 'service' => 'In Service'];
@@ -522,7 +687,10 @@ $offset  = ($pageNum - 1) * $perPage;
   <div class="booking-grid">
     <div class="panel-card" id="offlinePanel"
          data-rooms="<?= htmlspecialchars(json_encode($roomOptions), ENT_QUOTES) ?>"
-         data-prices="<?= htmlspecialchars(json_encode($minPrice), ENT_QUOTES) ?>">
+         data-classes="<?= htmlspecialchars(json_encode(array_combine(array_column($classes, 'room_class'), array_map(fn($c) => [
+           'price' => intval($c['price']), 'weekendExtra' => intval($c['weekend_extra']),
+           'nintendoExtra' => $c['nintendo_extra'] !== null ? intval($c['nintendo_extra']) : 0,
+         ], $classes))), ENT_QUOTES) ?>">
       <h3 class="panel-title"><?= icon('user') ?> Data Konsumen</h3>
 
       <div class="form-tabs" role="tablist">
@@ -541,24 +709,21 @@ $offset  = ($pageNum - 1) * $perPage;
           <input name="phone" placeholder="08xxxxxxxxxx" inputmode="numeric" pattern="[0-9]{9,14}" maxlength="14" autocomplete="off">
         </label>
 
-        <div class="field">
-          <span>Konsol</span>
-          <div class="console-pick">
-            <?php foreach (QUEUE_CONSOLES as $i => $c): ?>
-              <label class="console-opt c-<?= strtolower($c) ?>">
-                <input type="radio" name="console_type" value="<?= $c ?>" <?= $i === 2 ? 'checked' : '' ?> required>
-                <span><?= $c ?></span>
-              </label>
+        <label class="field">
+          <span>Kelas ruangan</span>
+          <select name="room_class" required>
+            <?php foreach ($classes as $c): ?>
+              <option value="<?= htmlspecialchars($c['room_class']) ?>"><?= htmlspecialchars($c['room_class']) ?> · Rp<?= number_format($c['price'], 0, ',', '.') ?>/jam</option>
             <?php endforeach; ?>
-          </div>
-        </div>
+          </select>
+        </label>
 
         <label class="field">
           <span>Ruangan</span>
           <select name="room_id">
             <option value="0">Otomatis (sesuai urutan)</option>
             <?php foreach ($roomOptions as $o): ?>
-              <option value="<?= $o['id'] ?>" data-console="<?= $o['console'] ?>" <?= $o['free'] ? '' : 'disabled' ?>>
+              <option value="<?= $o['id'] ?>" data-class="<?= htmlspecialchars($o['class']) ?>" <?= $o['free'] ? '' : 'disabled' ?>>
                 <?= htmlspecialchars($o['title']) ?><?= $o['free'] ? '' : ' (dipakai)' ?>
               </option>
             <?php endforeach; ?>
@@ -574,11 +739,16 @@ $offset  = ($pageNum - 1) * $perPage;
           </select>
         </label>
 
+        <div class="check-row">
+          <label class="check-opt" data-nintendo hidden><input type="checkbox" name="nintendo" value="1"> Tambah Nintendo Switch</label>
+          <label class="check-opt"><input type="checkbox" name="student" value="1"> Harga pelajar <em>(Senin-Jumat, cek kartu)</em></label>
+        </div>
+
         <div class="estimate">
           <span>Estimasi biaya</span>
           <strong data-estimate>-</strong>
         </div>
-        <p class="form-note">Mulai sekarang dan langsung ditandai lunas.</p>
+        <p class="form-note">Mulai sekarang dan langsung ditandai lunas. Bila ruangan penuh, konsumen masuk daftar tunggu dengan pilihan Nintendo/pelajar yang sama.</p>
 
         <button type="submit" class="btn-primary"><?= icon('check') ?> Booking Sekarang</button>
       </form>
@@ -621,6 +791,11 @@ $offset  = ($pageNum - 1) * $perPage;
         </label>
         <p class="form-note" data-booked></p>
 
+        <div class="check-row">
+          <label class="check-opt" data-nintendo hidden><input type="checkbox" name="nintendo" value="1"> Tambah Nintendo Switch</label>
+          <label class="check-opt"><input type="checkbox" name="student" value="1"> Harga pelajar <em>(Senin-Jumat, cek kartu)</em></label>
+        </div>
+
         <div class="estimate">
           <span>Estimasi biaya</span>
           <strong data-estimate>-</strong>
@@ -652,10 +827,10 @@ $offset  = ($pageNum - 1) * $perPage;
         ?>
         <div class="room-tile state-<?= $r['state'] ?>">
           <div class="room-tile-head">
-            <span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_type']) ?></span>
+            <span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_model']) ?></span>
             <span class="state-pill"><?= $stateLabel[$r['state']] ?></span>
           </div>
-          <h4><?= htmlspecialchars($r['title']) ?></h4>
+          <h4><?= htmlspecialchars($r['title']) ?> <span class="tier-tag"><?= htmlspecialchars($r['tier']) ?></span></h4>
 
           <?php if ($cur): ?>
             <p class="room-who">
@@ -675,7 +850,7 @@ $offset  = ($pageNum - 1) * $perPage;
             <?php else: ?>
               <div class="progress"><div style="width:<?= $progress ?>%"></div></div>
             <?php endif; ?>
-            <p class="room-meta">Selesai <?= date('H:i', intval($cur['end_time'])) ?> · Rp<?= number_format(intval($cur['total_price']), 0, ',', '.') ?></p>
+            <p class="room-meta">Selesai <?= date('H:i', intval($cur['end_time'])) ?> · Rp<?= number_format(intval($cur['total_price']), 0, ',', '.') ?><?= $cur['with_nintendo'] ? ' · +Nintendo' : '' ?><?= $cur['is_student'] ? ' · Pelajar' : '' ?></p>
           <?php elseif ($r['state'] === 'kosong'): ?>
             <p class="room-meta">Siap dipakai</p>
           <?php else: ?>
@@ -698,6 +873,9 @@ $offset  = ($pageNum - 1) * $perPage;
               <?php endif; ?>
               <?php if ($noShow): ?>
                 <button class="btn-outline" onclick="releaseNoShow(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)">Lepas Ruangan</button>
+              <?php endif; ?>
+              <?php if (intval($cur['amount_paid']) === 0 && ($cur['is_student'] || studentEligible($r, (bool) $cur['with_nintendo'], intval($cur['start_time'])))): ?>
+                <button class="btn-ghost-sm" onclick="toggleStudent(<?= intval($cur['id']) ?>, <?= $cur['is_student'] ? 'true' : 'false' ?>)"><?= $cur['is_student'] ? 'Batal Harga Pelajar' : 'Harga Pelajar' ?></button>
               <?php endif; ?>
               <?php if ($cur['payment_status'] !== 'paid'): ?>
                 <button class="btn-paid" onclick="markPaid(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>, <?= intval($cur['total_price']) - intval($cur['amount_paid']) ?>)">Lunas</button>
@@ -729,7 +907,7 @@ $offset  = ($pageNum - 1) * $perPage;
     <?php foreach ($queueBy as $ct => $list): ?>
     <div class="queue-col">
       <div class="queue-col-head">
-        <span class="console-chip c-<?= strtolower($ct) ?>"><?= $ct ?></span>
+        <span class="class-chip"><?= htmlspecialchars($ct) ?></span>
         <span class="queue-count"><?= count($list) ?> menunggu</span>
       </div>
       <?php if (!$list): ?>
@@ -742,6 +920,7 @@ $offset  = ($pageNum - 1) * $perPage;
           <strong><?= htmlspecialchars($q['customer_name']) ?></strong>
           <span>
             <?= intval($q['duration']) ?> jam · masuk <?= date('H:i', strtotime($q['created_at'])) ?>
+            <?= $q['with_nintendo'] ? ' · +Nintendo' : '' ?><?= $q['is_student'] ? ' · Pelajar' : '' ?>
             · <?= $srcLabel($q['source']) ?>
             <?= $q['phone'] ? ' · ' . htmlspecialchars($q['phone']) : '' ?>
           </span>
@@ -761,60 +940,60 @@ $offset  = ($pageNum - 1) * $perPage;
     $rooms = mysqli_query($conn, "
       SELECT r.*,
         (SELECT COUNT(*) FROM bookings b
-          WHERE b.room_id = r.id AND b.payment_status <> 'cancelled' AND b.end_time > UNIX_TIMESTAMP()) AS upcoming
-      FROM rooms r ORDER BY r.console_type, r.id
+          WHERE b.room_id = r.id AND b.payment_status <> 'cancelled' AND b.end_time > UNIX_TIMESTAMP()) AS upcoming,
+        (SELECT GROUP_CONCAT(rg.game_id) FROM room_games rg WHERE rg.room_id = r.id) AS game_ids
+      FROM rooms r ORDER BY r.id
     ");
+    // Semua game + konsolnya untuk modal "Atur Game"
+    $allGames = mysqli_query($conn, "
+      SELECT g.id, g.title, GROUP_CONCAT(gc.console_type) AS consoles
+      FROM games g LEFT JOIN game_consoles gc ON gc.game_id = g.id
+      GROUP BY g.id ORDER BY g.title
+    ")->fetch_all(MYSQLI_ASSOC);
+    $allGames = array_map(fn($g) => ['id' => intval($g['id']), 'title' => $g['title'],
+      'consoles' => $g['consoles'] ? explode(',', $g['consoles']) : []], $allGames);
+    $catLabel = ['private' => 'Private', 'private_pro' => 'Private Pro', 'public' => 'Public'];
+    $rupiah = fn($n) => 'Rp' . number_format($n, 0, ',', '.');
   ?>
   <div class="page-head">
     <div>
       <h2>Manajemen Room</h2>
-      <p class="page-sub">Tambah ruangan baru atau nonaktifkan ruangan yang sedang perawatan.</p>
+      <p class="page-sub">Harga paket 1-5 jam dan harga pelajar mengikuti pricelist, otomatis dipakai bila tarif per jam ruangan sama dengan tarif paket.</p>
     </div>
+    <button type="button" class="btn-primary" onclick="openEditRoom(null)"><?= icon('check') ?> Tambah Ruangan</button>
   </div>
-
-  <form id="addRoomForm" class="panel-card form-inline">
-    <label class="field">
-      <span>Nama room</span>
-      <input type="text" name="title" placeholder="mis. VIP - Room 4" maxlength="100" required>
-    </label>
-    <label class="field">
-      <span>Konsol</span>
-      <select name="console" required>
-        <option value="">Pilih</option>
-        <?php foreach (QUEUE_CONSOLES as $c): ?>
-          <option value="<?= $c ?>"><?= $c ?></option>
-        <?php endforeach; ?>
-      </select>
-    </label>
-    <label class="field">
-      <span>Harga / jam</span>
-      <input type="number" name="price" placeholder="25000" min="1" required>
-    </label>
-    <label class="field">
-      <span>Keterangan</span>
-      <input type="text" name="description" placeholder="mis. Ruangan 4 orang" maxlength="255">
-    </label>
-    <button type="submit" class="btn-primary"><?= icon('check') ?> Tambah</button>
-  </form>
 
   <div class="table-wrap">
     <table class="users-table">
-      <tr><th>Room</th><th>Konsol</th><th>Harga / jam</th><th>Status</th><th>Aksi</th></tr>
+      <tr><th>Room</th><th>Kategori</th><th>Konsol</th><th>Harga / jam</th><th>Game</th><th>Status</th><th class="col-actions">Aksi</th></tr>
       <?php if (mysqli_num_rows($rooms) === 0): ?>
-        <tr><td colspan="5" class="empty-row">Belum ada ruangan.</td></tr>
+        <tr><td colspan="7" class="empty-row">Belum ada ruangan.</td></tr>
       <?php endif; ?>
       <?php while($r = mysqli_fetch_assoc($rooms)): ?>
       <?php $active = $r['status'] === 'available'; ?>
       <tr>
-        <td class="cell-main wrap-cell"><?= htmlspecialchars($r['title']) ?>
-          <?php if ($r['description']): ?><span class="cell-sub"><?= htmlspecialchars($r['description']) ?></span><?php endif; ?>
+        <td class="cell-main wrap-cell"><?= htmlspecialchars($r['title']) ?> <span class="tier-tag"><?= htmlspecialchars($r['tier']) ?></span>
+          <span class="cell-sub">Maks <?= intval($r['max_players']) ?> pemain<?= $r['has_netflix'] ? ' · Netflix' : '' ?></span>
         </td>
-        <td><span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_type']) ?></span></td>
-        <td>Rp<?= number_format($r['price'], 0, ',', '.') ?></td>
+        <td><?= $catLabel[$r['category']] ?? htmlspecialchars($r['category']) ?></td>
+        <td><span class="console-chip c-<?= strtolower(htmlspecialchars($r['console_type'])) ?>"><?= htmlspecialchars($r['console_model']) ?></span></td>
+        <td><?= $rupiah($r['price']) ?>
+          <span class="cell-sub">Weekend +<?= $rupiah($r['weekend_extra']) ?><?= $r['nintendo_extra'] !== null ? '<br>Nintendo +' . $rupiah($r['nintendo_extra']) : '' ?></span>
+        </td>
+        <?php $roomGameIds = $r['game_ids'] ? array_map('intval', explode(',', $r['game_ids'])) : []; ?>
+        <td class="col-games">
+          <?= $roomGameIds ? count($roomGameIds) . ' game' : '<span class="muted-dash">Semua ' . htmlspecialchars($r['console_type'] === 'SWITCH' ? 'Switch' : $r['console_type']) . '</span>' ?>
+          <button class="link-btn col-actions" onclick="openRoomGames(<?= jsArg(['id' => intval($r['id']), 'title' => $r['title'], 'console_type' => $r['console_type'], 'game_ids' => $roomGameIds]) ?>)">Atur</button>
+        </td>
         <td><span class="pay-badge <?= $active ? 'pay-paid' : 'pay-unpaid' ?>"><?= $active ? 'Aktif' : 'Perawatan' ?></span></td>
-        <td>
+        <td class="col-actions">
           <div class="row-actions">
-            <button class="btn-ghost-sm" onclick="openEditRoom(<?= jsArg(['id' => intval($r['id']), 'title' => $r['title'], 'console_type' => $r['console_type'], 'price' => intval($r['price']), 'description' => $r['description']]) ?>)">Edit</button>
+            <button class="btn-ghost-sm" onclick="openEditRoom(<?= jsArg([
+              'id' => intval($r['id']), 'title' => $r['title'], 'category' => $r['category'], 'tier' => $r['tier'],
+              'console_type' => $r['console_type'], 'console_model' => $r['console_model'], 'price' => intval($r['price']),
+              'weekend_extra' => intval($r['weekend_extra']), 'nintendo_extra' => $r['nintendo_extra'] !== null ? intval($r['nintendo_extra']) : '',
+              'max_players' => intval($r['max_players']), 'has_netflix' => (bool) $r['has_netflix'], 'description' => $r['description'],
+            ]) ?>)">Edit</button>
             <button class="<?= $active ? 'btn-warn-sm' : 'btn-ghost-sm' ?>" onclick="toggleRoom(<?= intval($r['id']) ?>, <?= jsArg($r['title']) ?>, <?= $active ? 'true' : 'false' ?>, <?= intval($r['upcoming']) ?>)"><?= $active ? 'Set Perawatan' : 'Aktifkan' ?></button>
           </div>
         </td>
@@ -823,21 +1002,66 @@ $offset  = ($pageNum - 1) * $perPage;
     </table>
   </div>
 
-  <!-- MODAL EDIT RUANGAN -->
+  <!-- MODAL GAME PER RUANGAN -->
+  <div id="roomGamesModal" class="modal-backdrop" style="display:none">
+    <form id="roomGamesForm" class="modal-card" data-games="<?= htmlspecialchars(json_encode($allGames), ENT_QUOTES) ?>">
+      <h3 class="panel-title" data-room-games-title>Game di Ruangan</h3>
+      <p class="page-sub">Centang game yang terpasang di ruangan ini. Jika tidak ada yang dicentang, website menampilkan semua game untuk konsol ruangan.</p>
+      <input type="hidden" name="id">
+      <div class="room-games-tools">
+        <input type="search" placeholder="Cari game..." data-room-games-search>
+        <button type="button" class="btn-ghost-sm" data-room-games-all>Pilih semua</button>
+        <button type="button" class="btn-ghost-sm" data-room-games-none>Kosongkan</button>
+      </div>
+      <p class="form-note" data-room-games-count></p>
+      <div class="room-games-list" data-room-games-list></div>
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary">Simpan</button>
+        <button type="button" class="btn-ghost-sm" onclick="closeEditModal('roomGamesModal')">Batal</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- MODAL TAMBAH / EDIT RUANGAN -->
   <div id="editRoomModal" class="modal-backdrop" style="display:none">
     <form id="editRoomForm" class="modal-card">
-      <h3 class="panel-title">Edit Ruangan</h3>
+      <h3 class="panel-title" data-room-modal-title>Edit Ruangan</h3>
       <p class="page-sub">Harga baru hanya berlaku untuk booking berikutnya.</p>
       <input type="hidden" name="id">
-      <label class="field"><span>Nama room</span><input name="title" maxlength="100" required></label>
+      <div class="field-row">
+        <label class="field"><span>Nama room</span><input name="title" maxlength="100" placeholder="mis. Room 14" required></label>
+        <label class="field"><span>Maks pemain</span><input type="number" name="max_players" min="1" max="8" value="2" required></label>
+      </div>
       <div class="field-row">
         <label class="field">
-          <span>Konsol</span>
-          <select name="console" required>
-            <?php foreach (QUEUE_CONSOLES as $c): ?><option value="<?= $c ?>"><?= $c ?></option><?php endforeach; ?>
+          <span>Kategori</span>
+          <select name="category" required>
+            <?php foreach ($catLabel as $val => $lbl): ?><option value="<?= $val ?>"><?= $lbl ?></option><?php endforeach; ?>
           </select>
         </label>
+        <label class="field">
+          <span>Kelas</span>
+          <select name="tier" required>
+            <option value="VVIP">VVIP</option><option value="VIP">VIP</option><option value="Public">Public</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>Jenis konsol</span>
+          <select name="console" required>
+            <option value="PS4">PS4</option><option value="PS5">PS5</option><option value="SWITCH">Nintendo Switch</option>
+          </select>
+        </label>
+        <label class="field"><span>Model konsol</span><input name="console_model" maxlength="30" placeholder="mis. PS5 Pro" required></label>
+      </div>
+      <div class="field-row">
         <label class="field"><span>Harga / jam</span><input type="number" name="price" min="1" required></label>
+        <label class="field"><span>Tambahan weekend / jam</span><input type="number" name="weekend_extra" min="0" value="0" required></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span>Tambahan Nintendo / jam <em>(kosongkan jika tidak ada)</em></span><input type="number" name="nintendo_extra" min="1"></label>
+        <label class="field check-field"><span>Netflix</span><span class="check-opt"><input type="checkbox" name="has_netflix" value="1"> Tersedia</span></label>
       </div>
       <label class="field"><span>Keterangan</span><input name="description" maxlength="255"></label>
       <div class="modal-actions">
@@ -881,6 +1105,7 @@ $offset  = ($pageNum - 1) * $perPage;
               <button class="btn-ghost-sm" onclick="toggleRole(<?= intval($u['id']) ?>, <?= jsArg($u['username']) ?>)">
                 <?= $rowIsAdmin ? 'Jadikan User' : 'Jadikan Admin' ?>
               </button>
+              <button class="btn-ghost-sm" onclick="resetUserPassword(<?= intval($u['id']) ?>, <?= jsArg($u['username']) ?>)">Reset Password</button>
             <?php endif; ?>
           </div>
         </td>
@@ -940,8 +1165,8 @@ $games = mysqli_query($conn, "
     <div class="field">
       <span>Konsol</span>
       <div class="checkbox-group">
-        <?php foreach (QUEUE_CONSOLES as $c): ?>
-          <label><input type="checkbox" name="consoles[]" value="<?= $c ?>"> <?= $c ?></label>
+        <?php foreach (CONSOLE_TYPES as $c): ?>
+          <label><input type="checkbox" name="consoles[]" value="<?= $c ?>"> <?= $c === 'SWITCH' ? 'Switch' : $c ?></label>
         <?php endforeach; ?>
       </div>
     </div>
@@ -972,7 +1197,7 @@ $games = mysqli_query($conn, "
         <td>
           <div class="chip-row">
             <?php foreach ($consolesArr as $c): ?>
-              <span class="console-chip c-<?= strtolower(htmlspecialchars($c)) ?>"><?= htmlspecialchars($c) ?></span>
+              <span class="console-chip c-<?= strtolower(htmlspecialchars($c)) ?>"><?= $c === 'SWITCH' ? 'Switch' : htmlspecialchars($c) ?></span>
             <?php endforeach; ?>
             <?php if (!$consolesArr): ?><span class="muted-dash">—</span><?php endif; ?>
           </div>
@@ -996,9 +1221,9 @@ $games = mysqli_query($conn, "
     <p id="editGameTitle" class="page-sub"></p>
     <input type="hidden" id="editGameId">
     <div class="modal-chips">
-      <?php foreach (['PS3' => 'rgba(255,107,107,0.5)', 'PS4' => 'rgba(77,166,255,0.5)', 'PS5' => 'rgba(178,107,255,0.5)'] as $c => $border): ?>
+      <?php foreach (['PS4' => 'rgba(77,166,255,0.5)', 'PS5' => 'rgba(178,107,255,0.5)', 'SWITCH' => 'rgba(255,107,107,0.5)'] as $c => $border): ?>
         <label id="editLabel<?= $c ?>" class="modal-chip" style="border-color:<?= $border ?>">
-          <input type="checkbox" id="edit<?= $c ?>" value="<?= $c ?>" hidden> <?= $c ?>
+          <input type="checkbox" id="edit<?= $c ?>" value="<?= $c ?>" hidden> <?= $c === 'SWITCH' ? 'Switch' : $c ?>
         </label>
       <?php endforeach; ?>
     </div>
@@ -1047,8 +1272,8 @@ $orders = mysqli_query($conn, "
       <tr><td colspan="8" class="empty-row">Belum ada pesanan.</td></tr>
     <?php endif; ?>
     <?php while ($o = mysqli_fetch_assoc($orders)): ?>
-    <?php $isDone = $o['status'] === 'selesai'; ?>
-    <tr class="<?= $isDone ? 'row-done' : '' ?>">
+    <?php $isDone = $o['status'] === 'selesai'; $isVoid = $o['status'] === 'batal'; ?>
+    <tr class="<?= $isDone ? 'row-done' : ($isVoid ? 'row-cancelled' : '') ?>">
       <td class="cell-main"><?= htmlspecialchars($o['username']) ?>
         <span class="cell-sub"><?= $o['room_title'] ? 'Antar ke ' . htmlspecialchars($o['room_title']) . ' · ' . htmlspecialchars($o['order_code'] ?? '') : 'Ambil di kasir' ?></span>
       </td>
@@ -1058,12 +1283,13 @@ $orders = mysqli_query($conn, "
       <td class="wrap-cell"><?= $o['note'] ? htmlspecialchars($o['note']) : '<span class="muted-dash">—</span>' ?></td>
       <td><?= date('d M H:i', strtotime($o['created_at'])) ?></td>
       <td>
-        <span class="pay-badge <?= $isDone ? 'pay-paid' : 'pay-unpaid' ?>"><?= $isDone ? 'Selesai' : 'Diproses' ?></span>
+        <span class="pay-badge <?= $isDone ? 'pay-paid' : ($isVoid ? 'pay-cancelled' : 'pay-unpaid') ?>"><?= $isDone ? 'Selesai' : ($isVoid ? 'Dibatalkan' : 'Diproses') ?></span>
       </td>
       <td>
         <div class="row-actions">
-          <?php if (!$isDone): ?>
+          <?php if (!$isDone && !$isVoid): ?>
             <button class="btn-paid-sm" onclick="markOrderDone(<?= intval($o['id']) ?>)"><?= icon('check') ?> Sudah Sampai</button>
+            <button class="btn-icon" title="Batalkan pesanan" aria-label="Batalkan pesanan" onclick="cancelMenuOrder(<?= intval($o['id']) ?>, <?= jsArg($o['item_name']) ?>)"><?= icon('x') ?></button>
           <?php else: ?>
             <span class="muted-dash">—</span>
           <?php endif; ?>
@@ -1087,6 +1313,7 @@ $orders = mysqli_query($conn, "
         <select name="category" required>
           <option value="">Pilih</option>
           <option value="makanan">Makanan</option>
+          <option value="snack">Snack</option>
           <option value="minuman">Minuman</option>
         </select>
       </label>
@@ -1150,6 +1377,7 @@ $orders = mysqli_query($conn, "
         <span>Kategori</span>
         <select name="category" required>
           <option value="makanan">Makanan</option>
+          <option value="snack">Snack</option>
           <option value="minuman">Minuman</option>
         </select>
       </label>

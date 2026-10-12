@@ -61,6 +61,7 @@ $res = createBooking($conn, [
   'email'          => $email,
   'phone'          => $phone,
   'user_id'        => $userId,
+  'with_nintendo'  => !empty($_POST['nintendo']),
   'source'         => 'online',
   'payment_status' => 'unpaid',
   // Wajib lapor ke kasir paling lambat 15 menit setelah jam mulai

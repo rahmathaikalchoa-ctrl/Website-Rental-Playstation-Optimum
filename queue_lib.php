@@ -1,11 +1,40 @@
 <?php
-// Antrian FIFO gabungan (online + walk-in) untuk "main sekarang", per tipe konsol.
+// Antrian FIFO gabungan (online + walk-in) untuk "main sekarang", per kelas ruangan
+// (mis. "VIP PS5", "Public PS4 Slim") supaya konsumen dapat ruangan sesuai harga yang dipilih.
 // Reservasi terjadwal (apikr.php) tetap prioritas di jamnya: antrian hanya
 // mendapat ruangan yang kosong mulai sekarang sampai durasi selesai.
 
 require_once __DIR__ . '/booking_lib.php';
 
-const QUEUE_CONSOLES = ['PS3', 'PS4', 'PS5'];
+// Jenis konsol utama ruangan & game
+const CONSOLE_TYPES = ['PS4', 'PS5', 'SWITCH'];
+
+// Kelas ruangan = tier + model konsol, dipakai sebagai kelompok antrian
+const ROOM_CLASS_SQL = "CONCAT(tier, ' ', console_model)";
+
+// Daftar kelas ruangan aktif + tarif termurahnya, urut dari yang termurah.
+// nintendo_extra = tambahan Nintendo termurah di kelas itu (NULL = tidak ada ruangan yang bisa)
+function roomClasses($conn) {
+  return $conn->query("
+    SELECT " . ROOM_CLASS_SQL . " AS room_class, MIN(price) AS price, COUNT(*) AS rooms,
+           MAX(weekend_extra) AS weekend_extra, MIN(nintendo_extra) AS nintendo_extra
+    FROM rooms WHERE status = 'available'
+    GROUP BY room_class ORDER BY price, room_class
+  ")->fetch_all(MYSQLI_ASSOC);
+}
+
+// Validasi pilihan Nintendo/pelajar untuk antrian kelas $class. Return pesan error atau null.
+function queueOptionError($conn, $class, $withNintendo, $isStudent) {
+  $info = null;
+  foreach (roomClasses($conn) as $c) if ($c['room_class'] === $class) $info = $c;
+  if (!$info) return "Kelas ruangan tidak valid";
+  if ($withNintendo && $info['nintendo_extra'] === null) return "Kelas $class tidak menyediakan tambahan Nintendo Switch";
+  // Harga pelajar dicek memakai tarif kelas (hari kerja & tarif ada di Paket Pelajar)
+  if ($isStudent && !studentEligible($info, $withNintendo, time())) {
+    return "Harga pelajar hanya untuk hari Senin-Jumat dan kelas ruangan yang ada di Paket Pelajar";
+  }
+  return null;
+}
 
 // Assign antrian terdepan ke ruangan kosong. Return jumlah antrian yang di-assign.
 function processQueue($conn, $now = null) {
@@ -18,7 +47,7 @@ function processQueue($conn, $now = null) {
     $conn->begin_transaction();
 
     // Kunci semua room (urut id) supaya serial dengan apikr.php & extend_booking.php
-    $rooms = $conn->query("SELECT id, console_type, price, status FROM rooms ORDER BY id FOR UPDATE")
+    $rooms = $conn->query("SELECT id, " . ROOM_CLASS_SQL . " AS room_class, price, weekend_extra, nintendo_extra, status FROM rooms ORDER BY id FOR UPDATE")
                   ->fetch_all(MYSQLI_ASSOC);
 
     // Konsumen yang tidak lapor ke kasir sampai batas check-in: ruangan bebas lagi
@@ -49,26 +78,30 @@ function processQueue($conn, $now = null) {
     ");
     $insert = $conn->prepare("
       INSERT INTO bookings
-      (customer_name, phone, room_id, duration, start_time, end_time, user_id, total_price, amount_paid, payment_status, source, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (customer_name, phone, room_id, duration, with_nintendo, is_student, start_time, end_time, user_id, total_price, amount_paid, payment_status, source, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $setCode = $conn->prepare("UPDATE bookings SET order_code = ? WHERE id = ?");
     $markQ   = $conn->prepare("UPDATE booking_queue SET status = 'assigned', booking_id = ?, assigned_at = NOW() WHERE id = ?");
 
-    // FIFO ketat per konsol: kalau antrian terdepan belum dapat ruangan,
-    // antrian di belakangnya (konsol sama) tidak boleh menyalip.
+    // FIFO ketat per kelas: kalau antrian terdepan belum dapat ruangan,
+    // antrian di belakangnya (kelas sama) tidak boleh menyalip. Antrian dengan
+    // tambahan Nintendo hanya mendapat ruangan yang menyediakan Nintendo.
     $blocked = [];
 
     foreach ($queue as $q) {
-      $ct = $q['console_type'];
+      $ct = $q['room_class'];
       if (isset($blocked[$ct])) continue;
 
       $duration = intval($q['duration']);
       $end = $now + $duration * 3600;
+      $withN   = (bool) $q['with_nintendo'];
+      $student = (bool) $q['is_student'];
 
       $room = null;
       foreach ($rooms as $r) {
-        if ($r['console_type'] !== $ct || $r['status'] !== 'available') continue;
+        if ($r['room_class'] !== $ct || $r['status'] !== 'available') continue;
+        if ($withN && $r['nintendo_extra'] === null) continue;
         $rid = intval($r['id']);
         $conflict->bind_param("iii", $rid, $end, $now);
         $conflict->execute();
@@ -78,7 +111,11 @@ function processQueue($conn, $now = null) {
       if (!$room) { $blocked[$ct] = true; continue; }
 
       $roomId  = intval($room['id']);
-      $price   = intval($room['price']) * $duration;
+      // Harga pelajar hanya berlaku bila ruangan yang didapat memang masuk Paket Pelajar
+      $student = $student && studentEligible($room, $withN, $now);
+      $price   = bookingPrice($room, $duration, $now, $withN, $student);
+      $nFlag   = $withN ? 1 : 0;
+      $sFlag   = $student ? 1 : 0;
       $isWalk  = $q['source'] === 'walkin';
       $payStat = $isWalk ? 'paid' : 'unpaid';
       $paidAt  = $isWalk ? $now : null;
@@ -88,8 +125,8 @@ function processQueue($conn, $now = null) {
       $source  = $q['source'];
 
       $amountPaid = $isWalk ? $price : 0;
-      $insert->bind_param("ssiiiiiiissi",
-        $q['customer_name'], $q['phone'], $roomId, $duration, $now, $end,
+      $insert->bind_param("ssiiiiiiiiissi",
+        $q['customer_name'], $q['phone'], $roomId, $duration, $nFlag, $sFlag, $now, $end,
         $userId, $price, $amountPaid, $payStat, $source, $expires
       );
       $insert->execute();
@@ -122,15 +159,15 @@ function processQueue($conn, $now = null) {
   return $assigned;
 }
 
-// Posisi dalam antrian konsol yang sama (1 = terdepan)
+// Posisi dalam antrian kelas yang sama (1 = terdepan)
 function queuePosition($conn, $entry) {
   $stmt = $conn->prepare("
     SELECT COUNT(*) AS n FROM booking_queue
-    WHERE status = 'waiting' AND console_type = ?
+    WHERE status = 'waiting' AND room_class = ?
       AND (created_at < ? OR (created_at = ? AND id < ?))
   ");
   $id = intval($entry['id']);
-  $stmt->bind_param("sssi", $entry['console_type'], $entry['created_at'], $entry['created_at'], $id);
+  $stmt->bind_param("sssi", $entry['room_class'], $entry['created_at'], $entry['created_at'], $id);
   $stmt->execute();
   $n = intval($stmt->get_result()->fetch_assoc()['n']);
   $stmt->close();
