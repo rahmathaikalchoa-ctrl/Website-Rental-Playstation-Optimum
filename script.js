@@ -333,9 +333,17 @@ document.addEventListener("DOMContentLoaded", () => {
     rightBox.appendChild(btnBook);
     meta.appendChild(rightBox);
 
+    // rundown hari ini: jadwal di kiri, status di kanan
+    const rd = document.createElement("div");
+    rd.className = "room-rundown";
+    rd.dataset.rdCard = room.id;
+    rd.innerHTML = `<span class="rr-time">--:--</span><span class="rr-status"></span>`;
+    fillCardRundown(rd);
+
     body.appendChild(h);
     body.appendChild(spec);
     body.appendChild(p);
+    body.appendChild(rd);
     body.appendChild(meta);
     card.appendChild(media);
     card.appendChild(body);
@@ -2698,7 +2706,7 @@ function showView(v, keepScroll = false) {
   if (target) target.style.display = "block";
 
   if (v === "booking") refreshQueue();
-  if (v === "consoles") loadRundown();
+  if (v === "consoles" || v === "home") loadCardRundowns();
   setActiveNav(v);
 
   // reset scroll (kecuali reload halaman yg sama)
@@ -2864,153 +2872,60 @@ function syncQueueNintendo() {
   document.addEventListener("DOMContentLoaded", refreshQueue);
 })();
 
-
-// ===== RUNDOWN RUANGAN (bisa diliat tanpa login) =====
-// jam terisi semua ruangan per tanggal dari schedule_api.php, bagian kosong bisa diketuk buat pesan
-const rundown = { date: null, tier: "Semua", data: null, req: 0 };
-const RUNDOWN_TIERS = { "Semua": null, "VVIP": "VVIP", "VIP": "VIP", "Area Public": "Public" };
-
-function rundownDays() {
-  return ["Hari ini", "Besok", "Lusa"].map((label, i) => {
-    const noon = wibDayStart() + i * 86400 + 12 * 3600;
-    return { label, iso: wibISODate(noon) };
-  });
-}
+// ===== RUNDOWN DI KARTU RUANGAN =====
+// jadwal hari ini per ruangan dari schedule_api.php (publik), kiri jam terisi, kanan status
+let rundownCache = null;
 
 function rdTime(ts) {
   return new Date(ts * 1000).toLocaleTimeString("id-ID", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
 }
 
-function loadRundown() {
-  const grid = $("rundownGrid");
-  if (!grid) return;
-  const days = rundownDays();
-  // tanggal basi (lewat tengah malam) balik ke hari ini
-  if (!days.some((d) => d.iso === rundown.date)) rundown.date = days[0].iso;
-  const req = ++rundown.req;
-  fetch(`schedule_api.php?date=${rundown.date}`, { cache: "no-store" })
+function loadCardRundowns() {
+  fetch("schedule_api.php", { cache: "no-store" })
     .then((r) => r.json())
     .then((r) => {
-      if (req !== rundown.req) return;
-      if (r.status !== "ok") throw new Error(r.message);
+      if (r.status !== "ok") return;
       syncServerClock(r.now);
-      rundown.data = r;
-      renderRundown();
+      rundownCache = r;
+      document.querySelectorAll("[data-rd-card]").forEach(fillCardRundown);
     })
-    .catch(() => {
-      if (req !== rundown.req) return;
-      $("rundownSummary").textContent = "Gagal memuat jadwal. Coba muat ulang halaman.";
-    });
+    .catch(() => {});
 }
 
-// status singkat: kondisi sekarang (hari ini) atau total jam terisi (hari lain)
-function rundownRoomStatus(room, slots, d, isToday) {
-  if (room.maintenance) return { text: "Perawatan", cls: "rd-st-off" };
-  if (isToday) {
-    const now = d.now;
-    if (now >= d.close) return { text: "Sudah tutup", cls: "" };
-    const cur = slots.find((s) => s.start <= now && s.end > now);
-    if (cur) return { text: `${cur.playing ? "Dipakai" : "Dipesan"} s/d ${rdTime(cur.end)}`, cls: cur.playing ? "rd-st-playing" : "rd-st-booked" };
-    const next = slots.find((s) => s.start > now);
-    return { text: next ? `Kosong s/d ${rdTime(next.start)}` : "Kosong sampai tutup", cls: "rd-st-free" };
+function fillCardRundown(el) {
+  const d = rundownCache;
+  if (!d || !el) return;
+  const id = Number(el.dataset.rdCard);
+  const room = d.rooms.find((r) => r.id === id);
+  const slots = d.slots.filter((s) => s.room_id === id);
+  const now = d.now;
+  const cur = slots.find((s) => s.start <= now && s.end > now);
+  const later = slots.filter((s) => s.start > now);
+  let time = "--:--", status = "Kosong", cls = "rr-free";
+
+  if (room?.maintenance) { status = "Perawatan"; cls = "rr-off"; }
+  else if (now >= d.close) { status = "Tutup"; cls = "rr-off"; }
+  else if (cur) {
+    time = `${rdTime(cur.start)}–${rdTime(cur.end)}`;
+    status = cur.playing ? "Dipakai" : "Dipesan";
+    cls = cur.playing ? "rr-playing" : "rr-booked";
+  } else if (later.length) {
+    // kosong sekarang, tampilin jadwal terdekat
+    time = `${rdTime(later[0].start)}–${rdTime(later[0].end)}`;
   }
-  const busy = slots.reduce((sum, s) => sum + (Math.min(s.end, d.close) - Math.max(s.start, d.open)), 0) / 3600;
-  return busy > 0 ? { text: `Terisi ${Math.round(busy * 10) / 10} jam`, cls: "rd-st-booked" } : { text: "Kosong seharian", cls: "rd-st-free" };
+  const more = (cur ? later.length : later.length - 1);
+  el.querySelector(".rr-time").textContent = time + (more > 0 ? ` +${more}` : "");
+  el.querySelector(".rr-time").title = slots.length
+    ? "Jadwal hari ini: " + slots.map((s) => `${rdTime(s.start)}–${rdTime(s.end)}`).join(", ")
+    : "Belum ada jadwal hari ini";
+  const st = el.querySelector(".rr-status");
+  st.textContent = status;
+  st.className = `rr-status ${cls}`;
 }
 
-function renderRundown() {
-  const d = rundown.data;
-  const grid = $("rundownGrid");
-  if (!d || !grid) return;
-  const days = rundownDays();
-  const isToday = d.date === days[0].iso;
-  const span = d.close - d.open;
-  const pct = (ts) => Math.max(0, Math.min(100, ((ts - d.open) / span) * 100));
-
-  $("rundownDays").innerHTML = days.map((x) =>
-    `<button type="button" class="genre-btn${x.iso === d.date ? " active" : ""}" data-rd-day="${x.iso}">${x.label}</button>`).join("");
-  $("rundownTiers").innerHTML = Object.keys(RUNDOWN_TIERS).map((t) =>
-    `<button type="button" class="genre-btn${t === rundown.tier ? " active" : ""}" data-rd-tier="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join("");
-
-  const tier = RUNDOWN_TIERS[rundown.tier];
-  const rooms = d.rooms.filter((r) => !tier || r.tier === tier);
-  const byRoom = (id) => d.slots.filter((s) => s.room_id === id);
-
-  // ringkasan
-  const dateLabel = new Date((d.open) * 1000).toLocaleDateString("id-ID", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
-  if (isToday && d.now < d.close) {
-    let free = 0, used = 0, off = 0;
-    d.rooms.forEach((r) => {
-      if (r.maintenance) off++;
-      else if (byRoom(r.id).some((s) => s.start <= d.now && s.end > d.now)) used++;
-      else free++;
-    });
-    $("rundownSummary").innerHTML = `${escapeHtml(dateLabel)}, jam ${rdTime(d.now)}: <strong>${free} ruangan kosong</strong>, ${used} terisi${off ? `, ${off} perawatan` : ""}.`;
-  } else {
-    $("rundownSummary").textContent = `${dateLabel}${isToday ? " · sudah tutup" : ""} · ${d.slots.length} reservasi tercatat.`;
-  }
-
-  // header jam 10:00 - 22:00
-  let head = "";
-  for (let t = d.open; t <= d.close; t += 3600) {
-    const edge = t === d.open ? " rd-hour-first" : t === d.close ? " rd-hour-last" : "";
-    head += `<span class="rd-hour${edge}" style="left:${pct(t)}%">${rdTime(t).slice(0, 2)}</span>`;
-  }
-  const nowLine = isToday && d.now > d.open && d.now < d.close ? `<i class="rd-now" style="left:${pct(d.now)}%"></i>` : "";
-  const past = isToday && d.now > d.open ? `<i class="rd-past" style="width:${pct(d.now)}%"></i>` : "";
-
-  grid.innerHTML = `<div class="rd-row rd-row-head"><div class="rd-name"></div><div class="rd-track rd-track-head">${head}</div></div>`
-    + (rooms.length ? rooms.map((room) => {
-      const slots = byRoom(room.id);
-      const st = rundownRoomStatus(room, slots, d, isToday);
-      const blocks = room.maintenance ? `<i class="rd-block rd-off" style="left:0;width:100%"><span>Perawatan</span></i>`
-        : slots.map((s) => {
-          const left = pct(s.start), width = pct(s.end) - left;
-          const label = `${rdTime(s.start)}–${rdTime(s.end)}`;
-          return `<i class="rd-block ${s.playing ? "rd-playing" : "rd-booked"}" style="left:${left}%;width:${width}%" title="${label}">${width > 10 ? `<span>${label}</span>` : ""}</i>`;
-        }).join("");
-      return `
-        <div class="rd-row">
-          <div class="rd-name"><strong>${escapeHtml(room.title)}</strong><span class="${st.cls}">${escapeHtml(st.text)}</span></div>
-          <div class="rd-track${room.maintenance ? "" : " rd-clickable"}" data-rd-room="${room.id}">${past}${blocks}${nowLine}</div>
-        </div>`;
-    }).join("") : `<p class="muted small" style="padding:12px">Tidak ada ruangan untuk tipe ini.</p>`);
-}
-
-document.addEventListener("click", (e) => {
-  const day = e.target.closest("[data-rd-day]");
-  if (day) { rundown.date = day.dataset.rdDay; loadRundown(); return; }
-  const tier = e.target.closest("[data-rd-tier]");
-  if (tier) { rundown.tier = tier.dataset.rdTier; renderRundown(); return; }
-
-  // ketuk bagian kosong: pesan mulai jam itu (bulat ke 30 menit)
-  const track = e.target.closest(".rd-clickable");
-  const d = rundown.data;
-  if (!track || !d) return;
-  const roomId = Number(track.dataset.rdRoom);
-  const rect = track.getBoundingClientRect();
-  const at = d.open + ((e.clientX - rect.left) / rect.width) * (d.close - d.open);
-  const hint = document.querySelector(".rundown-hint");
-  const slots = d.slots.filter((s) => s.room_id === roomId);
-  const hit = slots.find((s) => s.start <= at && s.end > at);
-  const room = d.rooms.find((r) => r.id === roomId);
-  if (hit) {
-    hint.textContent = `${room.title} terisi ${rdTime(hit.start)}–${rdTime(hit.end)}. Pilih bagian yang kosong.`;
-    return;
-  }
-  let start = d.open + Math.floor((at - d.open) / SLOT_SEC) * SLOT_SEC;
-  if (start <= nowSec()) start = d.open + Math.ceil((nowSec() - d.open) / SLOT_SEC) * SLOT_SEC;
-  const next = slots.find((s) => s.start >= start);
-  const freeUntil = Math.min(next ? next.start : d.close, d.close);
-  const hours = Math.min(2, Math.floor((freeUntil - start) / 3600));
-  if (start + 3600 > d.close || hours < 1) {
-    hint.textContent = `${room.title}: tidak ada sisa waktu kosong minimal 1 jam di situ. Pilih bagian lain.`;
-    return;
-  }
-  prefillBooking({ roomId, date: d.date, time: secToHHMM(start - wibDayStart(start)), duration: hours, nintendo: false });
-});
-
-// update berkala selama halaman Ruangan kebuka
+document.addEventListener("DOMContentLoaded", loadCardRundowns);
+// update tiap menit selama Beranda / Ruangan kebuka
 setInterval(() => {
-  if ($("view-consoles")?.style.display === "block" && !document.hidden) loadRundown();
+  const open = ["view-home", "view-consoles"].some((v) => $(v)?.style.display !== "none");
+  if (open && !document.hidden) loadCardRundowns();
 }, 60000);

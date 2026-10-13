@@ -1370,50 +1370,16 @@ p .field-hint { display: inline; margin-left: 4px; }
 }
 .bcheck em { font-style: normal; }
 
-/* ===== RUNDOWN RUANGAN ===== */
-.rundown-card { margin-top: 16px; }
-.rundown-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.rundown-head .bsection-title { margin-bottom: 4px; }
-.rundown-days, .rundown-tiers { display: flex; flex-wrap: wrap; gap: 6px; }
-.rundown-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
-.rundown-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.78rem; color: var(--muted); }
-.rundown-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.rd-key { width: 14px; height: 10px; border-radius: 3px; display: inline-block; }
-.rd-free { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); }
-.rundown-scroll { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06); }
-.rundown-grid { min-width: 760px; }
-.rd-row { display: grid; grid-template-columns: 130px 1fr; border-top: 1px solid rgba(255, 255, 255, 0.05); }
-.rd-row-head { border-top: 0; }
-.rd-name {
-  position: sticky; left: 0; z-index: 2; background: var(--panel);
-  padding: 7px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+/* ===== RUNDOWN DI KARTU RUANGAN ===== */
+.room-rundown {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin: 8px 0 10px; padding: 7px 10px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.82rem;
 }
-.rd-name span { font-size: 0.72rem; color: var(--muted); }
-.rd-track {
-  position: relative; min-height: 42px;
-  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px calc(100% / 12));
-}
-.rd-track-head { min-height: 26px; background: none; }
-.rd-clickable { cursor: pointer; }
-.rd-clickable:hover { background-color: rgba(0, 234, 255, 0.04); }
-.rd-hour { position: absolute; top: 6px; transform: translateX(-50%); font-size: 0.72rem; color: var(--muted); }
-.rd-hour-first { transform: none; padding-left: 4px; }
-.rd-hour-last { transform: translateX(-100%); padding-right: 4px; }
-.rd-block {
-  position: absolute; top: 7px; bottom: 7px; border-radius: 6px; overflow: hidden;
-  display: flex; align-items: center; justify-content: center; font-style: normal;
-  font-size: 0.7rem; font-weight: 600; white-space: nowrap; color: #0b0d12;
-}
-.rd-booked { background: #ffcf66; }
-.rd-playing { background: #ff6b6b; }
-.rd-off { background: repeating-linear-gradient(45deg, #3a3f4b 0 6px, #2c3039 6px 12px); color: var(--muted); }
-.rd-past { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(0, 0, 0, 0.35); }
-.rd-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--neon); box-shadow: 0 0 6px var(--neon); z-index: 1; }
-.rd-st-free { color: var(--neon-green) !important; }
-.rd-st-booked { color: #ffcf66 !important; }
-.rd-st-playing { color: #ff6b6b !important; }
-.rundown-hint { margin-top: 8px; }
-@media (max-width: 640px) {
-  .rd-row { grid-template-columns: 104px 1fr; }
-}
+.rr-time { font-variant-numeric: tabular-nums; color: #e8eef8; font-weight: 600; }
+.rr-status { font-weight: 700; font-size: 0.78rem; }
+.rr-free { color: var(--neon-green); }
+.rr-booked { color: #ffcf66; }
+.rr-playing { color: #ff6b6b; }
+.rr-off { color: var(--muted); }

@@ -177,30 +177,6 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
         <div class="container">
           <h1 style="color: var(--neon)">Daftar Ruangan</h1>
 
-          <!-- RUNDOWN: jam terisi semua ruangan, bisa diliat tanpa login -->
-          <div class="booking-form-card rundown-card">
-            <div class="rundown-head">
-              <div>
-                <h3 class="bsection-title"><?= icon('clock') ?> Rundown Ruangan</h3>
-                <p class="muted small" id="rundownSummary">Memuat jadwal...</p>
-              </div>
-              <div class="rundown-days" id="rundownDays"></div>
-            </div>
-            <div class="rundown-tools">
-              <div class="rundown-tiers" id="rundownTiers"></div>
-              <div class="rundown-legend">
-                <span><i class="rd-key rd-free"></i>Kosong</span>
-                <span><i class="rd-key rd-booked"></i>Sudah dipesan</span>
-                <span><i class="rd-key rd-playing"></i>Sedang dipakai</span>
-                <span><i class="rd-key rd-off"></i>Perawatan</span>
-              </div>
-            </div>
-            <div class="rundown-scroll">
-              <div class="rundown-grid" id="rundownGrid" aria-live="polite"></div>
-            </div>
-            <p class="muted small rundown-hint">Ketuk bagian yang kosong untuk langsung memesan jam itu.</p>
-          </div>
-
           <div class="booking-form-card finder-card">
             <h3 class="bsection-title"><?= icon('search') ?> Cari Ruangan Kosong</h3>
             <p class="muted small" style="margin-bottom:12px">Pilih jadwal main, kami tampilkan semua ruangan yang masih kosong beserta total harganya.</p>
