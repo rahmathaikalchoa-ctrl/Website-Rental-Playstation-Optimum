@@ -1330,7 +1330,7 @@ $games = mysqli_query($conn, "
     <p id="editGameTitle" class="page-sub"></p>
     <input type="hidden" id="editGameId">
     <div class="modal-chips">
-      <?php foreach (['PS4' => 'rgba(77,166,255,0.5)', 'PS5' => 'rgba(178,107,255,0.5)', 'SWITCH' => 'rgba(255,107,107,0.5)'] as $c => $border): ?>
+      <?php foreach (['PS4' => 'rgba(127, 167, 201,0.5)', 'PS5' => 'rgba(179, 146, 214,0.5)', 'SWITCH' => 'rgba(239, 122, 95,0.5)'] as $c => $border): ?>
         <label id="editLabel<?= $c ?>" class="modal-chip" style="border-color:<?= $border ?>">
           <input type="checkbox" id="edit<?= $c ?>" value="<?= $c ?>" hidden> <?= $c === 'SWITCH' ? 'Switch' : $c ?>
         </label>

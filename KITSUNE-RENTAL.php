@@ -307,7 +307,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
                   <div class="bfield">
                     <label for="roomSelect">Pilih Ruangan</label>
                     <select id="roomSelect" required></select>
-                    <p id="bookedSlotsInfo" style="margin-top:6px;font-size:0.8rem;color:#ff6b6b;min-height:1.2em"></p>
+                    <p id="bookedSlotsInfo" style="margin-top:6px;font-size:0.8rem;color:#ef7a5f;min-height:1.2em"></p>
                   </div>
                   <div class="bfield">
                     <label for="bookingDate">Tanggal</label>

@@ -1996,7 +1996,7 @@ document.addEventListener("DOMContentLoaded", () => {
               const cancelHtml = canCancel ? `
                 <div style="margin-top:8px">
                   <button class="btn-ghost cancel-booking-btn" data-bid="${b.id}" data-room="${escapeHtml(b.room)}"
-                    style="font-size:0.78rem;padding:4px 10px;color:#ff6b6b;border-color:#ff6b6b44">
+                    style="font-size:0.78rem;padding:4px 10px;color:#ef7a5f;border-color:#ef7a5f44">
                     Batalkan
                   </button>
                 </div>` : '';
@@ -2059,8 +2059,8 @@ document.addEventListener("DOMContentLoaded", () => {
                   <div id="extend-form-${b.id}" style="display:none;margin-top:8px">
                     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">
                       <select id="extend-hours-${b.id}"
-                        style="padding:4px 8px;background:#1a2233;color:#fff;border:1px solid #00eaff44;border-radius:6px">${optHtml}</select>
-                      <span id="extend-cost-${b.id}" style="color:#00eaff;font-size:0.82rem;font-weight:600">+${formatRup(firstOk?.cost || 0)}</span>
+                        style="padding:4px 8px;background:#25201a;color:#fff;border:1px solid #ffe6bf44;border-radius:6px">${optHtml}</select>
+                      <span id="extend-cost-${b.id}" style="color:#ffe6bf;font-size:0.82rem;font-weight:600">+${formatRup(firstOk?.cost || 0)}</span>
                       <button class="btn" data-extend="${b.id}" style="font-size:0.78rem;padding:4px 12px">Konfirmasi</button>
                       <button class="btn-ghost" data-extend-cancel="${b.id}" style="font-size:0.78rem;padding:4px 10px">Batal</button>
                     </div>
