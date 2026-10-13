@@ -6,7 +6,7 @@ require __DIR__ . '/db.php';
 require_once __DIR__ . '/booking_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
-  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  // sesi habis: script.js baca header ini terus buka modal login
   header('X-Auth-Required: 1');
   echo json_encode(['error' => 'not_logged_in']);
   exit;
@@ -31,7 +31,7 @@ $ts = $user['created_at'] ? strtotime($user['created_at']) : null;
 echo json_encode([
   'username' => $user['username'],
   'since'    => $ts ? date('j', $ts) . ' ' . $bulan[intval(date('n', $ts)) - 1] . ' ' . date('Y', $ts) : '-',
-  // Poin loyalitas: 1 poin per jam lunas, ditukar gratis 1 jam di kasir
+  // poin: 1 per jam lunas, tukar gratis 1 jam di kasir
   'points'          => pointsBalance($conn, $id),
   'points_per_hour' => POINTS_PER_FREE_HOUR,
 ]);

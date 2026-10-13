@@ -9,19 +9,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   exit;
 }
 
-// ===== GANTI PASSWORD (verifikasi via password lama, bukan email/OTP) =====
+// ===== GANTI PASSWORD (pakai password lama, bukan email/OTP) =====
 $username    = trim($_POST['username'] ?? '');
-// Di-trim sama seperti login.php/register.php supaya hash konsisten
+// di-trim kayak login/register biar hash sama
 $oldPassword = trim($_POST['old_password'] ?? '');
 $newPassword = trim($_POST['new_password'] ?? '');
 
-// bcrypt hanya memakai 72 byte pertama; lebih dari itu dipotong diam-diam
+// bcrypt cuma pakai 72 byte pertama
 if ($username === '' || $oldPassword === '' || strlen($newPassword) < 6 || strlen($newPassword) > 72) {
   echo json_encode(["status" => "error", "message" => "Lengkapi semua kolom. Password baru 6-72 karakter."]);
   exit;
 }
 
-// Max 3 percobaan per 15 menit per IP + username
+// maks 3x per 15 menit per IP + username
 if (!checkRateLimit('forgot_password', 3, 900, $username)) {
   echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan. Coba lagi dalam 15 menit."]);
   exit;
@@ -33,14 +33,13 @@ $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-// Pesan generik untuk username tidak ditemukan maupun password lama salah,
-// supaya tidak bisa dipakai untuk menebak username yang valid.
+// pesan sama buat username gak ada & password salah biar gak bisa nebak username
 if (!$user || !password_verify($oldPassword, $user['password'])) {
   echo json_encode(["status" => "error", "message" => "Username atau password lama salah"]);
   exit;
 }
 
-// Password sama tidak diganti (dan tidak perlu mengeluarkan sesi perangkat lain)
+// password sama gak diganti
 if (password_verify($newPassword, $user['password'])) {
   echo json_encode(["status" => "error", "message" => "Password baru harus berbeda dari password lama"]);
   exit;
@@ -58,8 +57,7 @@ if (!$ok) {
   exit;
 }
 
-// Sesi lain milik akun ini otomatis keluar (sidik password berubah, lihat db.php).
-// Sesi yang sedang dipakai untuk mengganti password tetap login.
+// sesi lain akun ini keluar, sesi yg dipakai ganti password tetap login
 if (intval($_SESSION['user_id'] ?? 0) === intval($user['id'])) {
   $_SESSION['pw_sig'] = passwordSig($hashed);
 }

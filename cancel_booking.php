@@ -6,7 +6,7 @@ require __DIR__ . '/db.php';
 require_once __DIR__ . '/queue_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
-  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  // sesi habis: script.js baca header ini terus buka modal login
   header('X-Auth-Required: 1');
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
@@ -25,8 +25,7 @@ if ($bookingId <= 0) {
   exit;
 }
 
-// Boleh batal selama belum lapor ke kasir (belum check-in). Check-in baru bisa
-// 15 menit sebelum mulai, jadi booking yang mulainya masih jauh pasti belum check-in.
+// boleh batal selama belum check-in
 $stmt = $conn->prepare("
   SELECT payment_status FROM bookings
   WHERE id = ? AND user_id = ? AND payment_status <> 'cancelled'
@@ -44,14 +43,12 @@ if (!$found) {
 }
 
 if ($found['payment_status'] === 'paid') {
-  echo json_encode(["status" => "error", "message" => "Booking sudah dibayar. Hubungi kasir untuk pembatalan."]);
+  echo json_encode(["status" => "error", "message" => "Booking sudah dibayar, jadi tidak bisa dibatalkan online. Kamu tetap bisa memindahkan jadwalnya lewat tombol Ubah Jadwal."]);
   exit;
 }
 
-// Soft cancel: data tetap tersimpan di riwayat. expires_at dikosongkan supaya
-// tidak terbaca sebagai "batal karena tidak hadir".
-// Syarat diulang di UPDATE supaya tidak lolos bila kasir menandai lunas/hadir
-// di antara SELECT di atas dan UPDATE ini.
+// soft cancel, riwayat tetap. expires_at dikosongin biar gak kebaca batal no-show
+// syarat diulang di UPDATE biar gak lolos kalo kasir keburu lunas/hadir
 $stmt = $conn->prepare("
   UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL
   WHERE id = ? AND user_id = ? AND payment_status = 'unpaid'
@@ -63,7 +60,7 @@ $ok = $stmt->affected_rows > 0;
 $stmt->close();
 
 if ($ok) {
-  // Booking hasil antrian: tandai giliran juga batal (bukan tampil "dibatalkan admin")
+  // booking dari antrian: giliran ikut batal
   $stmt = $conn->prepare("UPDATE booking_queue SET status = 'cancelled' WHERE booking_id = ?");
   $stmt->bind_param("i", $bookingId);
   $stmt->execute();

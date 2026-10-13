@@ -1,19 +1,17 @@
 <?php
-// Antrian FIFO gabungan (online + walk-in) untuk "main sekarang", per kelas ruangan
-// (mis. "VIP PS5", "Public PS4 Slim") supaya konsumen dapat ruangan sesuai harga yang dipilih.
-// Reservasi terjadwal (apikr.php) tetap prioritas di jamnya: antrian hanya
-// mendapat ruangan yang kosong mulai sekarang sampai durasi selesai.
+// antrian gabungan (online + walk-in) main sekarang, per kelas ruangan (cth VIP PS5)
+// reservasi terjadwal tetap prioritas, antrian cuma dapat ruangan yg kosong sampai durasinya selesai
 
 require_once __DIR__ . '/booking_lib.php';
 
-// Jenis konsol utama ruangan & game
+// jenis konsol
 const CONSOLE_TYPES = ['PS4', 'PS5', 'SWITCH'];
 
-// Kelas ruangan = tier + model konsol, dipakai sebagai kelompok antrian
+// kelas ruangan = tier + model konsol
 const ROOM_CLASS_SQL = "CONCAT(tier, ' ', console_model)";
 
-// Daftar kelas ruangan aktif + tarif termurahnya, urut dari yang termurah.
-// nintendo_extra = tambahan Nintendo termurah di kelas itu (NULL = tidak ada ruangan yang bisa)
+// kelas ruangan aktif + tarif termurah, urut murah
+// nintendo_extra NULL = gak ada yg bisa Nintendo
 function roomClasses($conn) {
   return $conn->query("
     SELECT " . ROOM_CLASS_SQL . " AS room_class, MIN(price) AS price, COUNT(*) AS rooms,
@@ -23,20 +21,20 @@ function roomClasses($conn) {
   ")->fetch_all(MYSQLI_ASSOC);
 }
 
-// Validasi pilihan Nintendo/pelajar untuk antrian kelas $class. Return pesan error atau null.
+// validasi Nintendo/pelajar buat antrian $class, return error / null
 function queueOptionError($conn, $class, $withNintendo, $isStudent) {
   $info = null;
   foreach (roomClasses($conn) as $c) if ($c['room_class'] === $class) $info = $c;
   if (!$info) return "Kelas ruangan tidak valid";
   if ($withNintendo && $info['nintendo_extra'] === null) return "Kelas $class tidak menyediakan tambahan Nintendo Switch";
-  // Harga pelajar dicek memakai tarif kelas (hari kerja & tarif ada di Paket Pelajar)
+  // harga pelajar dicek pakai tarif kelas
   if ($isStudent && !studentEligible($info, $withNintendo, time())) {
     return "Harga pelajar hanya untuk hari Senin-Jumat dan kelas ruangan yang ada di Paket Pelajar";
   }
   return null;
 }
 
-// Assign antrian terdepan ke ruangan kosong. Return jumlah antrian yang di-assign.
+// kasih ruangan kosong ke antrian terdepan, return jumlah yg dapat
 function processQueue($conn, $now = null) {
   $now = $now ?? time();
   $dayStart   = strtotime(date('Y-m-d', $now));
@@ -46,14 +44,14 @@ function processQueue($conn, $now = null) {
   try {
     $conn->begin_transaction();
 
-    // Kunci semua room (urut id) supaya serial dengan apikr.php & extend_booking.php
+    // kunci semua room (urut id) biar serial sama apikr.php & extend_booking.php
     $rooms = $conn->query("SELECT id, " . ROOM_CLASS_SQL . " AS room_class, price, weekend_extra, nintendo_extra, status FROM rooms ORDER BY id FOR UPDATE")
                   ->fetch_all(MYSQLI_ASSOC);
 
-    // Konsumen yang tidak lapor ke kasir sampai batas check-in: ruangan bebas lagi
+    // yg gak lapor sampai batas check-in: ruangan bebas lagi
     releaseNoShows($conn, $now);
 
-    // Antrian dari hari sebelumnya atau yang durasinya sudah tidak muat sebelum tutup
+    // antrian kemarin atau yg durasinya udah gak muat sebelum tutup
     $stmt = $conn->prepare("
       UPDATE booking_queue SET status = 'cancelled'
       WHERE status = 'waiting'
@@ -84,9 +82,8 @@ function processQueue($conn, $now = null) {
     $setCode = $conn->prepare("UPDATE bookings SET order_code = ? WHERE id = ?");
     $markQ   = $conn->prepare("UPDATE booking_queue SET status = 'assigned', booking_id = ?, assigned_at = NOW() WHERE id = ?");
 
-    // FIFO ketat per kelas: kalau antrian terdepan belum dapat ruangan,
-    // antrian di belakangnya (kelas sama) tidak boleh menyalip. Antrian dengan
-    // tambahan Nintendo hanya mendapat ruangan yang menyediakan Nintendo.
+    // urutan ketat per kelas: yg di belakang gak boleh nyalip
+    // antrian + Nintendo cuma dapat ruangan yg ada Nintendo
     $blocked = [];
 
     foreach ($queue as $q) {
@@ -111,7 +108,7 @@ function processQueue($conn, $now = null) {
       if (!$room) { $blocked[$ct] = true; continue; }
 
       $roomId  = intval($room['id']);
-      // Harga pelajar hanya berlaku bila ruangan yang didapat memang masuk Paket Pelajar
+      // harga pelajar cuma kalo ruangannya masuk paket pelajar
       $student = $student && studentEligible($room, $withN, $now);
       $price   = bookingPrice($room, $duration, $now, $withN, $student);
       $nFlag   = $withN ? 1 : 0;
@@ -119,7 +116,7 @@ function processQueue($conn, $now = null) {
       $isWalk  = $q['source'] === 'walkin';
       $payStat = $isWalk ? 'paid' : 'unpaid';
       $paidAt  = $isWalk ? $now : null;
-      // Walk-in sudah di tempat; online harus datang dalam batas check-in
+      // walk-in udah di tempat, online harus dateng dalam batas check-in
       $expires = $isWalk ? null : $now + BOOKING_CHECKIN_SEC;
       $userId  = $q['user_id'] !== null ? intval($q['user_id']) : null;
       $source  = $q['source'];
@@ -159,7 +156,7 @@ function processQueue($conn, $now = null) {
   return $assigned;
 }
 
-// Posisi dalam antrian kelas yang sama (1 = terdepan)
+// posisi di antrian kelas yg sama (1 = terdepan)
 function queuePosition($conn, $entry) {
   $stmt = $conn->prepare("
     SELECT COUNT(*) AS n FROM booking_queue
@@ -174,9 +171,7 @@ function queuePosition($conn, $entry) {
   return $n + 1;
 }
 
-// Perkiraan kapan antrian $entry mendapat ruangan: tiap ruangan di kelasnya kosong saat
-// sesinya yang berjalan selesai, lalu antrian di depan mengisi ruangan yang paling cepat
-// kosong. Reservasi terjadwal tidak ikut dihitung, jadi ini hanya perkiraan.
+// perkiraan kapan dapat ruangan (dari sesi yg jalan), reservasi gak dihitung jadi cuma kira-kira
 function queueEstimate($conn, $entry, $now = null) {
   $now = $now ?? time();
   $class = $entry['room_class'];
@@ -195,7 +190,7 @@ function queueEstimate($conn, $entry, $now = null) {
   $stmt->close();
   if (!$freeAt) return null;
 
-  // Antrian di depan (kelas sama) memakai ruangan lebih dulu
+  // antrian di depan pakai ruangan duluan
   $stmt = $conn->prepare("
     SELECT duration FROM booking_queue
     WHERE status = 'waiting' AND room_class = ?

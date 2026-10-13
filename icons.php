@@ -1,5 +1,5 @@
 <?php
-// Ikon SVG inline (stroke mengikuti warna teks via currentColor)
+// ikon SVG inline (warna ikut teks)
 function icon($name) {
   static $paths = [
     'search'    => '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',

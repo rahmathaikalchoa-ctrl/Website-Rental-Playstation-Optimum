@@ -99,6 +99,9 @@ CREATE TABLE `bookings` (
   `duration` int(11) NOT NULL,
   `with_nintendo` tinyint(1) NOT NULL DEFAULT 0,
   `is_student` tinyint(1) NOT NULL DEFAULT 0,
+  `lock_room` tinyint(1) NOT NULL DEFAULT 0,
+  `relocated_from` int(11) DEFAULT NULL,
+  `relocated_at` int(11) DEFAULT NULL,
   `start_time` bigint(20) NOT NULL,
   `end_time` bigint(20) NOT NULL,
   `total_price` int(11) NOT NULL DEFAULT 0,
@@ -126,7 +129,7 @@ CREATE TABLE `bookings` (
 
 LOCK TABLES `bookings` WRITE;
 /*!40000 ALTER TABLE `bookings` DISABLE KEYS */;
-INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,0,0,1777816800,1777824000,50000,0,0,'unpaid','online','GZ-20',NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,0,0,1777816800,1777820400,55000,0,0,'unpaid','online','GZ-21',NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,0,0,1777816800,1777820400,25000,0,0,'unpaid','online','GZ-22',NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,0,0,1777802400,1777806000,25000,0,0,'unpaid','online','GZ-23',NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,0,0,1777899600,1777914000,220000,0,0,'unpaid','online','GZ-24',NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,0,0,1778162400,1778166000,55000,0,0,'unpaid','online','GZ-25',NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,0,0,1778306400,1778313600,110000,0,0,'unpaid','online','GZ-26',NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,0,0,1778392800,1778400000,110000,0,0,'unpaid','online','GZ-28',NULL,'2026-05-10 05:58:14');
+INSERT INTO `bookings` VALUES (20,8,'Rahmat Haikal Choa','chanpororo547@gmail.com','081270763036',9,2,0,0,0,NULL,NULL,1777816800,1777824000,50000,0,0,'unpaid','online','GZ-20',NULL,'2026-05-03 07:58:33'),(21,8,'SELINA','donny@gmail.com','081212121212121',12,1,0,0,0,NULL,NULL,1777816800,1777820400,55000,0,0,'unpaid','online','GZ-21',NULL,'2026-05-03 09:02:10'),(22,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',9,1,0,0,0,NULL,NULL,1777816800,1777820400,25000,0,0,'unpaid','online','GZ-22',NULL,'2026-05-03 09:02:36'),(23,8,'Rahmat Haika Choa','chanpororo547@gmail.com','081270763036',10,1,0,0,0,NULL,NULL,1777802400,1777806000,25000,0,0,'unpaid','online','GZ-23',NULL,'2026-05-03 09:08:15'),(24,24,'Sela','sela@gmail.com','08123456789',12,4,0,0,0,NULL,NULL,1777899600,1777914000,220000,0,0,'unpaid','online','GZ-24',NULL,'2026-05-04 12:39:27'),(25,23,'Wilian Ng Lim','wilian@gmail.com','081270763036',12,1,0,0,0,NULL,NULL,1778162400,1778166000,55000,0,0,'unpaid','online','GZ-25',NULL,'2026-05-07 13:35:53'),(26,22,'Haikal','wwwww@gmail.com','081270763036',12,2,0,0,0,NULL,NULL,1778306400,1778313600,110000,0,0,'unpaid','online','GZ-26',NULL,'2026-05-09 05:22:58'),(28,25,'ARDI','ardi@gmail.com','08121212121212',12,2,0,0,0,NULL,NULL,1778392800,1778400000,110000,0,0,'unpaid','online','GZ-28',NULL,'2026-05-10 05:58:14');
 /*!40000 ALTER TABLE `bookings` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -284,6 +287,31 @@ INSERT INTO `menu_orders` VALUES (1,8,1,NULL,1,12000,'','selesai','2026-05-03 11
 UNLOCK TABLES;
 
 --
+-- Table structure for table `price_packages`
+--
+
+DROP TABLE IF EXISTS `price_packages`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `price_packages` (
+  `rate` int(11) NOT NULL,
+  `hours` tinyint(4) NOT NULL,
+  `price` int(11) NOT NULL,
+  PRIMARY KEY (`rate`,`hours`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `price_packages`
+--
+
+LOCK TABLES `price_packages` WRITE;
+/*!40000 ALTER TABLE `price_packages` DISABLE KEYS */;
+INSERT INTO `price_packages` VALUES (12000,1,12000),(12000,2,22000),(12000,3,31000),(12000,4,40000),(12000,5,48000),(15000,1,15000),(15000,2,28000),(15000,3,40000),(15000,4,52000),(15000,5,63000),(25000,1,25000),(25000,2,47000),(25000,3,68000),(25000,4,89000),(25000,5,108000),(30000,1,30000),(30000,2,55000),(30000,3,80000),(30000,4,105000),(30000,5,130000),(50000,1,50000),(50000,2,95000),(50000,3,140000),(50000,4,185000),(50000,5,230000),(55000,1,55000),(55000,2,105000),(55000,3,155000),(55000,4,205000),(55000,5,255000);
+/*!40000 ALTER TABLE `price_packages` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `rate_limits`
 --
 
@@ -407,6 +435,31 @@ INSERT INTO `rooms` VALUES (9,'Room 1','private','VVIP','PS5','PS5',45000,5000,5
 UNLOCK TABLES;
 
 --
+-- Table structure for table `student_prices`
+--
+
+DROP TABLE IF EXISTS `student_prices`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `student_prices` (
+  `rate` int(11) NOT NULL,
+  `price_1h` int(11) NOT NULL,
+  `price_3h` int(11) NOT NULL,
+  PRIMARY KEY (`rate`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `student_prices`
+--
+
+LOCK TABLES `student_prices` WRITE;
+/*!40000 ALTER TABLE `student_prices` DISABLE KEYS */;
+INSERT INTO `student_prices` VALUES (12000,10000,27000),(15000,12000,33000),(25000,20000,57000),(30000,25000,75000);
+/*!40000 ALTER TABLE `student_prices` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `users`
 --
 
@@ -444,4 +497,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-12 23:15:59
+-- Dump completed on 2026-10-13 21:20:32

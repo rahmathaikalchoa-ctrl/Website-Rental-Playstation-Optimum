@@ -1,10 +1,8 @@
-// =====================
-// AKSI ADMIN
-// =====================
-// true selama ada request aksi berjalan, supaya auto-refresh tidak memotongnya
+// ===== AKSI ADMIN =====
+// true selama ada aksi jalan, biar auto-refresh gak motong
 let adminBusy = false;
 
-// Semua POST ke admin_api.php membawa token CSRF dari <meta name="csrf-token">
+// semua POST ke admin_api.php bawa token CSRF
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || "";
 function adminFetch(opts) {
   opts.body.append("csrf", CSRF_TOKEN);
@@ -18,7 +16,7 @@ function postAdmin(params) {
   }).then((r) => r.json());
 }
 
-// Kirim aksi; reload kalau sukses, tampilkan pesan dari server kalau gagal
+// kirim aksi, reload kalo sukses, kalo gagal tampilin pesan server
 function adminAction(params, confirmMsg) {
   if (confirmMsg && !confirm(confirmMsg)) return;
   adminBusy = true;
@@ -74,7 +72,7 @@ function markOrderDone(id) {
   adminAction({ action: "mark_order_done", id }, "Tandai pesanan ini sudah sampai ke user?");
 }
 
-// Tukar 10 poin pelanggan untuk gratis 1 jam (atau batalkan penukaran)
+// tukar 10 poin jadi gratis 1 jam (atau batalin)
 function redeemPoints(id, undo) {
   adminAction({ action: "redeem_points", id },
     undo ? "Batalkan penukaran poin? Harga kembali normal dan 10 poin dikembalikan."
@@ -89,14 +87,14 @@ function cancelMenuOrder(id, itemName) {
   adminAction({ action: "cancel_menu_order", id }, `Batalkan pesanan "${itemName}"? Pesanan tidak akan diantar.`);
 }
 
-// Buat password sementara untuk konsumen yang lupa password lama
+// password sementara buat konsumen yg lupa
 function resetUserPassword(id, username) {
   if (!confirm(`Reset password akun "${username}"? Password lama tidak berlaku lagi dan akun keluar dari semua perangkat.`)) return;
   adminBusy = true;
   postAdmin({ action: "reset_password", id })
     .then((r) => {
       if (r.status === "ok") {
-        // prompt() supaya password mudah disalin
+        // pakai prompt biar gampang dicopy
         prompt(`Password sementara untuk "${username}". Berikan ke konsumen, lalu minta ganti lewat menu Lupa Password:`, r.temp_password);
       } else {
         alert("Gagal: " + (r.message || "Terjadi kesalahan"));
@@ -120,11 +118,43 @@ function toggleRole(id, username) {
 }
 
 function toggleRoom(id, name, active, upcoming) {
-  const msg = active
-    ? `Set "${name}" ke perawatan? Ruangan tidak bisa dibooking sampai diaktifkan lagi.` +
-      (upcoming > 0 ? `\n\nAda ${upcoming} booking mendatang di ruangan ini. Hubungi konsumennya atau pindahkan/batalkan dari Riwayat Booking.` : "")
-    : `Aktifkan kembali "${name}"?`;
-  adminAction({ action: "toggle_room", id }, msg);
+  if (!active || upcoming === 0) {
+    adminAction({ action: "toggle_room", id }, active
+      ? `Set "${name}" ke perawatan? Ruangan tidak bisa dibooking sampai diaktifkan lagi.`
+      : `Aktifkan kembali "${name}"?`);
+    return;
+  }
+  if (!confirm(`Set "${name}" ke perawatan? Ruangan tidak bisa dibooking sampai diaktifkan lagi.\n\nAda ${upcoming} booking mendatang/berjalan di ruangan ini. Reservasi yang konsumennya belum datang akan dipindah ke ruangan sekelas yang kosong (harga & jam sama).`)) return;
+  adminBusy = true;
+  // set perawatan dulu biar ruangan ini gak jadi tujuan pindah
+  postAdmin({ action: "toggle_room", id })
+    .then((r) => {
+      if (r.status !== "ok") throw new Error(r.message || "Gagal set perawatan");
+      return postAdmin({ action: "relocate_room_bookings", id });
+    })
+    .then((r) => {
+      let msg = `"${name}" sekarang dalam perawatan.`;
+      if (r.moved?.length) msg += `\n\nDipindah (konsumen melihat info ini di profil):\n- ${r.moved.join("\n- ")}`;
+      if (r.failed?.length) msg += `\n\nTIDAK ADA ruangan sekelas yang kosong, hubungi konsumennya:\n- ${r.failed.join("\n- ")}`;
+      msg += "\n\nKonsumen yang sedang main di ruangan ini tidak dipindah otomatis.";
+      alert(msg);
+      location.reload();
+    })
+    .catch((e) => alert("Gagal: " + e.message))
+    .finally(() => { adminBusy = false; });
+}
+
+// pindahin 1 reservasi (belum dateng) ke ruangan sekelas yg kosong
+function relocateBooking(id, name) {
+  if (!confirm(`Pindahkan booking "${name}" ke ruangan sekelas yang kosong? Harga & jam tetap, konsumen melihat info pindah ruangan di profilnya.`)) return;
+  adminBusy = true;
+  postAdmin({ action: "relocate_booking", id })
+    .then((r) => {
+      if (r.status === "ok") { alert(`Booking dipindah ke ${r.room}.`); location.reload(); }
+      else alert("Gagal: " + (r.message || "Terjadi kesalahan"));
+    })
+    .catch(() => alert("Server error"))
+    .finally(() => { adminBusy = false; });
 }
 
 // ===== MODAL EDIT RUANGAN & MENU =====
@@ -137,7 +167,7 @@ function closeEditModal(id) {
   if (m) m.style.display = "none";
 }
 
-// room = null untuk tambah ruangan baru
+// room null = tambah ruangan baru
 function openEditRoom(room) {
   const f = document.getElementById("editRoomForm");
   if (!f) return;
@@ -161,7 +191,7 @@ function openEditRoom(room) {
 }
 
 // ===== GAME PER RUANGAN =====
-// Daftar checkbox berisi game yang bisa dimainkan di konsol ruangan
+// checkbox game yg bisa dimainin di konsol ruangan
 function openRoomGames(room) {
   const f = document.getElementById("roomGamesForm");
   if (!f) return;
@@ -203,7 +233,7 @@ function updateRoomGamesCount() {
     const q = e.target.value.trim().toLowerCase();
     f.querySelectorAll("[data-room-games-list] label").forEach((l) => { l.hidden = !!q && !l.dataset.title.includes(q); });
   });
-  // "Pilih semua" / "Kosongkan" hanya untuk game yang sedang tampil (hasil pencarian)
+  // pilih semua / kosongkan cuma buat game yg lagi tampil
   f.querySelector("[data-room-games-all]").addEventListener("click", () => {
     visibleBoxes().forEach((b) => { b.checked = true; });
     updateRoomGamesCount();
@@ -231,7 +261,7 @@ function openEditMenu(item) {
   openEditModal("editMenuModal");
 }
 
-// Kirim form edit (FormData agar file gambar ikut terkirim)
+// kirim form edit (FormData biar gambar ikut)
 function submitEditForm(form, action, modalId) {
   const fd = new FormData(form);
   fd.append("action", action);
@@ -287,9 +317,7 @@ document.querySelectorAll(".modal-backdrop").forEach((m) =>
 })();
 
 
-// =====================
-// EDIT CONSOLE GAME
-// =====================
+// ===== EDIT CONSOLE GAME =====
 function openEditGame(id, title, currentConsoles) {
   document.getElementById("editGameId").value = id;
   document.getElementById("editGameTitle").textContent = title;
@@ -366,24 +394,22 @@ document.getElementById("saveEditGame")?.addEventListener("click", () => {
     .finally(() => { saveBtn.disabled = false; });
 });
 
-// Tutup modal klik di luar
+// tutup modal kalo klik di luar
 document.getElementById("editGameModal")?.addEventListener("click", function(e) {
   if (e.target === this) closeEditGame();
 });
 
-// =====================
-// BOOKING OPERATOR (KONSUMEN OFFLINE)
-// =====================
+// ===== BOOKING KASIR (KONSUMEN OFFLINE) =====
 const offlinePanel = document.getElementById("offlinePanel");
 const walkinForm   = document.getElementById("walkinForm");
 const reserveForm  = document.getElementById("reserveForm");
 const roomOptions  = JSON.parse(offlinePanel?.dataset.rooms || "[]");
-// Info per kelas ruangan: tarif termurah, tambahan weekend, tambahan Nintendo (0 = tidak ada)
+// info per kelas: tarif termurah, tambahan weekend, Nintendo (0 = gak ada)
 const classPrices  = JSON.parse(offlinePanel?.dataset.classes || "{}");
 
 const rupiah = (n) => "Rp " + Number(n).toLocaleString("id-ID");
 
-// Estimasi harga, rumus sama dengan bookingPrice() di booking_lib.php
+// estimasi harga, rumus sama kayak bookingPrice() di booking_lib.php
 const PRICING = (() => {
   try { return JSON.parse(document.body.dataset.pricing || "{}"); } catch (e) { return {}; }
 })();
@@ -399,7 +425,7 @@ function estimatePrice(room, hours, startTs, withNintendo, isStudent) {
   if (isWeekendTs(startTs)) total += room.weekendExtra * hours;
   return total;
 }
-// Pilihan Nintendo hanya tampil untuk ruangan yang menyediakannya
+// opsi Nintendo cuma buat ruangan yg ada Nintendo
 function syncNintendoOpt(form, room) {
   const opt = form.querySelector("[data-nintendo]");
   if (!opt) return;
@@ -407,13 +433,13 @@ function syncNintendoOpt(form, room) {
   if (opt.hidden) opt.querySelector("input").checked = false;
 }
 
-// Pasang/lepas harga Paket Pelajar (kasir sudah cek kartu pelajar)
+// pasang/lepas harga pelajar (kasir udah cek kartu)
 function toggleStudent(id, isStudent) {
   adminAction({ action: "toggle_student", id },
     isStudent ? "Kembalikan ke harga biasa?" : "Pakai harga pelajar? Pastikan konsumen menunjukkan kartu pelajar.");
 }
 
-// due = sisa yang harus dibayar (total dikurangi yang sudah diterima sebelumnya)
+// due = sisa yg harus dibayar
 function markPaid(id, name, due) {
   adminAction({ action: "mark_paid", id },
     `Tandai booking "${name}" lunas? Pastikan ${rupiah(due)} sudah diterima.`);
@@ -426,8 +452,24 @@ function adminExtend(id) {
   postAdmin({ action: "admin_extend", id, hours })
     .then((r) => {
       if (r.status === "ok") {
-        alert(`Sesi ditambah ${hours} jam. Tagih tambahan ${rupiah(r.extra_cost)} ke konsumen, lalu tekan "Lunas".`);
+        const moved = (r.relocated || []).map((m) => `- Reservasi jam ${new Date(m.start_time * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} dipindah ke ${m.room}`).join("\n");
+        alert(`Sesi ditambah ${hours} jam. Tagih tambahan ${rupiah(r.extra_cost)} ke konsumen, lalu tekan "Lunas".`
+          + (moved ? `\n\nSupaya tidak bentrok:\n${moved}\n(kelas & harga sama, konsumennya melihat info ini di profil)` : ""));
         location.reload();
+      } else if (r.alt_room) {
+        // ruangan ini gak bisa diperpanjang tapi ada ruangan sekelas kosong
+        if (confirm(`${r.message}\n\nLanjutkan ${hours} jam di ${r.alt_room} (kelas & harga sama)?`)) {
+          adminBusy = true;
+          postAdmin({ action: "continue_other_room", id, hours })
+            .then((c) => {
+              if (c.status === "ok") {
+                alert(`Konsumen lanjut main di ${c.room} sampai ${new Date(c.end_time * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}. Tagihan tambahan ${rupiah(c.extra_cost)} (${c.order_code}).`);
+                location.reload();
+              } else alert("Gagal: " + (c.message || "Terjadi kesalahan"));
+            })
+            .catch(() => alert("Server error"))
+            .finally(() => { adminBusy = false; });
+        }
       } else {
         alert("Gagal: " + (r.message || "Terjadi kesalahan"));
         if (r.status === "unauthorized") location.reload();
@@ -437,7 +479,7 @@ function adminExtend(id) {
     .finally(() => { adminBusy = false; });
 }
 
-// ----- Tab form: Main Sekarang / Reservasi Jam Tertentu -----
+// ----- tab Main Sekarang / Reservasi -----
 function showFormTab(id) {
   document.querySelectorAll(".form-tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === id));
   document.querySelectorAll(".tab-form").forEach((f) => { f.hidden = f.id !== id; });
@@ -458,7 +500,7 @@ function updateWalkinEstimate() {
   const dur = Number(walkinForm.elements.duration.value) || 0;
   const room = roomOptions.find((o) => o.id === roomId);
   const f = walkinForm.elements;
-  // Ruangan Otomatis: Nintendo & estimasi mengikuti kelas (tarif termurah di kelas itu)
+  // ruangan otomatis: Nintendo & estimasi ikut kelas
   const cls = classPrices[f.room_class.value];
   syncNintendoOpt(walkinForm, room || cls);
   const now = Math.floor(Date.now() / 1000);
@@ -473,7 +515,7 @@ function updateWalkinEstimate() {
 
 walkinForm?.addEventListener("change", (e) => {
   const f = walkinForm.elements;
-  // Pilih ruangan: kelas ikut ruangan. Ganti kelas: ruangan kembali ke Otomatis bila beda kelas.
+  // pilih ruangan -> kelas ikut. ganti kelas -> ruangan balik ke otomatis
   if (e.target.name === "room_id" && Number(f.room_id.value) > 0) {
     const room = roomOptions.find((o) => o.id === Number(f.room_id.value));
     if (room) f.room_class.value = room.class;
@@ -515,24 +557,23 @@ walkinForm?.addEventListener("submit", function (e) {
 // ----- Reservasi Jam Tertentu -----
 let reserveSlots = [];
 let reserveReq = 0;
-// Jam yang dipilih lewat halaman Jadwal (?time=HH:MM), dipakai sampai admin mengubah pilihan
+// jam dari klik slot di Jadwal, dipakai sampai admin ganti
 let reservePrefillTime = "";
 
-// Jam operasional dari booking_lib.php (atribut <body>): buka 10:00, tutup 22:00,
-// jam mulai reservasi kelipatan 30 menit
+// jam operasional dari <body>: 10:00-22:00, slot 30 menit
 const OPEN_SEC  = Number(document.body.dataset.openSec) || 36000;
 const CLOSE_SEC = Number(document.body.dataset.closeSec) || 79200;
 const SLOT_SEC  = 1800;
 const secToHHMM = (sec) =>
   `${String(Math.floor(sec / 3600)).padStart(2, "0")}:${String(Math.floor(sec % 3600 / 60)).padStart(2, "0")}`;
 
-// Timestamp jam "HH:MM" WIB pada tanggal dateVal (tidak bergantung zona waktu perangkat)
+// timestamp HH:MM WIB, gak ikut zona waktu device
 function slotTs(dateVal, hhmm) {
   return Math.floor(new Date(`${dateVal}T${hhmm}:00+07:00`).getTime() / 1000);
 }
 const overlaps = (start, end) => reserveSlots.some((s) => start < s.end_time && end > s.start_time);
 
-// Opsi default ditandai defaultSelected agar deteksi "form diubah" tetap akurat
+// defaultSelected biar cek form berubah tetap akurat
 function fillSelect(sel, items) {
   sel.innerHTML = "";
   const def = Math.max(0, items.findIndex((it) => !it.disabled));
@@ -555,7 +596,7 @@ function renderReserveTimes() {
     items.push({ value: hhmm, label: `${hhmm}${booked ? " — terpesan" : ""}`, disabled: booked });
   }
   fillSelect(f.time, items.length ? items : [{ value: "", label: "Jam habis", disabled: true }]);
-  // Jam dari klik slot di halaman Jadwal dipilih bila masih tersedia
+  // pilih jam dari Jadwal kalo masih kosong
   const picked = [...f.time.options].find((o) => o.value === reservePrefillTime && !o.disabled);
   if (picked) f.time.value = picked.value;
   renderReserveDurations();
@@ -590,8 +631,7 @@ function loadReserveSlots() {
   const f = reserveForm.elements;
   const info = reserveForm.querySelector("[data-booked]");
   const reqId = ++reserveReq;
-  // Tampilkan jam untuk tanggal/ruangan baru segera (jam lampau langsung hilang),
-  // slot terpesan menyusul setelah data dari server datang.
+  // jam langsung tampil, slot terpesan nyusul dari server
   reserveSlots = [];
   info.textContent = "";
   renderReserveTimes();
@@ -611,7 +651,7 @@ function loadReserveSlots() {
 }
 
 if (reserveForm) {
-  // Datang dari klik slot kosong di halaman Jadwal: isi ruangan, tanggal, dan jam otomatis
+  // dari klik slot kosong di Jadwal: isi ruangan, tanggal, jam
   const pre = new URLSearchParams(location.search);
   if (pre.get("tab") === "reserveForm") {
     showFormTab("reserveForm");
@@ -619,7 +659,7 @@ if (reserveForm) {
     if ([...f.room_id.options].some((o) => o.value === pre.get("room"))) f.room_id.value = pre.get("room");
     if ([...f.date.options].some((o) => o.value === pre.get("date"))) f.date.value = pre.get("date");
     reservePrefillTime = pre.get("time") || "";
-    // Bersihkan parameter supaya auto-refresh/reload tidak mengisi ulang form
+    // hapus parameter biar reload gak ngisi ulang form
     history.replaceState(null, "", "?page=booking");
     setTimeout(() => f.name.focus(), 0);
   }
@@ -661,12 +701,12 @@ if (reserveForm) {
   });
 }
 
-// Form berubah dari nilai awal
+// form udah diubah dari nilai awal
 function isFormDirty(form) {
   return Array.from(form.elements).some((el) => {
     if (el.type === "radio" || el.type === "checkbox") return el.checked !== el.defaultChecked;
     if (el.tagName === "SELECT") {
-      // Select tanpa atribut "selected" default-nya opsi aktif pertama (dipilih otomatis browser)
+      // select tanpa selected = opsi pertama
       const opts = Array.from(el.options);
       let def = opts.findIndex((o) => o.defaultSelected);
       if (def < 0) def = opts.findIndex((o) => !o.disabled);
@@ -677,22 +717,22 @@ function isFormDirty(form) {
   });
 }
 
-// Refresh berkala supaya status ruangan & daftar tunggu terbaru terlihat,
-// kecuali admin sedang mengisi form, memilih "+jam", atau ada aksi yang berjalan.
+// refresh berkala biar status ruangan & antrian update
+// kecuali lagi isi form, pilih +jam, atau ada aksi jalan
 if (offlinePanel) {
   setInterval(() => {
     const active = document.activeElement;
     const editing = active?.matches("input, select, textarea")
       && (offlinePanel.contains(active) || active.closest(".room-tile"));
     const forms = [walkinForm, reserveForm].filter(Boolean);
-    // Pilihan "+jam" yang sudah diubah tapi belum diklik Tambah jangan sampai tereset
+    // pilihan +jam yg belum diklik Tambah jangan ke-reset
     const extendPicked = [...document.querySelectorAll(".extend-inline select")].some((s) => s.selectedIndex !== 0);
     if (!adminBusy && !editing && !extendPicked && !forms.some(isFormDirty)) location.reload();
   }, 20000);
 }
 
-// Halaman Menu: refresh berkala supaya pesanan baru langsung terlihat kasir,
-// kecuali admin sedang mengisi form tambah item atau modal edit sedang terbuka.
+// halaman Menu: refresh berkala biar pesanan baru keliatan
+// kecuali lagi isi form atau modal edit kebuka
 const addMenuForm = document.getElementById("addMenuForm");
 if (addMenuForm) {
   setInterval(() => {
@@ -704,9 +744,7 @@ if (addMenuForm) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  // =====================
-  // CUSTOM FILE UPLOAD ZONES
-  // =====================
+  // ===== UPLOAD FILE CUSTOM =====
   document.querySelectorAll(".file-upload-zone").forEach((zone) => {
     const input   = zone.querySelector("input[type='file']");
     const nameEl  = zone.querySelector(".file-upload-name");
@@ -745,9 +783,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // =====================
-  // ADD MENU ITEM
-  // =====================
+  // ===== TAMBAH MENU =====
   document.getElementById("addMenuForm")?.addEventListener("submit", function (e) {
     e.preventDefault();
     const btn = this.querySelector("[type=submit]");
@@ -772,9 +808,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .finally(() => { if (btn) btn.disabled = false; adminBusy = false; });
   });
 
-  // =====================
-  // CUSTOM GENRE TOGGLE
-  // =====================
+  // ===== GENRE CUSTOM =====
   const genreSelect       = document.getElementById("genreSelect");
   const customGenreWrap   = document.getElementById("customGenreWrap");
   const customGenreInput  = document.getElementById("customGenreInput");
@@ -807,9 +841,7 @@ document.addEventListener("DOMContentLoaded", () => {
     genreSelect.required      = true;
   });
 
-  // =====================
-  // ADD GAME
-  // =====================
+  // ===== TAMBAH GAME =====
   document
     .getElementById("addGameForm")
     ?.addEventListener("submit", function (e) {
@@ -829,7 +861,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .then((res) => {
           if (res.status === "ok") {
             const imgMsg = res.image_saved === false ? "\nCatatan: gambar gagal tersimpan (cek format/ukuran file)." : "";
-            // Ruangan dengan daftar game khusus tidak otomatis memuat game baru
+            // ruangan dgn daftar game khusus gak otomatis dapat game baru
             alert("Game berhasil ditambahkan!" + imgMsg +
               "\n\nTambahkan game ini ke ruangan lewat menu Room > Atur Game supaya tampil di detail ruangan.");
             location.reload();
@@ -843,10 +875,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
-// =====================
-// JADWAL RUANGAN
-// =====================
-// Modal detail booking dari grid Jadwal. Aksi memakai fungsi yang sama dengan halaman Booking.
+// ===== JADWAL RUANGAN =====
+// modal detail booking dari Jadwal, aksinya sama kayak halaman Booking
 function openScheduleBooking(b) {
   const modal = document.getElementById("scheduleModal");
   if (!modal) return;
@@ -874,12 +904,13 @@ function openScheduleBooking(b) {
   if (b.canPay) addBtn("Lunas", "btn-paid", () => markPaid(b.id, b.name, b.due));
   if (b.canRedeem) addBtn(b.hasDiscount ? "Batal Pakai Poin" : "Pakai 10 Poin", "btn-ghost-sm", () => redeemPoints(b.id, b.hasDiscount));
   if (b.canStudent) addBtn(b.isStudent ? "Batal Harga Pelajar" : "Harga Pelajar", "btn-ghost-sm", () => toggleStudent(b.id, b.isStudent));
+  if (b.canMove) addBtn("Pindah Ruangan", "btn-ghost-sm", () => relocateBooking(b.id, b.name));
   if (b.canCancel) addBtn("Batalkan Booking", "btn-warn-sm", () => cancelBooking(b.id, b.name, b.amountPaid));
   addBtn("Tutup", "btn-ghost-sm", () => closeEditModal("scheduleModal"));
   openEditModal("scheduleModal");
 }
 
-// Jadwal diperbarui berkala, kecuali modal detail sedang terbuka atau ada aksi berjalan
+// jadwal refresh berkala, kecuali modal kebuka atau ada aksi
 if (document.querySelector(".sched-grid")) {
   setInterval(() => {
     const modalOpen = document.getElementById("scheduleModal")?.style.display === "flex";
@@ -887,11 +918,8 @@ if (document.querySelector(".sched-grid")) {
   }, 30000);
 }
 
-// =====================
-// NOTIFIKASI BOOKING ONLINE BARU
-// =====================
-// Id terakhir yang sudah dilihat disimpan di browser kasir. Pertama kali dibuka langsung
-// disamakan dengan data terbaru supaya tidak muncul notifikasi untuk booking lama.
+// ===== NOTIF BOOKING ONLINE BARU =====
+// id terakhir disimpan di browser kasir, pertama buka langsung disamain biar booking lama gak muncul
 (function initAdminNotify() {
   const nav = document.querySelector("[data-nav]");
   if (!nav) return; // halaman login admin
@@ -904,7 +932,7 @@ if (document.querySelector(".sched-grid")) {
   const page = new URLSearchParams(location.search).get("page") || "dashboard";
   const baseTitle = document.title;
 
-  // Membuka halaman tujuan = notifikasinya sudah dilihat
+  // buka halaman tujuan = notif udah diliat
   if (page === "jadwal") store.set(KEY_NB, 0);
   if (page === "booking") store.set(KEY_NQ, 0);
 
@@ -973,4 +1001,73 @@ if (document.querySelector(".sched-grid")) {
   renderBadges();
   poll();
   setInterval(poll, 20000);
+})();
+
+// ===== HARGA & PAKET =====
+(function initPricesForm() {
+  const form = document.getElementById("pricesForm");
+  if (!form) return;
+  const rateUse = JSON.parse(form.dataset.rates || "{}");
+  const HOURS = form.querySelector('[data-price-table="packages"] tr').children.length - 3;
+
+  // kolom Dipakai oleh ikut tarif yg diketik
+  const refreshUse = () => {
+    form.querySelectorAll("tr").forEach((tr) => {
+      const rate = tr.querySelector('[data-f="rate"]');
+      const cell = tr.querySelector("[data-use]");
+      if (!rate || !cell) return;
+      const use = rateUse[Number(rate.value)];
+      cell.textContent = use || "Belum dipakai ruangan mana pun";
+      cell.classList.toggle("is-unused", !use);
+    });
+  };
+  const numInput = (f) => `<td><input type="number" min="1" data-f="${f}"></td>`;
+  const delBtn = `<td><button type="button" class="btn-icon" data-row-del title="Hapus baris" aria-label="Hapus baris">&times;</button></td>`;
+
+  form.addEventListener("input", refreshUse);
+  form.addEventListener("click", (e) => {
+    const del = e.target.closest("[data-row-del]");
+    if (del) { del.closest("tr").remove(); return; }
+    const add = e.target.closest("[data-row-add]");
+    if (!add) return;
+    const kind = add.dataset.rowAdd;
+    const table = form.querySelector(`[data-price-table="${kind}"] tbody`) || form.querySelector(`[data-price-table="${kind}"]`);
+    const tr = document.createElement("tr");
+    tr.innerHTML = numInput("rate")
+      + (kind === "packages" ? numInput("price").repeat(HOURS) : numInput("p1") + numInput("p3"))
+      + `<td class="cell-sub" data-use></td>` + delBtn;
+    table.appendChild(tr);
+    refreshUse();
+    tr.querySelector("input").focus();
+  });
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const rows = (kind) => [...form.querySelectorAll(`[data-price-table="${kind}"] tr`)].filter((tr) => tr.querySelector("input"));
+    const val = (tr, f) => [...tr.querySelectorAll(`[data-f="${f}"]`)].map((i) => Number(i.value));
+    const packages = rows("packages").map((tr) => ({ rate: val(tr, "rate")[0], prices: val(tr, "price") }));
+    const student = rows("student").map((tr) => ({ rate: val(tr, "rate")[0], p1: val(tr, "p1")[0], p3: val(tr, "p3")[0] }));
+    // peringatan kalo harga paket lebih mahal dari tarif biasa
+    const pricier = packages.filter((p) => p.prices.some((price, i) => price > p.rate * (i + 1)));
+    if (pricier.length && !confirm(`Ada paket yang lebih mahal dari tarif biasa (tarif ${pricier.map((p) => rupiah(p.rate)).join(", ")}). Tetap simpan?`)) return;
+    if (!confirm("Simpan perubahan harga? Harga baru langsung dipakai untuk booking berikutnya.")) return;
+    const fd = new FormData();
+    fd.append("action", "save_prices");
+    fd.append("packages", JSON.stringify(packages));
+    fd.append("student", JSON.stringify(student));
+    const btn = form.querySelector("[type=submit]");
+    btn.disabled = true;
+    adminFetch({ method: "POST", body: fd })
+      .then((r) => r.json())
+      .then((r) => {
+        if (r.status === "ok") { alert("Harga tersimpan."); location.reload(); }
+        else {
+          alert("Gagal: " + (r.message || "Terjadi kesalahan"));
+          if (r.status === "unauthorized") location.reload();
+        }
+      })
+      .catch(() => alert("Server error"))
+      .finally(() => { btn.disabled = false; });
+  });
+  refreshUse();
 })();

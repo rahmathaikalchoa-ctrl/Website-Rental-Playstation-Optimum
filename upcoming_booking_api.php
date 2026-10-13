@@ -4,7 +4,7 @@ session_start();
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/booking_lib.php';
-// Booking yang lewat batas check-in dibatalkan dulu supaya data yang tampil akurat
+// batalin yg lewat batas check-in dulu biar data bener
 releaseNoShows($conn);
 
 if (!isset($_SESSION['user_id'])) {
@@ -14,7 +14,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $userId = intval($_SESSION['user_id']);
 
-// Sesi yang sedang berjalan atau booking terdekat yang belum selesai
+// sesi yg lagi jalan atau booking terdekat yg belum selesai
 $stmt = $conn->prepare("
   SELECT b.id, r.title AS room, b.start_time, b.end_time, b.duration, b.total_price,
          b.order_code, b.expires_at, b.payment_status

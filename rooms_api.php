@@ -2,7 +2,7 @@
 header('Content-Type: application/json');
 require 'db.php';
 require_once __DIR__ . '/booking_lib.php';
-// Booking yang lewat batas check-in dibatalkan dulu supaya status ruangan akurat
+// batalin yg lewat batas check-in dulu biar status bener
 releaseNoShows($conn);
 
 $sql = "

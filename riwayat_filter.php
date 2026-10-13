@@ -1,7 +1,6 @@
 <?php
-// Filter Riwayat Booking dari query string, dipakai halaman Riwayat (KITSUNE-ADMIN.php)
-// dan export CSV (admin_export.php) supaya hasilnya selalu sama.
-// Return: values (untuk mengisi form), where (SQL), types & params (bind_param), query (untuk link).
+// filter Riwayat dari query string, dipakai halaman Riwayat & export CSV biar hasilnya sama
+// return values, where, types & params, query
 
 function riwayatFilter(array $get) {
   $isDate = fn($d) => is_string($d) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && strtotime($d) !== false;
@@ -17,7 +16,7 @@ function riwayatFilter(array $get) {
   $types = '';
   $params = [];
 
-  // Tanggal mengacu ke jadwal main (start_time), bukan waktu booking dibuat
+  // tanggal ikut jadwal main, bukan waktu booking dibuat
   if ($v['from'] !== '') {
     $where[] = 'b.start_time >= ?';
     $types .= 'i';

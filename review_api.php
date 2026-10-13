@@ -1,7 +1,7 @@
 <?php
-// Ulasan ruangan.
-// GET  ?room_id=ID : rata-rata rating + ulasan terbaru.
-// POST booking_id, rating (1-5), comment : ulasan dari pemesan setelah sesinya selesai.
+// ulasan ruangan
+// GET ?room_id: rata-rata rating + ulasan terbaru
+// POST booking_id, rating (1-5), comment: dari pemesan setelah sesi selesai
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header('Content-Type: application/json');
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   exit;
 }
 if (!isset($_SESSION['user_id'])) {
-  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  // sesi habis: script.js baca header ini terus buka modal login
   header('X-Auth-Required: 1');
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
@@ -69,7 +69,7 @@ if (!checkRateLimit('review', 10, 600, (string) $userId)) {
   exit;
 }
 
-// Hanya booking milik sendiri yang sudah selesai dimainkan (sudah check-in, tidak batal)
+// cuma booking sendiri yg udah selesai main (check-in, gak batal)
 $stmt = $conn->prepare("
   SELECT room_id FROM bookings
   WHERE id = ? AND user_id = ? AND payment_status <> 'cancelled'
@@ -91,7 +91,7 @@ try {
   $stmt->execute();
   $stmt->close();
 } catch (\mysqli_sql_exception $e) {
-  // UNIQUE booking_id: booking ini sudah pernah diulas
+  // booking ini udah pernah diulas (UNIQUE booking_id)
   echo json_encode(["status" => "error", "message" => "Booking ini sudah kamu ulas"]);
   exit;
 }

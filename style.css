@@ -40,7 +40,7 @@ body {
   flex-wrap: wrap;
 }
 
-/* left brand */
+/* brand kiri */
 .brand {
   font-size: 22px;
   font-weight: 900;
@@ -49,7 +49,7 @@ body {
   white-space: nowrap;
 }
 
-/* center area for search */
+/* search tengah */
 .header-center {
   flex: 1 1 260px;
   min-width: 0;
@@ -88,7 +88,7 @@ body {
   cursor: pointer;
 }
 
-/* right nav */
+/* nav kanan */
 .header-right {
   flex: 0 0 auto;
   display: flex;
@@ -105,7 +105,7 @@ body {
   text-decoration: none;
   font-size: 15px;
 }
-/* buttons */
+/* tombol */
 .btn {
   background: var(--neon);
   color: #000;
@@ -240,12 +240,12 @@ body {
   padding: 18px;
   border: 1px solid rgba(255, 255, 255, 0.04);
 }
-/* ===== BOOKING FORM REDESIGN ===== */
+/* ===== FORM BOOKING ===== */
 .booking-header {
   margin-bottom: 16px;
 }
 
-/* Penjelasan singkat dua cara booking */
+/* penjelasan 2 cara booking */
 .booking-howto {
   display: grid;
   gap: 6px;
@@ -269,7 +269,7 @@ body {
   margin-bottom: 18px;
 }
 
-/* Kartu konfirmasi setelah reservasi berhasil */
+/* kartu konfirmasi abis reservasi */
 .confirm-card { display: grid; gap: 10px; }
 .confirm-card .confirm-head {
   display: flex;
@@ -294,7 +294,7 @@ body {
   border: 1px dashed rgba(255, 170, 0, 0.4);
 }
 
-/* Status bayar & info di riwayat booking profil */
+/* status bayar & info di riwayat profil */
 .booking-meta {
   display: flex;
   flex-wrap: wrap;
@@ -413,7 +413,7 @@ body {
   color: #3d4f5e;
 }
 
-/* Field terkunci (nama dari akun) */
+/* field terkunci (nama dari akun) */
 .account-indicator {
   display: flex;
   align-items: center;
@@ -439,7 +439,7 @@ body {
   flex-shrink: 0;
 }
 
-/* minmax(0, 1fr): kolom tidak ikut melebar mengikuti isi terpanjang */
+/* minmax(0, 1fr) biar kolom gak melebar ikut isi */
 .brow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -449,7 +449,7 @@ body {
 .bfield input,
 .bfield select { width: 100%; min-width: 0; }
 
-/* Kartu antrian: konsol, durasi, tombol dalam satu baris */
+/* kartu antrian: konsol, durasi, tombol 1 baris */
 #queueJoinBox {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   align-items: end;
@@ -463,7 +463,7 @@ body {
   margin-top: 4px;
 }
 
-/* Summary card */
+/* kartu ringkasan */
 .booking-summary-card {
   position: sticky;
   top: 90px;
@@ -531,7 +531,7 @@ body {
   color: var(--muted);
 }
 
-/* ===== GENRE FILTER BUTTONS ===== */
+/* ===== FILTER GENRE ===== */
 .genre-filters {
   display: flex;
   flex-wrap: wrap;
@@ -561,7 +561,7 @@ body {
   box-shadow: 0 0 10px rgba(0, 234, 255, 0.35);
 }
 
-/* ===== CONSOLE BADGES ===== */
+/* ===== BADGE KONSOL ===== */
 .badge {
   display: inline-block;
   padding: 3px 10px;
@@ -621,7 +621,7 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-/* Header: di layar sedang, pencarian turun ke baris kedua supaya menu tidak terpotong */
+/* layar sedang: search turun ke baris 2 biar menu gak kepotong */
 @media (max-width: 1100px) {
   .header-inner { row-gap: 12px; }
   .brand { order: 1; }
@@ -640,7 +640,7 @@ body {
     grid-template-columns: 1fr;
   }
 }
-/* Layar kecil: menu jadi baris sendiri yang bisa digeser horizontal */
+/* layar kecil: menu 1 baris bisa digeser */
 @media (max-width: 640px) {
   .brand { font-size: 20px; }
   .header-right {
@@ -660,13 +660,13 @@ body {
   .nav a { white-space: nowrap; }
 }
 
-/* MODAL LOGIN */
+/* MODAL */
 .modal {
   position: fixed;
   inset: 0;
   display: none;
   z-index: 999;
-  /* Layar pendek (HP landscape): isi modal tetap bisa di-scroll sampai tombolnya */
+  /* layar pendek (HP landscape): isi modal bisa discroll */
   overflow-y: auto;
   padding: 24px 0;
 }
@@ -683,7 +683,7 @@ body {
   backdrop-filter: blur(6px);
 }
 
-/* card login */
+/* kartu modal */
 .modal-content {
   position: relative;
   width: min(340px, calc(100% - 24px));
@@ -716,7 +716,7 @@ body {
   outline: none;
 }
 
-/* Fokus keyboard tetap terlihat walau outline bawaan dimatikan */
+/* fokus keyboard tetap keliatan */
 .modal-content input:focus-visible {
   box-shadow: 0 0 0 2px var(--neon);
 }
@@ -735,7 +735,7 @@ body {
   color: var(--neon);
 }
 
-/* ===== PROFILE DROPDOWN FINAL (VERTIKAL) ===== */
+/* ===== DROPDOWN PROFIL ===== */
 
 .profile {
   position: relative;
@@ -756,7 +756,7 @@ body {
   gap: 6px;
 }
 
-/* DROPDOWN */
+/* dropdown */
 .profile-dropdown {
   position: absolute;
   top: 110%;
@@ -768,10 +768,10 @@ body {
   z-index: 999;
 
   display: none;
-  flex-direction: column; /* KUNCI VERTIKAL */
+  flex-direction: column; /* vertikal */
 }
 
-/* ITEM */
+/* item */
 .profile-dropdown a {
   display: block;
   padding: 12px 16px;
@@ -785,16 +785,16 @@ body {
   color: var(--neon);
 }
 
-/* ===== FIX WARNA LOGIN & PROFILE MENU ===== */
+/* ===== WARNA LOGIN & MENU PROFIL ===== */
 
-/* Login link */
+/* link login */
 #authArea a {
   color: var(--muted);
   text-decoration: none;
   font-size: 15px;
 }
 
-/* ===== BOOKING STATUS COUNTDOWN ===== */
+/* ===== STATUS & COUNTDOWN BOOKING ===== */
 .booking-status {
   display: inline-block;
   margin-top: 6px;
@@ -824,7 +824,7 @@ body {
   border: 1px solid rgba(255, 107, 107, 0.3);
 }
 
-/* ===== PROFILE DETAIL PAGE ===== */
+/* ===== DETAIL PROFIL ===== */
 .booking-list {
   margin-top: 10px;
 }
@@ -902,7 +902,7 @@ body {
   border: 1px solid rgba(255, 75, 75, 0.4);
 }
 
-/* Order history */
+/* riwayat pesanan */
 .menu-order-item {
   padding: 12px 14px;
   background: var(--panel);
@@ -938,7 +938,7 @@ body {
   border: 1px solid rgba(255, 107, 107, 0.3);
 }
 
-/* Notifikasi pop-up "pesanan sudah sampai" */
+/* popup pesanan udah sampai */
 .order-notif {
   position: fixed;
   bottom: 28px;
@@ -971,7 +971,7 @@ body {
   bottom: 80px;
 }
 
-/* ===== UPCOMING BOOKING BANNER ===== */
+/* ===== BANNER BOOKING MENDATANG ===== */
 .upcoming-banner {
   margin-top: 16px;
 }
@@ -999,7 +999,7 @@ body {
 }
 .upcoming-btn { font-size: 0.8rem; padding: 5px 12px; white-space: nowrap; }
 
-/* ===== ROOM AVAILABILITY TIMELINE ===== */
+/* ===== TIMELINE KETERSEDIAAN RUANGAN ===== */
 .room-timeline {
   display: flex;
   flex-wrap: wrap;
@@ -1021,7 +1021,7 @@ body {
 .tl-free   { background: rgba(0, 234, 255, 0.12); color: #00eaff; border: 1px solid #00eaff33; }
 .tl-booked { background: rgba(255, 107, 107, 0.12); color: #ff6b6b; border: 1px solid #ff6b6b33; }
 
-/* ===== ROOM STATUS BADGE ===== */
+/* ===== BADGE STATUS RUANGAN ===== */
 .room-status-badge {
   position: absolute;
   top: 10px;
@@ -1058,7 +1058,7 @@ body {
   pointer-events: none;
 }
 
-/* ===== NAVBAR HOVER EFFECT (GLOBAL & AMAN) ===== */
+/* ===== HOVER NAVBAR ===== */
 
 /* semua link navbar */
 .nav a,
@@ -1068,14 +1068,14 @@ body {
   transition: color 0.2s ease;
 }
 
-/* hover warna */
+/* warna hover */
 .nav a:hover,
 #authArea a:hover,
 .profile-btn:hover {
   color: var(--neon);
 }
 
-/* underline animasi (opsional tapi cakep) */
+/* underline animasi */
 .nav a::after,
 #authArea a::after,
 .profile-btn::after {
@@ -1089,7 +1089,7 @@ body {
   transition: width 0.25s ease;
 }
 
-/* saat hover → underline muncul */
+/* hover -> underline muncul */
 .nav a:hover::after,
 #authArea a:hover::after,
 .profile-btn:hover::after {
@@ -1105,7 +1105,7 @@ body {
   width: 0%;
 }
 
-/* Ikon SVG inline */
+/* ikon SVG inline */
 .icon {
   width: 1em;
   height: 1em;
@@ -1118,7 +1118,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ===== Tombol lihat password ===== */
+/* ===== TOMBOL LIHAT PASSWORD ===== */
 .pass-wrap {
   position: relative;
   display: block;
@@ -1150,7 +1150,7 @@ body {
 }
 p .field-hint { display: inline; margin-left: 4px; }
 
-/* ===== Kartu info di Beranda ===== */
+/* ===== KARTU INFO BERANDA ===== */
 .info-list {
   list-style: none;
   display: flex;
@@ -1204,7 +1204,7 @@ p .field-hint { display: inline; margin-left: 4px; }
 }
 .location-actions a { text-decoration: none; }
 
-/* ===== Fasilitas ===== */
+/* ===== FASILITAS ===== */
 .facility-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1234,14 +1234,14 @@ p .field-hint { display: inline; margin-left: 4px; }
 }
 .facility-icon .icon { width: 22px; height: 22px; }
 
-/* Konsol di judul kartu ruangan */
+/* konsol di judul kartu ruangan */
 .room-body h3 .badge {
   font-size: 11px;
   vertical-align: 2px;
   margin-left: 4px;
 }
 
-/* ===== Footer ===== */
+/* ===== FOOTER ===== */
 .footer-inner {
   max-width: var(--container);
   margin: 0 auto;
@@ -1266,22 +1266,22 @@ p .field-hint { display: inline; margin-left: 4px; }
 .footer-list a:hover { color: var(--neon); }
 .footer-copy { margin-top: 20px; font-size: 12px; text-align: center; }
 
-/* Jam yang sudah lewat di timeline jadwal hari ini */
+/* jam lewat di timeline hari ini */
 .timeline-past { opacity: 0.35; filter: grayscale(1); }
 
 .search-note { grid-column: 1 / -1; }
 
-/* Spesifikasi ruangan (kelas, Netflix, maks pemain) */
+/* spek ruangan (kelas, Netflix, maks pemain) */
 .room-spec { color: var(--neon); font-size: 0.82rem; margin: 4px 0 6px; }
 
-/* Tabel harga paket di detail ruangan */
+/* tabel harga paket di detail ruangan */
 .table-scroll { overflow-x: auto; }
 .price-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; min-width: 420px; }
 .price-table th, .price-table td { padding: 8px 10px; border-bottom: 1px solid #ffffff14; text-align: right; white-space: nowrap; }
 .price-table th:first-child { text-align: left; color: var(--muted); font-weight: 600; }
 .price-table thead th { color: var(--muted); font-weight: 600; }
 
-/* Pilihan tambah Nintendo Switch di form booking */
+/* opsi tambah Nintendo di form booking */
 .bcheck { display: flex; align-items: center; gap: 10px; margin-top: 12px; cursor: pointer; font-size: 0.9rem; }
 .bcheck input { width: 18px; height: 18px; accent-color: var(--neon); }
 
@@ -1350,3 +1350,70 @@ p .field-hint { display: inline; margin-left: 4px; }
 .promo-wide { grid-column: 1 / -1; }
 .price-table-compact { min-width: 0; }
 .price-table-compact th:first-child { white-space: normal; }
+
+/* layanan mandiri di riwayat: ubah jadwal & tukar poin */
+.self-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.self-actions .btn-ghost { font-size: 0.78rem; padding: 5px 10px; }
+.self-actions [hidden] { display: none; }
+.modal-select {
+  width: 100%; margin: 4px 0 10px; padding: 8px 10px; border-radius: 6px; border: none;
+  background: #fff; color: #111; font: inherit;
+}
+.modal-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--neon); }
+
+/* info perpanjang & pindah ruangan di profil */
+.extend-until { font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }
+.extend-until strong { color: var(--neon); }
+.relocated-note {
+  margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 0.8rem;
+  border: 1px solid #ffcf6655; background: rgba(255, 207, 102, 0.08); color: #ffe7b0;
+}
+.bcheck em { font-style: normal; }
+
+/* ===== RUNDOWN RUANGAN ===== */
+.rundown-card { margin-top: 16px; }
+.rundown-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.rundown-head .bsection-title { margin-bottom: 4px; }
+.rundown-days, .rundown-tiers { display: flex; flex-wrap: wrap; gap: 6px; }
+.rundown-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
+.rundown-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.78rem; color: var(--muted); }
+.rundown-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.rd-key { width: 14px; height: 10px; border-radius: 3px; display: inline-block; }
+.rd-free { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); }
+.rundown-scroll { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06); }
+.rundown-grid { min-width: 760px; }
+.rd-row { display: grid; grid-template-columns: 130px 1fr; border-top: 1px solid rgba(255, 255, 255, 0.05); }
+.rd-row-head { border-top: 0; }
+.rd-name {
+  position: sticky; left: 0; z-index: 2; background: var(--panel);
+  padding: 7px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+.rd-name span { font-size: 0.72rem; color: var(--muted); }
+.rd-track {
+  position: relative; min-height: 42px;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px calc(100% / 12));
+}
+.rd-track-head { min-height: 26px; background: none; }
+.rd-clickable { cursor: pointer; }
+.rd-clickable:hover { background-color: rgba(0, 234, 255, 0.04); }
+.rd-hour { position: absolute; top: 6px; transform: translateX(-50%); font-size: 0.72rem; color: var(--muted); }
+.rd-hour-first { transform: none; padding-left: 4px; }
+.rd-hour-last { transform: translateX(-100%); padding-right: 4px; }
+.rd-block {
+  position: absolute; top: 7px; bottom: 7px; border-radius: 6px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; font-style: normal;
+  font-size: 0.7rem; font-weight: 600; white-space: nowrap; color: #0b0d12;
+}
+.rd-booked { background: #ffcf66; }
+.rd-playing { background: #ff6b6b; }
+.rd-off { background: repeating-linear-gradient(45deg, #3a3f4b 0 6px, #2c3039 6px 12px); color: var(--muted); }
+.rd-past { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(0, 0, 0, 0.35); }
+.rd-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--neon); box-shadow: 0 0 6px var(--neon); z-index: 1; }
+.rd-st-free { color: var(--neon-green) !important; }
+.rd-st-booked { color: #ffcf66 !important; }
+.rd-st-playing { color: #ff6b6b !important; }
+.rundown-hint { margin-top: 8px; }
+@media (max-width: 640px) {
+  .rd-row { grid-template-columns: 104px 1fr; }
+}

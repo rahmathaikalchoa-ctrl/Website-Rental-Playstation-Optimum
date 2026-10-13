@@ -1,6 +1,6 @@
 <?php
-// Notifikasi admin: reservasi & antrian online yang masuk setelah id terakhir yang sudah dilihat.
-// Hanya membaca data, dipanggil berkala oleh admin.js.
+// notif admin: reservasi & antrian online baru setelah id terakhir yg udah diliat
+// read only, dipanggil berkala dari admin.js
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 header('Content-Type: application/json');
@@ -22,7 +22,7 @@ $max = $conn->query("SELECT
   (SELECT COALESCE(MAX(id), 0) FROM booking_queue WHERE source = 'online') AS q
 ")->fetch_assoc();
 
-// Reservasi online langsung (bukan hasil antrian) yang belum dibatalkan
+// reservasi online langsung (bukan dari antrian) yg belum batal
 $stmt = $conn->prepare("
   SELECT b.id, b.customer_name, b.start_time, b.with_nintendo, r.title AS room
   FROM bookings b

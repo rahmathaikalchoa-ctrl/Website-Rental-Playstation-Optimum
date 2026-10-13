@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
   exit;
 }
 
-// Token CSRF dari halaman admin (meta csrf-token), cegah aksi yang dipicu situs lain
+// cek token CSRF, cegah aksi dari situs lain
 if (empty($_SESSION['csrf']) || !hash_equals($_SESSION['csrf'], (string) ($_POST['csrf'] ?? ''))) {
   echo json_encode(["status" => "unauthorized", "message" => "Sesi halaman kedaluwarsa, halaman akan dimuat ulang"]);
   exit;
@@ -24,8 +24,8 @@ if (empty($_SESSION['csrf']) || !hash_equals($_SESSION['csrf'], (string) ($_POST
 
 $action = $_POST['action'] ?? '';
 
-// Simpan gambar upload ke assets/images/{subdir}. Return nama file, atau null bila
-// tidak ada file / gagal. File dicek benar-benar gambar (bukan cuma ekstensi), maks 2 MB.
+// simpan gambar upload ke assets/images/{subdir}, return nama file / null
+// dicek beneran gambar, maks 2 MB
 function saveUploadedImage($field, $subdir, $prefix) {
   if (!isset($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) return null;
   $f = $_FILES[$field];
@@ -43,14 +43,14 @@ function uploadAttempted($field) {
   return isset($_FILES[$field]) && $_FILES[$field]['error'] !== UPLOAD_ERR_NO_FILE;
 }
 
-// Hapus file gambar upload (mis. INSERT gagal setelah upload, atau item dihapus)
+// hapus gambar upload (insert gagal / item dihapus)
 function removeUploadedImage($subdir, $name) {
   if (!$name) return;
   $path = __DIR__ . '/assets/images/' . $subdir . '/' . basename($name);
   if (is_file($path)) unlink($path);
 }
 
-// Validasi nama & HP konsumen offline. Return pesan error atau null.
+// validasi nama & HP konsumen offline, return pesan error / null
 function offlineCustomerError($name, $phone) {
   if ($name === '') return "Nama konsumen wajib diisi";
   if (mb_strlen($name) > 100) return "Nama konsumen maksimal 100 karakter";
@@ -58,9 +58,9 @@ function offlineCustomerError($name, $phone) {
   return null;
 }
 
-// Penjelasan kenapa walk-in masuk daftar tunggu padahal ada ruangan kosong:
-// ruangan kosong sekarang tapi ada reservasi sebelum durasi yang diminta selesai.
-// Antrian dengan tambahan Nintendo hanya melihat ruangan yang menyediakan Nintendo.
+// alasan walk-in masuk antrian padahal ada ruangan kosong:
+// kosong sekarang tapi ada reservasi sebelum durasinya selesai
+// antrian + Nintendo cuma liat ruangan yg ada Nintendo
 function walkinHint($conn, $class, $duration, $now, $withNintendo = false) {
   $stmt = $conn->prepare("
     SELECT r.title,
@@ -90,14 +90,13 @@ function walkinHint($conn, $class, $duration, $now, $withNintendo = false) {
   return null;
 }
 
-// ================= TANDAI LUNAS (bayar di kasir) =================
+// ===== TANDAI LUNAS (bayar di kasir) =====
 if ($action === 'mark_paid') {
   $id = intval($_POST['id'] ?? 0);
   $now = time();
-  // Membayar di kasir saat sesi sudah dekat/berjalan berarti konsumen sudah datang:
-  // sekalian dianggap check-in (expires_at dikosongkan)
+  // bayar pas sesi udah dekat/jalan = udah dateng, sekalian check-in
   $checkinFrom = $now + BOOKING_CHECKIN_SEC;
-  // Booking yang sudah lewat batas check-in dibatalkan dulu, jadi tidak bisa dilunasi
+  // batalin dulu yg lewat batas check-in, jadi gak bisa dilunasi
   releaseNoShows($conn, $now);
   try {
     $conn->begin_transaction();
@@ -111,7 +110,7 @@ if ($action === 'mark_paid') {
       echo json_encode(["status" => "error", "message" => "Booking sudah lunas atau sudah dibatalkan"]);
       exit;
     }
-    // Waktu tiap pembayaran dicatat di booking_payments (recordPayment di bawah)
+    // waktu tiap bayar dicatat di booking_payments
     $stmt = $conn->prepare("
       UPDATE bookings
       SET payment_status = 'paid', amount_paid = total_price,
@@ -134,9 +133,8 @@ if ($action === 'mark_paid') {
   exit;
 }
 
-// ================= HARGA PELAJAR (kasir cek kartu pelajar) =================
-// Pasang/lepas harga Paket Pelajar. Hanya sebelum ada pembayaran, supaya uang yang sudah
-// diterima tidak perlu dikembalikan sebagian.
+// ===== HARGA PELAJAR (kasir cek kartu) =====
+// cuma sebelum ada pembayaran biar gak ada refund sebagian
 if ($action === 'toggle_student') {
   $id = intval($_POST['id'] ?? 0);
   try {
@@ -165,7 +163,7 @@ if ($action === 'toggle_student') {
       exit;
     }
     $student = $b['is_student'] ? 0 : 1;
-    // Potongan dari penukaran poin tetap berlaku
+    // potongan poin tetap jalan
     $total = max(0, bookingPrice($b, intval($b['duration']), intval($b['start_time']), (bool) $b['with_nintendo'], (bool) $student)
                     - intval($b['discount']));
     $stmt = $conn->prepare("UPDATE bookings SET is_student = ?, total_price = ? WHERE id = ?");
@@ -183,83 +181,87 @@ if ($action === 'toggle_student') {
   exit;
 }
 
-// ================= TUKAR POIN: GRATIS 1 JAM =================
-// Pasang/lepas potongan 1 jam (tarif per jam ruangan) dengan 10 poin milik akun pemesan.
-// Hanya untuk booking yang belum lunas, supaya uang yang sudah diterima tidak berubah.
-if ($action === 'redeem_points') {
-  $id = intval($_POST['id'] ?? 0);
-  try {
-    $conn->begin_transaction();
-    $stmt = $conn->prepare("
-      SELECT b.user_id, b.discount, b.total_price, b.amount_paid, b.payment_status, r.price
-      FROM bookings b JOIN rooms r ON r.id = b.room_id
-      WHERE b.id = ? FOR UPDATE
-    ");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $b = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-
-    $error = null;
-    if (!$b || $b['payment_status'] === 'cancelled') $error = "Booking tidak ditemukan atau sudah dibatalkan";
-    elseif ($b['payment_status'] === 'paid') $error = "Booking sudah lunas, poin tidak bisa dipakai/dikembalikan lagi";
-    elseif ($b['user_id'] === null) $error = "Poin hanya untuk booking dari akun website";
-    if ($error) {
-      $conn->rollback();
-      echo json_encode(["status" => "error", "message" => $error]);
-      exit;
-    }
-    $uid = intval($b['user_id']);
-    // Kunci baris user supaya poin tidak terpakai dua kali oleh dua booking bersamaan
-    $lock = $conn->prepare("SELECT id FROM users WHERE id = ? FOR UPDATE");
-    $lock->bind_param("i", $uid);
-    $lock->execute();
-    $lock->get_result();
-    $lock->close();
-
-    if (intval($b['discount']) > 0) {
-      // Batal pakai poin: harga kembali normal, 10 poin dikembalikan
-      $stmt = $conn->prepare("UPDATE bookings SET total_price = total_price + discount, discount = 0 WHERE id = ?");
-      $stmt->bind_param("i", $id);
-      $stmt->execute();
-      $stmt->close();
-      $stmt = $conn->prepare("DELETE FROM loyalty_points WHERE booking_id = ? AND points < 0");
-      $stmt->bind_param("i", $id);
-      $stmt->execute();
-      $stmt->close();
-      $redeemed = false;
+// ===== SIMPAN HARGA PAKET & PELAJAR =====
+// packages: [{rate, prices: [1..5 jam]}], student: [{rate, p1, p3}] (JSON), diganti semua
+// booking lama gak berubah, totalnya udah tersimpan
+if ($action === 'save_prices') {
+  $packages = json_decode($_POST['packages'] ?? '[]', true);
+  $student  = json_decode($_POST['student'] ?? '[]', true);
+  $money = fn($v) => is_numeric($v) && intval($v) == $v && $v > 0 && $v <= 10000000;
+  $err = null;
+  if (!is_array($packages) || !is_array($student)) $err = "Data harga tidak valid";
+  $seen = [];
+  foreach ($packages ?: [] as $p) {
+    if ($err) break;
+    $rate = $p['rate'] ?? null;
+    $prices = $p['prices'] ?? null;
+    if (!$money($rate) || !is_array($prices) || count($prices) !== PACKAGE_HOURS || count(array_filter($prices, $money)) !== PACKAGE_HOURS) {
+      $err = "Paket Main Seru: tarif dan harga 1-" . PACKAGE_HOURS . " jam wajib diisi angka lebih dari 0";
+    } elseif (isset($seen[intval($rate)])) {
+      $err = "Tarif Rp" . number_format($rate, 0, ',', '.') . " muncul dua kali di Paket Main Seru";
     } else {
-      if (pointsBalance($conn, $uid) < POINTS_PER_FREE_HOUR) {
-        $conn->rollback();
-        echo json_encode(["status" => "error", "message" => "Poin belum cukup (butuh " . POINTS_PER_FREE_HOUR . " poin)"]);
-        exit;
-      }
-      $discount = min(intval($b['price']), intval($b['total_price']) - intval($b['amount_paid']));
-      $stmt = $conn->prepare("UPDATE bookings SET discount = ?, total_price = total_price - ? WHERE id = ?");
-      $stmt->bind_param("iii", $discount, $discount, $id);
-      $stmt->execute();
-      $stmt->close();
-      $minus = -POINTS_PER_FREE_HOUR;
-      $note = "Tukar gratis 1 jam";
-      $stmt = $conn->prepare("INSERT INTO loyalty_points (user_id, booking_id, points, note) VALUES (?, ?, ?, ?)");
-      $stmt->bind_param("iiis", $uid, $id, $minus, $note);
-      $stmt->execute();
-      $stmt->close();
-      $redeemed = true;
+      $seen[intval($rate)] = true;
     }
+  }
+  $seenS = [];
+  foreach ($student ?: [] as $p) {
+    if ($err) break;
+    if (!$money($p['rate'] ?? null) || !$money($p['p1'] ?? null) || !$money($p['p3'] ?? null)) {
+      $err = "Paket Pelajar: tarif, harga 1 jam, dan 3 jam wajib diisi angka lebih dari 0";
+    } elseif (isset($seenS[intval($p['rate'])])) {
+      $err = "Tarif Rp" . number_format($p['rate'], 0, ',', '.') . " muncul dua kali di Paket Pelajar";
+    } else {
+      $seenS[intval($p['rate'])] = true;
+    }
+  }
+  if ($err) {
+    echo json_encode(["status" => "error", "message" => $err]);
+    exit;
+  }
+
+  $conn->begin_transaction();
+  try {
+    $conn->query("DELETE FROM price_packages");
+    $conn->query("DELETE FROM student_prices");
+    $ins = $conn->prepare("INSERT INTO price_packages (rate, hours, price) VALUES (?, ?, ?)");
+    foreach ($packages as $p) {
+      $rate = intval($p['rate']);
+      foreach (array_values($p['prices']) as $i => $price) {
+        $h = $i + 1;
+        $price = intval($price);
+        $ins->bind_param("iii", $rate, $h, $price);
+        $ins->execute();
+      }
+    }
+    $ins->close();
+    $ins = $conn->prepare("INSERT INTO student_prices (rate, price_1h, price_3h) VALUES (?, ?, ?)");
+    foreach ($student as $p) {
+      $rate = intval($p['rate']); $p1 = intval($p['p1']); $p3 = intval($p['p3']);
+      $ins->bind_param("iii", $rate, $p1, $p3);
+      $ins->execute();
+    }
+    $ins->close();
     $conn->commit();
   } catch (\Throwable $e) {
     $conn->rollback();
-    error_log("redeem_points failed: " . $e->getMessage());
-    echo json_encode(["status" => "error", "message" => "Gagal memproses poin"]);
+    error_log("save_prices failed: " . $e->getMessage());
+    echo json_encode(["status" => "error", "message" => "Gagal menyimpan harga"]);
     exit;
   }
-  echo json_encode(["status" => "ok", "redeemed" => $redeemed]);
+  echo json_encode(["status" => "ok"]);
   exit;
 }
 
-// ================= HAPUS ULASAN =================
-// Untuk ulasan yang tidak pantas (spam, kata kasar)
+// ===== TUKAR POIN: GRATIS 1 JAM =====
+if ($action === 'redeem_points') {
+  $res = toggleRedeemPoints($conn, intval($_POST['id'] ?? 0));
+  echo json_encode($res['ok']
+    ? ["status" => "ok", "redeemed" => $res['redeemed']]
+    : ["status" => "error", "message" => $res['message']]);
+  exit;
+}
+// ===== HAPUS ULASAN =====
+// buat ulasan spam / kasar
 if ($action === 'delete_review') {
   $id = intval($_POST['id'] ?? 0);
   $stmt = $conn->prepare("DELETE FROM room_reviews WHERE id = ?");
@@ -270,7 +272,7 @@ if ($action === 'delete_review') {
   exit;
 }
 
-// ================= RESERVASI JAM TERTENTU UNTUK KONSUMEN OFFLINE =================
+// ===== RESERVASI JAM TERTENTU (KONSUMEN OFFLINE) =====
 if ($action === 'admin_reserve') {
   $name  = trim($_POST['name'] ?? '');
   $phone = trim($_POST['phone'] ?? '');
@@ -302,20 +304,46 @@ if ($action === 'admin_reserve') {
   exit;
 }
 
-// ================= TAMBAH JAM SESI (oleh admin) =================
+// ===== TAMBAH JAM SESI (KASIR) =====
 if ($action === 'admin_extend') {
   $res = extendBookingCore($conn, $_POST['id'] ?? 0, $_POST['hours'] ?? 0, null);
-  echo json_encode($res['ok']
-    ? ["status" => "ok", "new_end" => $res['new_end'], "extra_cost" => $res['extra_cost']]
-    : ["status" => "error", "message" => $res['message']]);
+  if (!$res['ok']) {
+    // gak bisa diperpanjang: kasih tau kasir kalo ada ruangan sekelas kosong
+    $alt = null;
+    $stmt = $conn->prepare("
+      SELECT b.id, b.start_time, b.end_time, b.duration, b.with_nintendo, b.is_student,
+             r.id AS rid, r.tier, r.console_model, r.price, r.weekend_extra, r.nintendo_extra, r.max_players
+      FROM bookings b JOIN rooms r ON r.id = b.room_id WHERE b.id = ?
+    ");
+    $bid = intval($_POST['id'] ?? 0);
+    $stmt->bind_param("i", $bid);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if ($row) {
+      $end = intval($row['end_time']);
+      $alt = findEquivalentRoom($conn, ['id' => $row['rid']] + $row, (bool) $row['with_nintendo'],
+                                $end, $end + intval($_POST['hours'] ?? 0) * 3600, [intval($row['rid'])]);
+    }
+    echo json_encode(["status" => "error", "message" => $res['message'], "alt_room" => $alt['title'] ?? null]);
+    exit;
+  }
+  echo json_encode(["status" => "ok", "new_end" => $res['new_end'], "extra_cost" => $res['extra_cost'], "relocated" => $res['relocated']]);
   exit;
 }
 
-// ================= BATALKAN BOOKING (soft cancel, riwayat tetap tersimpan) =================
+// ===== LANJUT DI RUANGAN SETARA (KASIR) =====
+if ($action === 'continue_other_room') {
+  $res = continueInOtherRoom($conn, intval($_POST['id'] ?? 0), intval($_POST['hours'] ?? 0), null);
+  echo json_encode($res['ok'] ? ["status" => "ok"] + $res : ["status" => "error", "message" => $res['message']]);
+  exit;
+}
+
+// ===== BATALKAN BOOKING (riwayat tetap ada) =====
 if ($action === 'cancel_booking') {
   $id = intval($_POST['id'] ?? 0);
-  // expires_at dikosongkan supaya tidak terbaca sebagai "batal karena tidak hadir".
-  // Sesi yang sudah selesai tidak bisa dibatalkan agar riwayat pendapatan tetap benar.
+  // expires_at dikosongin biar gak kebaca batal karena gak dateng
+  // sesi yg udah selesai gak bisa dibatalin biar pendapatan tetap bener
   $stmt = $conn->prepare("
     UPDATE bookings SET payment_status = 'cancelled', expires_at = NULL
     WHERE id = ? AND payment_status <> 'cancelled' AND end_time > UNIX_TIMESTAMP()
@@ -333,14 +361,14 @@ if ($action === 'cancel_booking') {
   exit;
 }
 
-// ================= KONSUMEN ONLINE SUDAH DATANG (CHECK-IN) =================
+// ===== CHECK-IN KONSUMEN ONLINE =====
 if ($action === 'checkin_booking') {
   $id = intval($_POST['id'] ?? 0);
-  // Check-in paling cepat 15 menit sebelum jam mulai (bukan untuk reservasi hari lain)
+  // check-in paling cepat 15 menit sebelum mulai
   $now = time();
   $earliest = $now + BOOKING_CHECKIN_SEC;
-  // Booking belum bayar yang lewat batas check-in dibatalkan dulu (tidak bisa dihidupkan lagi).
-  // Booking lunas yang terlambat tetap boleh check-in selama jam mainnya belum habis.
+  // yg belum bayar & lewat batas dibatalin dulu
+  // yg lunas tapi telat tetap boleh check-in selama jamnya belum habis
   releaseNoShows($conn, $now);
   $stmt = $conn->prepare("
     UPDATE bookings SET expires_at = NULL
@@ -357,7 +385,7 @@ if ($action === 'checkin_booking') {
   exit;
 }
 
-// ================= WALK-IN: MASUK ANTRIAN =================
+// ===== WALK-IN: MASUK ANTRIAN =====
 if ($action === 'walkin_join') {
   $name     = trim($_POST['name'] ?? '');
   $phone    = trim($_POST['phone'] ?? '');
@@ -384,9 +412,9 @@ if ($action === 'walkin_join') {
     exit;
   }
 
-  // Ruangan dipilih langsung: mulai sekarang di ruangan itu, tanpa lewat antrian
+  // ruangan dipilih langsung: mulai sekarang tanpa antri
   if ($roomId > 0) {
-    // Bersihkan antrian basi dulu supaya tidak salah dihitung sebagai "masih menunggu"
+    // bersihin antrian basi dulu
     processQueue($conn);
     $stmt = $conn->prepare("
       SELECT " . ROOM_CLASS_SQL . " AS room_class,
@@ -401,7 +429,7 @@ if ($action === 'walkin_join') {
       echo json_encode(["status" => "error", "message" => "Ruangan tidak ditemukan"]);
       exit;
     }
-    // Jaga keadilan urutan: kalau ada yang menunggu konsol ini, jangan disalip
+    // jaga urutan: kalo ada yg nunggu konsol ini jangan disalip
     if (intval($info['waiting']) > 0) {
       echo json_encode(["status" => "error", "message" => "Masih ada {$info['waiting']} konsumen menunggu {$info['room_class']}. Pilih ruangan \"Otomatis\" agar sesuai urutan."]);
       exit;
@@ -468,7 +496,7 @@ if ($action === 'walkin_join') {
   exit;
 }
 
-// ================= BATALKAN ANTRIAN =================
+// ===== BATALKAN ANTRIAN =====
 if ($action === 'queue_cancel') {
   $id = intval($_POST['id'] ?? 0);
   $stmt = $conn->prepare("UPDATE booking_queue SET status = 'cancelled' WHERE id = ? AND status = 'waiting'");
@@ -480,12 +508,12 @@ if ($action === 'queue_cancel') {
   exit;
 }
 
-// ================= SELESAIKAN SESI LEBIH AWAL =================
+// ===== SELESAI LEBIH AWAL =====
 if ($action === 'finish_booking') {
   $id  = intval($_POST['id'] ?? 0);
   $now = time();
-  // Biaya tetap; durasi dicatat sesuai jam main aktual (dibulatkan ke atas).
-  // Hanya sesi yang konsumennya sudah check-in (expires_at NULL).
+  // biaya tetap, durasi dicatat sesuai jam main (bulat ke atas)
+  // cuma sesi yg udah check-in
   $stmt = $conn->prepare("
     UPDATE bookings
     SET end_time = ?, duration = GREATEST(1, CEIL((? - start_time) / 3600))
@@ -504,10 +532,9 @@ if ($action === 'finish_booking') {
   exit;
 }
 
-// ================= LEPAS RUANGAN: KONSUMEN LUNAS TIDAK DATANG =================
-// Booking lunas tidak pernah dibatalkan otomatis. Bila batas check-in sudah lewat dan
-// konsumen tidak datang, admin melepas ruangan: sesi diakhiri sekarang, pembayaran tetap
-// tercatat, dan expires_at tetap terisi sebagai tanda tidak hadir.
+// ===== LEPAS RUANGAN: LUNAS TAPI GAK DATENG =====
+// booking lunas gak pernah batal otomatis, kasir yg lepas
+// sesi diakhiri sekarang, bayaran tetap tercatat, expires_at tetap sebagai tanda gak dateng
 if ($action === 'release_noshow') {
   $id  = intval($_POST['id'] ?? 0);
   $now = time();
@@ -530,7 +557,7 @@ if ($action === 'release_noshow') {
   exit;
 }
 
-// Baca & validasi isian form ruangan (tambah/edit). Return [data, pesan error].
+// baca & validasi form ruangan (tambah/edit), return [data, error]
 const ROOM_CATEGORIES = ['private', 'private_pro', 'public'];
 const ROOM_TIERS      = ['VVIP', 'VIP', 'Public'];
 function roomInput() {
@@ -550,7 +577,7 @@ function roomInput() {
   ];
   if ($d['title'] === '' || mb_strlen($d['title']) > 100) return [null, "Nama ruangan wajib diisi (maks 100 karakter)"];
   if (!in_array($d['category'], ROOM_CATEGORIES, true) || !in_array($d['tier'], ROOM_TIERS, true)) return [null, "Kategori atau kelas ruangan tidak valid"];
-  // Kelas "Public" hanya untuk kategori public (dan sebaliknya) supaya kelas antrian tetap rapi
+  // kelas Public cuma buat kategori public (dan sebaliknya) biar antrian rapi
   if (($d['category'] === 'public') !== ($d['tier'] === 'Public')) return [null, "Kategori Public harus memakai kelas Public, kategori Private memakai VIP/VVIP"];
   if (!in_array($d['console_type'], CONSOLE_TYPES, true)) return [null, "Jenis konsol tidak valid"];
   if ($d['console_model'] === '' || mb_strlen($d['console_model']) > 30) return [null, "Model konsol wajib diisi (maks 30 karakter)"];
@@ -560,7 +587,7 @@ function roomInput() {
   return [$d, null];
 }
 
-// ================= ADD ROOM =================
+// ===== TAMBAH RUANGAN =====
 if ($action === 'add_room') {
   [$d, $err] = roomInput();
   if ($err) {
@@ -580,8 +607,8 @@ if ($action === 'add_room') {
   exit;
 }
 
-// ================= EDIT ROOM =================
-// Harga baru hanya berlaku untuk booking baru (total_price booking lama sudah tersimpan)
+// ===== EDIT RUANGAN =====
+// harga baru cuma buat booking baru
 if ($action === 'update_room') {
   $id = intval($_POST['id'] ?? 0);
   [$d, $err] = roomInput();
@@ -599,7 +626,7 @@ if ($action === 'update_room') {
   $stmt->execute();
   $stmt->close();
 
-  // Konsol ruangan diganti: buang game di daftar ruangan yang tidak bisa dimainkan di konsol baru
+  // konsol diganti: buang game yg gak bisa dimainin di konsol baru
   $stmt = $conn->prepare("
     DELETE rg FROM room_games rg
     WHERE rg.room_id = ?
@@ -612,8 +639,8 @@ if ($action === 'update_room') {
   exit;
 }
 
-// ================= GAME PER RUANGAN =================
-// Daftar kosong = ruangan memakai semua game untuk konsolnya (lihat rooms_api.php)
+// ===== GAME PER RUANGAN =====
+// daftar kosong = pakai semua game konsolnya (liat rooms_api.php)
 if ($action === 'update_room_games') {
   $id = intval($_POST['id'] ?? 0);
   $gameIds = array_values(array_unique(array_map('intval', (array) ($_POST['game_ids'] ?? []))));
@@ -635,7 +662,7 @@ if ($action === 'update_room_games') {
     $del->execute();
     $del->close();
 
-    // Hanya game yang bisa dimainkan di konsol ruangan ini yang disimpan
+    // cuma simpan game yg cocok sama konsol ruangan
     $ins = $conn->prepare("
       INSERT INTO room_games (room_id, game_id)
       SELECT ?, gc.game_id FROM game_consoles gc WHERE gc.game_id = ? AND gc.console_type = ?
@@ -656,7 +683,7 @@ if ($action === 'update_room_games') {
   exit;
 }
 
-// ================= TOGGLE ROOM =================
+// ===== TOGGLE RUANGAN =====
 if ($action === 'toggle_room') {
   $id = intval($_POST['id'] ?? 0);
   $stmt = $conn->prepare("
@@ -670,18 +697,48 @@ if ($action === 'toggle_room') {
   exit;
 }
 
-// ================= TOGGLE ROLE =================
-// ================= RESET PASSWORD AKUN =================
-// Untuk konsumen yang lupa password lama (Lupa Password di website butuh password lama).
-// Password sementara ditampilkan sekali ke admin; sesi lama akun itu otomatis keluar
-// karena sidik password berubah (lihat passwordSig di db.php).
+// ===== PINDAHIN RESERVASI KE RUANGAN SETARA =====
+// 1 booking (dari Jadwal) atau semua reservasi di 1 ruangan (pas set perawatan)
+// konsumen dapat info pindah di profil
+if ($action === 'relocate_booking') {
+  $res = relocateBooking($conn, intval($_POST['id'] ?? 0));
+  echo json_encode($res['ok'] ? ["status" => "ok", "room" => $res['room']] : ["status" => "error", "message" => $res['message']]);
+  exit;
+}
+
+if ($action === 'relocate_room_bookings') {
+  $roomId = intval($_POST['id'] ?? 0);
+  $stmt = $conn->prepare("
+    SELECT id, customer_name, start_time FROM bookings
+    WHERE room_id = ? AND payment_status <> 'cancelled' AND expires_at IS NOT NULL AND end_time > UNIX_TIMESTAMP()
+    ORDER BY start_time
+  ");
+  $stmt->bind_param("i", $roomId);
+  $stmt->execute();
+  $list = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+  $moved = [];
+  $failed = [];
+  foreach ($list as $b) {
+    $res = relocateBooking($conn, $b['id']);
+    $label = $b['customer_name'] . ' (' . date('d/m H:i', intval($b['start_time'])) . ')';
+    if ($res['ok']) $moved[] = "$label -> {$res['room']}";
+    else $failed[] = $label;
+  }
+  echo json_encode(["status" => "ok", "moved" => $moved, "failed" => $failed]);
+  exit;
+}
+
+// ===== RESET PASSWORD AKUN =====
+// buat konsumen yg lupa password lama, password sementara cuma muncul sekali
+// sesi lama akun itu otomatis keluar (passwordSig di db.php)
 if ($action === 'reset_password') {
   $id = intval($_POST['id'] ?? 0);
   if ($id === intval($_SESSION['admin_id'])) {
     echo json_encode(["status" => "error", "message" => "Ganti password akun sendiri lewat menu Lupa Password"]);
     exit;
   }
-  // Tanpa karakter yang mirip (0/O, 1/l/I) supaya mudah didiktekan ke konsumen
+  // tanpa huruf mirip (0/O, 1/l/I) biar gampang didikte
   $chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   $temp = '';
   for ($i = 0; $i < 8; $i++) $temp .= $chars[random_int(0, strlen($chars) - 1)];
@@ -706,8 +763,7 @@ if ($action === 'toggle_role') {
     echo json_encode(["status" => "error", "message" => "Tidak bisa mengubah role akun sendiri"]);
     exit;
   }
-  // Baris admin dikunci supaya dua admin yang saling menurunkan role bersamaan
-  // tidak membuat sistem tanpa admin sama sekali.
+  // kunci baris admin biar 2 admin gak saling nurunin role sampai gak ada admin
   $conn->begin_transaction();
   $adminCount = count($conn->query("SELECT id FROM users WHERE role = 'admin' FOR UPDATE")->fetch_all());
   $stmt = $conn->prepare("SELECT role FROM users WHERE id = ? FOR UPDATE");
@@ -734,7 +790,7 @@ if ($action === 'toggle_role') {
   exit;
 }
 
-// ================= ADD GAME =================
+// ===== TAMBAH GAME =====
 if ($action === 'add_game') {
   $title   = trim($_POST['title'] ?? '');
   $genre   = trim($_POST['genre'] ?? '');
@@ -785,7 +841,7 @@ if ($action === 'add_game') {
   }
 }
 
-// ================= DELETE GAME =================
+// ===== HAPUS GAME =====
 if ($action === 'delete_game') {
     $id = intval($_POST['id'] ?? 0);
     $stmt = $conn->prepare("SELECT image FROM games WHERE id = ?");
@@ -800,13 +856,13 @@ if ($action === 'delete_game') {
     $deleted = $stmt->affected_rows > 0;
     $stmt->close();
 
-    // Hapus juga file cover-nya supaya tidak menumpuk di folder upload
+    // hapus file cover juga biar gak numpuk
     if ($deleted) removeUploadedImage('games', $img);
     echo json_encode(["status" => "ok"]);
     exit;
 }
 
-// ================= UPDATE GAME CONSOLES =================
+// ===== UPDATE KONSOL GAME =====
 if ($action === 'update_game_consoles') {
     $id = intval($_POST['id'] ?? 0);
     $consoles = array_filter((array) ($_POST["consoles"] ?? []), fn($c) => in_array($c, CONSOLE_TYPES, true));
@@ -830,7 +886,7 @@ if ($action === 'update_game_consoles') {
         }
         $ins->close();
 
-        // Konsol dicabut: game ini keluar dari daftar ruangan yang konsolnya tidak lagi didukung
+        // konsol dicabut: keluarin game dari ruangan yg konsolnya gak didukung
         $clean = $conn->prepare("
           DELETE rg FROM room_games rg JOIN rooms r ON r.id = rg.room_id
           WHERE rg.game_id = ?
@@ -850,10 +906,10 @@ if ($action === 'update_game_consoles') {
     exit;
 }
 
-// ================= MARK ORDER DONE =================
+// ===== PESANAN SELESAI =====
 if ($action === 'mark_order_done') {
     $id = intval($_POST['id'] ?? 0);
-    // Pesanan yang sudah dibatalkan tidak boleh berubah jadi "selesai"
+    // pesanan batal gak boleh jadi selesai
     $stmt = $conn->prepare("UPDATE menu_orders SET status = 'selesai' WHERE id = ? AND status = 'pending'");
     $stmt->bind_param("i", $id);
     $stmt->execute();
@@ -863,8 +919,8 @@ if ($action === 'mark_order_done') {
     exit;
 }
 
-// ================= BATALKAN PESANAN MENU =================
-// Mis. stok habis atau konsumen salah pesan. Hanya pesanan yang belum diantar.
+// ===== BATALKAN PESANAN MENU =====
+// cth stok habis / salah pesan, cuma yg belum diantar
 if ($action === 'cancel_menu_order') {
     $id = intval($_POST['id'] ?? 0);
     $stmt = $conn->prepare("UPDATE menu_orders SET status = 'batal' WHERE id = ? AND status = 'pending'");
@@ -876,7 +932,7 @@ if ($action === 'cancel_menu_order') {
     exit;
 }
 
-// ================= ADD MENU ITEM =================
+// ===== TAMBAH MENU =====
 if ($action === 'add_menu_item') {
     $name        = trim($_POST['name'] ?? '');
     $category    = trim($_POST['category'] ?? '');
@@ -910,7 +966,7 @@ if ($action === 'add_menu_item') {
     exit;
 }
 
-// ================= TOGGLE MENU ITEM =================
+// ===== TOGGLE MENU =====
 if ($action === 'toggle_menu_item') {
     $id = intval($_POST['id'] ?? 0);
     $stmt = $conn->prepare("UPDATE menu_items SET is_available = IF(is_available=1,0,1) WHERE id = ?");
@@ -921,8 +977,8 @@ if ($action === 'toggle_menu_item') {
     exit;
 }
 
-// ================= EDIT MENU ITEM =================
-// Pesanan lama tetap memakai harga saat dipesan (menu_orders.unit_price)
+// ===== EDIT MENU =====
+// pesanan lama tetap pakai harga pas dipesan (unit_price)
 if ($action === 'update_menu_item') {
     $id          = intval($_POST['id'] ?? 0);
     $name        = trim($_POST['name'] ?? '');
@@ -945,7 +1001,7 @@ if ($action === 'update_menu_item') {
         exit;
     }
 
-    // Gambar hanya diganti bila admin memilih file baru
+    // gambar cuma diganti kalo ada file baru
     $newImage = saveUploadedImage('item_image', 'menu', 'menu_');
     $image = $newImage ?? $old['image'];
 
@@ -969,7 +1025,7 @@ if ($action === 'update_menu_item') {
     exit;
 }
 
-// ================= DELETE MENU ITEM =================
+// ===== HAPUS MENU =====
 if ($action === 'delete_menu_item') {
     $id = intval($_POST['id'] ?? 0);
     $stmt = $conn->prepare("SELECT image FROM menu_items WHERE id = ?");
@@ -986,7 +1042,7 @@ if ($action === 'delete_menu_item') {
         if ($deleted) removeUploadedImage('menu', $img);
         echo json_encode(["status" => "ok"]);
     } catch (\mysqli_sql_exception $e) {
-        // Item masih punya histori pesanan (FK RESTRICT) — nonaktifkan saja, jangan hapus.
+        // masih ada histori pesanan (FK RESTRICT), nonaktifin aja
         echo json_encode(["status" => "error", "message" => "Item ini masih punya histori pesanan, tidak bisa dihapus. Gunakan tombol nonaktifkan (stok habis) sebagai gantinya."]);
     }
     exit;

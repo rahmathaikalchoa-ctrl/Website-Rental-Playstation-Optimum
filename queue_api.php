@@ -6,7 +6,7 @@ require __DIR__ . '/db.php';
 require_once __DIR__ . '/queue_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
-  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  // sesi habis: script.js baca header ini terus buka modal login
   header('X-Auth-Required: 1');
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
@@ -35,7 +35,7 @@ if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $class    = $_POST['room_class'] ?? '';
   $duration = intval($_POST['duration'] ?? 0);
 
-  // Harga pelajar untuk antrian online dipasang kasir saat konsumen datang (cek kartu)
+  // harga pelajar antrian online dipasang kasir pas dateng
   $withN = !empty($_POST['nintendo']) ? 1 : 0;
   if ($duration < 1 || $duration > BOOKING_MAX_DURATION) {
     echo json_encode(["status" => "error", "message" => "Data antrian tidak valid"]);
@@ -55,14 +55,14 @@ if ($action === 'join' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
   }
 
-  // Kunci baris user supaya dua request join bersamaan tidak sama-sama lolos cek
+  // kunci baris user biar 2 join barengan gak lolos dua-duanya
   $conn->begin_transaction();
   $stmt = $conn->prepare("SELECT id FROM users WHERE id = ? FOR UPDATE");
   $stmt->bind_param("i", $userId);
   $stmt->execute();
   $stmt->close();
 
-  // Tolak kalau masih menunggu, atau sudah dapat ruangan yang sesinya belum selesai
+  // tolak kalo masih nunggu atau udah dapat ruangan yg belum selesai
   $stmt = $conn->prepare("
     SELECT q.status FROM booking_queue q
     LEFT JOIN bookings b ON b.id = q.booking_id
@@ -99,7 +99,7 @@ if ($action === 'cancel' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $cancelled = $stmt->affected_rows > 0;
   $stmt->close();
 
-  // Sudah dapat giliran tapi belum lapor ke kasir: batalkan booking-nya juga
+  // udah dapat giliran tapi belum lapor: booking ikut batal
   if (!$cancelled) {
     $stmt = $conn->prepare("
       UPDATE booking_queue q JOIN bookings b ON b.id = q.booking_id
@@ -112,7 +112,7 @@ if ($action === 'cancel' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $cancelled = $stmt->affected_rows > 0;
     $stmt->close();
   }
-  // Giliran/ruangan yang dilepas langsung diberikan ke antrian berikutnya
+  // ruangan yg dilepas langsung ke antrian berikutnya
   if ($cancelled) processQueue($conn);
 
   echo json_encode($cancelled
@@ -125,7 +125,7 @@ if ($action === 'status') {
   processQueue($conn);
   $e = myLatestEntry($conn, $userId);
 
-  // Entry "assigned" hanya relevan selama sesinya belum selesai
+  // assigned cuma relevan selama sesinya belum selesai
   if (!$e || ($e['status'] === 'assigned' && intval($e['end_time']) <= time())) {
     echo json_encode(["status" => "ok", "entry" => null]);
     exit;
@@ -146,7 +146,7 @@ if ($action === 'status') {
     $out['end_time'] = intval($e['end_time']);
     $out['payment_status'] = $e['payment_status'];
     if ($e['payment_status'] === 'cancelled') {
-      // expires_at masih terisi = dibatalkan otomatis karena tidak datang
+      // expires_at keisi = batal otomatis gak dateng
       $out['state'] = $e['expires_at'] !== null ? 'expired' : 'cancelled';
     } elseif ($e['expires_at'] !== null) {
       $out['checkin_until'] = intval($e['expires_at']);

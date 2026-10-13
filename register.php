@@ -9,7 +9,8 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
   exit;
 }
 
-if (!checkRateLimit('register_attempts', 5, 300)) {
+// per IP karena belum ada akun, dilonggarin karena 1 WiFi rental bisa banyak yg daftar
+if (!checkRateLimit('register_attempts', 30, 600)) {
   echo json_encode(["status" => "error", "message" => "Terlalu banyak percobaan. Coba lagi dalam beberapa menit."]);
   exit;
 }
@@ -22,14 +23,13 @@ if ($username === "" || $password === "") {
   exit;
 }
 
-// Kolom username maks 50 karakter; tanpa validasi, nama panjang terpotong diam-diam
-// oleh database dan akun tidak bisa dipakai login
+// username maks 50 di DB, tanpa ini kepotong dan gak bisa login
 if (!preg_match('/^[A-Za-z0-9_]{3,30}$/', $username)) {
   echo json_encode(["status" => "error", "message" => "Username 3-30 karakter, hanya huruf, angka, dan garis bawah (_)"]);
   exit;
 }
 
-// bcrypt hanya memakai 72 byte pertama; lebih dari itu dipotong diam-diam
+// bcrypt cuma pakai 72 byte pertama
 if (strlen($password) < 6 || strlen($password) > 72) {
   echo json_encode(["status" => "error", "message" => "Password 6-72 karakter"]);
   exit;

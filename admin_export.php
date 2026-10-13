@@ -1,5 +1,5 @@
 <?php
-// Export Riwayat Booking ke CSV (bisa dibuka di Excel), mengikuti filter yang sedang aktif.
+// export Riwayat Booking ke CSV (Excel), ikut filter yg aktif
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
 session_start();
 require __DIR__ . '/db.php';
@@ -13,7 +13,7 @@ if (!isAdminSession($conn)) {
   exit;
 }
 
-// Status no-show diperbarui dulu supaya sama dengan halaman Riwayat
+// update no-show dulu biar sama kayak halaman Riwayat
 releaseNoShows($conn);
 $f = riwayatFilter($_GET);
 $stmt = $conn->prepare("
@@ -29,8 +29,7 @@ if ($f['types'] !== '') $stmt->bind_param($f['types'], ...$f['params']);
 $stmt->execute();
 $rows = $stmt->get_result();
 
-// Cegah formula injection: sel teks yang diawali = + - @ (atau tab/CR) akan dijalankan
-// sebagai rumus oleh Excel. Diberi awalan petik supaya terbaca sebagai teks biasa.
+// cegah formula injection: teks diawali = + - @ dikasih petik biar Excel baca teks
 $csvText = fn($v) => ($v !== null && $v !== '' && strpbrk($v[0], "=+-@\t\r") !== false) ? "'" . $v : ($v ?? '');
 
 $statusLabel = ['unpaid' => 'Belum bayar', 'paid' => 'Lunas', 'cancelled' => 'Dibatalkan'];
@@ -40,9 +39,9 @@ header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="' . $filename . '"');
 
 $out = fopen('php://output', 'w');
-// BOM UTF-8 supaya Excel membaca karakter dengan benar
+// BOM UTF-8 biar Excel baca karakter bener
 fwrite($out, "\xEF\xBB\xBF");
-// Pemisah titik koma: format default Excel dengan pengaturan regional Indonesia
+// pemisah titik koma, default Excel regional Indonesia
 $sep = ';';
 fputcsv($out, ['Kode', 'Nama', 'No. HP', 'Sumber', 'Ruangan', 'Tanggal', 'Jam Mulai', 'Jam Selesai',
                'Durasi (jam)', 'Keterangan', 'Total (Rp)', 'Dibayar (Rp)', 'Status', 'Dibuat'], $sep);

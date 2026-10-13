@@ -7,8 +7,7 @@ require_once __DIR__ . '/booking_lib.php';
 require_once __DIR__ . '/riwayat_filter.php';
 require __DIR__ . '/icons.php';
 
-// Nilai aman untuk argumen JS di atribut onclick. htmlspecialchars saja tidak cukup:
-// browser men-decode &#039; kembali jadi ' sebelum JS dijalankan.
+// argumen JS aman buat onclick, htmlspecialchars aja gak cukup (&#039; balik jadi ')
 function jsArg($v) {
   return htmlspecialchars(json_encode($v, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE), ENT_QUOTES);
 }
@@ -18,7 +17,7 @@ if (isset($_POST['login'])) {
   if (!checkRateLimit('admin_login_attempts', 5, 300, $inputUser)) {
     $error = "Terlalu banyak percobaan login. Coba lagi dalam beberapa menit.";
   } else {
-    // Di-trim seperti login.php karena hash dibuat dari password yang sudah di-trim
+    // di-trim kayak login.php, hash dibuat dari password yg udah di-trim
     $inputPass = trim($_POST['password'] ?? '');
 
     $stmt = $conn->prepare("SELECT id, password FROM users WHERE username = ? AND role = 'admin'");
@@ -42,12 +41,12 @@ if (isset($_POST['login'])) {
   }
 }
 
-// Token CSRF untuk semua aksi admin (dikirim admin.js di setiap POST ke admin_api.php)
+// token CSRF buat semua aksi admin
 if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
 
-// Logout lewat POST + token, supaya link/gambar dari situs lain tidak bisa mengeluarkan admin
+// logout pakai POST + token biar gak bisa dipicu dari situs lain
 if (isset($_POST['logout']) && hash_equals($_SESSION['csrf'], (string) ($_POST['csrf'] ?? ''))) {
-  // Hanya keluarkan sesi admin; login user di browser yang sama tetap jalan
+  // cuma sesi admin yg keluar, login user tetap
   unset($_SESSION['admin'], $_SESSION['admin_id'], $_SESSION['admin_username']);
   session_regenerate_id(true);
   header("Location: KITSUNE-ADMIN.php");
@@ -57,7 +56,7 @@ if (isset($_POST['logout']) && hash_equals($_SESSION['csrf'], (string) ($_POST['
 $isAdmin = isAdminSession($conn);
 
 $navItems = ['dashboard' => 'Dashboard', 'booking' => 'Booking', 'jadwal' => 'Jadwal', 'riwayat' => 'Riwayat Booking',
-             'room' => 'Room', 'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
+             'room' => 'Room', 'harga' => 'Harga & Paket', 'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
 $page    = $_GET['page'] ?? 'dashboard';
 if (!isset($navItems[$page])) $page = 'dashboard';
 $perPage = 20;
@@ -94,12 +93,12 @@ $offset  = ($pageNum - 1) * $perPage;
 <nav class="sidebar">
   <h2>Optimum Playzone<span class="brand-sub">Panel Admin</span></h2>
   <?php
-    // Badge jumlah pesanan menu yang belum diantar
+    // jumlah pesanan menu yg belum diantar
     $pendingOrders = intval(mysqli_fetch_assoc(mysqli_query($conn,
       "SELECT COUNT(*) AS n FROM menu_orders WHERE status = 'pending'"))['n']);
   ?>
   <?php foreach ($navItems as $key => $label): ?>
-    <a href="?page=<?= $key ?>" data-nav="<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= $label ?>
+    <a href="?page=<?= $key ?>" data-nav="<?= $key ?>"<?= $page === $key ? ' class="active"' : '' ?>><?= htmlspecialchars($label) ?>
       <?php if ($key === 'menu' && $pendingOrders > 0): ?><span class="nav-badge" title="Pesanan menu belum diantar"><?= $pendingOrders ?></span><?php endif; ?>
     </a>
   <?php endforeach; ?>
@@ -121,8 +120,8 @@ $offset  = ($pageNum - 1) * $perPage;
     $bulanNama  = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
     $bulanIni   = $bulanNama[intval(date('n', $now)) - 1] . ' ' . date('Y', $now);
 
-    // Pendapatan = uang yang diterima kasir (booking_payments), menurut waktu tiap pembayaran.
-    // Booking yang dibatalkan tidak dihitung (uangnya dikembalikan manual).
+    // pendapatan = uang masuk kasir (booking_payments) per waktu bayar
+    // booking batal gak dihitung
     $revenueSince = function ($from) use ($conn) {
       $stmt = $conn->prepare("SELECT COALESCE(SUM(p.amount), 0) AS s FROM booking_payments p JOIN bookings b ON b.id = p.booking_id WHERE b.payment_status <> 'cancelled' AND p.paid_at >= ?");
       $stmt->bind_param("i", $from);
@@ -148,7 +147,7 @@ $offset  = ($pageNum - 1) * $perPage;
     $menuMonth = intval($stmt->get_result()->fetch_assoc()['s']);
     $stmt->close();
 
-    // Pendapatan 14 hari terakhir (hari tanpa transaksi tetap ditampilkan sebagai 0)
+    // pendapatan 14 hari, hari kosong tetap 0
     $days = [];
     for ($i = 13; $i >= 0; $i--) {
       $d = strtotime("-$i day", $todayStart);
@@ -173,7 +172,7 @@ $offset  = ($pageNum - 1) * $perPage;
     $stmt->close();
     $maxDay = max(1, max(array_column($days, 'sum')));
 
-    // Ringkasan booking bulan ini (menurut jadwal main)
+    // ringkasan booking bulan ini (per jadwal main)
     $stmt = $conn->prepare("SELECT payment_status, source, COUNT(*) AS n FROM bookings WHERE start_time >= ? AND start_time < ? GROUP BY payment_status, source");
     $stmt->bind_param("ii", $monthStart, $monthEnd);
     $stmt->execute();
@@ -324,7 +323,8 @@ $offset  = ($pageNum - 1) * $perPage;
       ->fetch_all(MYSQLI_ASSOC);
     $stmt = $conn->prepare("
       SELECT id, room_id, user_id, customer_name, phone, order_code, source, start_time, end_time, duration,
-             total_price, amount_paid, payment_status, expires_at, with_nintendo, is_student, discount
+             total_price, amount_paid, payment_status, expires_at, with_nintendo, is_student, discount,
+             lock_room, (SELECT title FROM rooms ro WHERE ro.id = bookings.relocated_from) AS relocated_from
       FROM bookings
       WHERE payment_status <> 'cancelled' AND start_time < ? AND end_time > ?
       ORDER BY start_time
@@ -404,9 +404,11 @@ $offset  = ($pageNum - 1) * $perPage;
             $paid    = $b['payment_status'] === 'paid';
             $state   = $waiting ? 'sched-wait' : ($paid ? 'sched-paid' : 'sched-unpaid');
             $due     = intval($b['total_price']) - intval($b['amount_paid']);
-            // "Lunas" ditulis juga di bar karena warna "menunggu datang" lebih diutamakan
+            // Lunas ikut ditulis di bar karena warna nunggu datang lebih penting
             $tags    = array_filter([$b['source'] === 'walkin' ? 'Offline' : 'Online', $waiting && $paid ? 'Lunas' : '',
-                                     $b['with_nintendo'] ? '+Nintendo' : '', $b['is_student'] ? 'Pelajar' : '']);
+                                     $b['with_nintendo'] ? '+Nintendo' : '', $b['is_student'] ? 'Pelajar' : '',
+                                     $b['relocated_from'] ? 'Dipindah dari ' . $b['relocated_from'] : '',
+                                     $b['lock_room'] ? 'Ruangan dikunci' : '']);
             $detail = [
               'id' => intval($b['id']), 'name' => $b['customer_name'], 'phone' => $b['phone'] ?? '',
               'code' => $b['order_code'] ?? '-', 'room' => $r['title'],
@@ -421,6 +423,7 @@ $offset  = ($pageNum - 1) * $perPage;
                               && ($b['is_student'] || studentEligible($roomById[$rid], (bool) $b['with_nintendo'], intval($b['start_time']))),
               'isStudent'  => (bool) $b['is_student'],
               'canCancel'  => intval($b['end_time']) > $now,
+              'canMove'    => $waiting && intval($b['end_time']) > $now,
               'hasDiscount' => intval($b['discount']) > 0,
               'canRedeem'  => $b['user_id'] !== null && !$paid
                               && (intval($b['discount']) > 0 || pointsBalance($conn, $b['user_id']) >= POINTS_PER_FREE_HOUR),
@@ -462,7 +465,7 @@ $offset  = ($pageNum - 1) * $perPage;
   <!-- RIWAYAT BOOKING -->
 <?php elseif ($page === 'riwayat'): ?>
   <?php
-    // Booking yang lewat batas check-in ditandai batal dulu supaya status akurat
+    // batalin dulu yg lewat batas check-in biar status bener
     releaseNoShows($conn);
     $f = riwayatFilter($_GET);
 
@@ -483,7 +486,7 @@ $offset  = ($pageNum - 1) * $perPage;
       {$f['where']}
       ORDER BY b.created_at DESC LIMIT ? OFFSET ?
     ");
-    // Mode cetak: semua baris sesuai filter (bukan hanya halaman ini), dibatasi supaya tetap ringan
+    // mode cetak: semua baris sesuai filter, tetap dibatasi
     $printMode = isset($_GET['print']);
     $types = $f['types'] . 'ii';
     $params = array_merge($f['params'], $printMode ? [2000, 0] : [$perPage, $offset]);
@@ -554,7 +557,7 @@ $offset  = ($pageNum - 1) * $perPage;
       <?php
         $isCancelled = $b['payment_status'] === 'cancelled';
         [$pl, $pc] = $payLabel[$b['payment_status']] ?? [$b['payment_status'], 'pay-unpaid'];
-        // expires_at masih terisi pada booking batal = batal otomatis karena tidak hadir
+        // batal + expires_at keisi = batal otomatis gak dateng
         if ($isCancelled && $b['expires_at'] !== null) $pl = 'Batal · tidak hadir';
       ?>
       <tr class="<?= $isCancelled ? 'row-cancelled' : '' ?>">
@@ -602,7 +605,7 @@ $offset  = ($pageNum - 1) * $perPage;
   </div>
   <?php endif; ?>
 
-  <!-- BOOKING (layanan operator: konsumen offline + daftar tunggu) -->
+  <!-- BOOKING (kasir: konsumen offline + daftar tunggu) -->
 <?php elseif ($page === 'booking'): ?>
   <?php
     processQueue($conn);
@@ -641,7 +644,7 @@ $offset  = ($pageNum - 1) * $perPage;
       if ($r['status'] !== 'available')  { $r['state'] = 'service'; }
       elseif ($r['cur'])                 { $r['state'] = 'dipakai'; }
       else                               { $r['state'] = 'kosong'; }
-      // Reservasi yang konsumennya belum datang tidak dihitung "sedang dipakai"
+      // reservasi yg belum dateng gak dihitung dipakai
       if ($r['state'] === 'dipakai' && $r['cur']['expires_at'] !== null) $stat['menunggu']++;
       else $stat[$r['state']]++;
 
@@ -656,7 +659,7 @@ $offset  = ($pageNum - 1) * $perPage;
     $curStmt->close();
     $nextStmt->close();
 
-    // Kelas ruangan aktif (urut tarif) untuk pilihan walk-in & kolom daftar tunggu
+    // kelas ruangan aktif urut tarif
     $classes = roomClasses($conn);
     $queueBy = array_fill_keys(array_column($classes, 'room_class'), []);
     $qRes = mysqli_query($conn, "SELECT * FROM booking_queue WHERE status = 'waiting' ORDER BY created_at, id");
@@ -666,7 +669,7 @@ $offset  = ($pageNum - 1) * $perPage;
     $stateLabel = ['kosong' => 'Kosong', 'dipakai' => 'Dipakai', 'service' => 'In Service'];
     $srcLabel   = fn($s) => $s === 'walkin' ? 'Offline' : 'Online';
 
-    // Pilihan tanggal reservasi: hari ini s/d lusa, tampil dengan tanggal asli
+    // tanggal reservasi: hari ini s/d lusa
     $bulan = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
     $dateOptions = [];
     foreach (['Hari ini', 'Besok', 'Lusa'] as $i => $lbl) {
@@ -824,9 +827,9 @@ $offset  = ($pageNum - 1) * $perPage;
             $progress = min(100, round(($now - intval($cur['start_time'])) / $span * 100));
           }
           $waitingArrival = $cur && $cur['expires_at'] !== null;
-          // Hanya booking lunas yang masih tersisa setelah batas check-in (yang belum bayar sudah batal otomatis)
+          // sisa yg lunas tapi lewat batas check-in (yg belum bayar udah batal otomatis)
           $noShow = $waitingArrival && intval($cur['expires_at']) < $now;
-          // Konsumen reservasi berikutnya boleh check-in lebih awal (15 menit sebelum mulai)
+          // reservasi berikutnya boleh check-in 15 menit sebelum mulai
           $nextEarly = !$cur && $next && $next['expires_at'] !== null
                        && intval($next['start_time']) - $now <= BOOKING_CHECKIN_SEC;
         ?>
@@ -880,7 +883,7 @@ $offset  = ($pageNum - 1) * $perPage;
                 <button class="btn-outline" onclick="releaseNoShow(<?= intval($cur['id']) ?>, <?= jsArg($cur['customer_name']) ?>)">Lepas Ruangan</button>
               <?php endif; ?>
               <?php
-                // Tukar 10 poin = gratis 1 jam (akun website, belum lunas)
+                // tukar 10 poin = gratis 1 jam (akun website, belum lunas)
                 $canRedeem = $cur['user_id'] !== null && $cur['payment_status'] !== 'paid'
                   && (intval($cur['discount']) > 0 || pointsBalance($conn, $cur['user_id']) >= POINTS_PER_FREE_HOUR);
               ?>
@@ -949,7 +952,7 @@ $offset  = ($pageNum - 1) * $perPage;
   <!-- ROOMS -->
 <?php elseif ($page === 'room'): ?>
   <?php
-    // upcoming = booking mendatang/berjalan yang masih aktif, untuk peringatan saat set perawatan
+    // upcoming = booking aktif ke depan, buat peringatan set perawatan
     $rooms = mysqli_query($conn, "
       SELECT r.*,
         (SELECT COUNT(*) FROM bookings b
@@ -957,7 +960,7 @@ $offset  = ($pageNum - 1) * $perPage;
         (SELECT GROUP_CONCAT(rg.game_id) FROM room_games rg WHERE rg.room_id = r.id) AS game_ids
       FROM rooms r ORDER BY r.id
     ");
-    // Semua game + konsolnya untuk modal "Atur Game"
+    // semua game + konsol buat modal Atur Game
     $allGames = mysqli_query($conn, "
       SELECT g.id, g.title, GROUP_CONCAT(gc.console_type) AS consoles
       FROM games g LEFT JOIN game_consoles gc ON gc.game_id = g.id
@@ -1111,6 +1114,71 @@ $offset  = ($pageNum - 1) * $perPage;
       </div>
     </form>
   </div>
+
+  <!-- HARGA & PAKET -->
+<?php elseif ($page === 'harga'): ?>
+  <?php
+    // kelas ruangan per tarif, biar admin tau paket buat siapa
+    $rateUse = [];
+    foreach ($conn->query("SELECT DISTINCT " . ROOM_CLASS_SQL . " AS cls, price, nintendo_extra FROM rooms WHERE status = 'available'") as $row) {
+      $rateUse[intval($row['price'])][] = $row['cls'];
+      if ($row['nintendo_extra'] !== null) $rateUse[intval($row['price']) + intval($row['nintendo_extra'])][] = $row['cls'] . ' + Nintendo';
+    }
+    $rateUse = array_map(fn($l) => implode(', ', array_unique($l)), $rateUse);
+    ksort($rateUse);
+  ?>
+  <div class="page-head">
+    <div>
+      <h2>Harga &amp; Paket</h2>
+      <p class="page-sub">Paket berlaku otomatis untuk ruangan yang tarif per jamnya sama dengan "Tarif / jam" di sini. Booking lama tidak berubah harganya.</p>
+    </div>
+  </div>
+
+  <form id="pricesForm" data-rates="<?= htmlspecialchars(json_encode($rateUse), ENT_QUOTES) ?>">
+    <div class="panel-card">
+      <h3 class="panel-title"><?= icon('check') ?> Paket Main Seru (1-<?= PACKAGE_HOURS ?> jam)</h3>
+      <p class="page-sub">Total harga untuk 1-<?= PACKAGE_HOURS ?> jam. Jam ke-<?= PACKAGE_HOURS + 1 ?> dan seterusnya memakai tarif biasa. Weekend tetap ditambah biaya weekend ruangan.</p>
+      <div class="table-wrap">
+        <table class="users-table price-edit" data-price-table="packages">
+          <tr><th>Tarif / jam</th><?php for ($h = 1; $h <= PACKAGE_HOURS; $h++): ?><th><?= $h ?> jam</th><?php endfor; ?><th>Dipakai oleh</th><th></th></tr>
+          <?php foreach (pricePackages() as $rate => $pkg): ?>
+          <tr>
+            <td><input type="number" min="1" data-f="rate" value="<?= $rate ?>"></td>
+            <?php foreach ($pkg as $price): ?><td><input type="number" min="1" data-f="price" value="<?= $price ?>"></td><?php endforeach; ?>
+            <td class="cell-sub" data-use></td>
+            <td><button type="button" class="btn-icon" data-row-del title="Hapus baris" aria-label="Hapus baris"><?= icon('x') ?></button></td>
+          </tr>
+          <?php endforeach; ?>
+        </table>
+      </div>
+      <button type="button" class="btn-ghost-sm" data-row-add="packages">+ Tambah paket</button>
+    </div>
+
+    <div class="panel-card" style="margin-top:18px">
+      <h3 class="panel-title"><?= icon('user') ?> Paket Pelajar (Senin-Jumat)</h3>
+      <p class="page-sub">Dipasang kasir setelah konsumen menunjukkan kartu pelajar. Lebih dari 3 jam dihitung kelipatan paket 3 jam + sisa per jam.</p>
+      <div class="table-wrap">
+        <table class="users-table price-edit" data-price-table="student">
+          <tr><th>Tarif / jam</th><th>1 jam</th><th>3 jam</th><th>Dipakai oleh</th><th></th></tr>
+          <?php foreach (studentPrices() as $rate => [$p1, $p3]): ?>
+          <tr>
+            <td><input type="number" min="1" data-f="rate" value="<?= $rate ?>"></td>
+            <td><input type="number" min="1" data-f="p1" value="<?= $p1 ?>"></td>
+            <td><input type="number" min="1" data-f="p3" value="<?= $p3 ?>"></td>
+            <td class="cell-sub" data-use></td>
+            <td><button type="button" class="btn-icon" data-row-del title="Hapus baris" aria-label="Hapus baris"><?= icon('x') ?></button></td>
+          </tr>
+          <?php endforeach; ?>
+        </table>
+      </div>
+      <button type="button" class="btn-ghost-sm" data-row-add="student">+ Tambah tarif pelajar</button>
+    </div>
+
+    <div class="price-save-bar">
+      <button type="submit" class="btn-primary"><?= icon('check') ?> Simpan Harga</button>
+      <span class="page-sub">Tarif yang tidak dipakai ruangan mana pun tidak berpengaruh (ditandai "Belum dipakai").</span>
+    </div>
+  </form>
 
   <!-- AKUN -->
 <?php elseif ($page === 'akun'): ?>

@@ -6,7 +6,7 @@ require __DIR__ . '/db.php';
 require_once __DIR__ . '/booking_lib.php';
 
 if (!isset($_SESSION['user_id'])) {
-  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  // sesi habis: script.js baca header ini terus buka modal login
   header('X-Auth-Required: 1');
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;

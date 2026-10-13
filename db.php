@@ -1,8 +1,7 @@
 <?php
 date_default_timezone_set('Asia/Jakarta');
 
-// Tangkap exception/error DB yang tidak sengaja lolos (mis. mysqli_sql_exception)
-// supaya detail internal (path file, query) tidak pernah tampil ke browser.
+// tangkap exception DB yg lolos biar path/query gak tampil ke browser
 set_exception_handler(function ($e) {
   error_log("Unhandled exception: " . $e->getMessage());
   if (!headers_sent()) {
@@ -21,16 +20,15 @@ set_exception_handler(function ($e) {
 });
 
 $conn = new mysqli("localhost", "root", "", "gamezone");
-// Samakan zona waktu NOW()/TIMESTAMP MySQL dengan PHP (WIB)
+// samain zona waktu MySQL sama PHP (WIB)
 $conn->query("SET time_zone = '+07:00'");
 
-// Sidik password untuk sesi: berubah saat password diganti, sehingga sesi lain
-// (perangkat lain) yang masih memakai password lama otomatis keluar.
+// sidik password buat sesi, berubah kalo password diganti jadi device lain otomatis keluar
 function passwordSig($hash) {
   return substr(hash('sha256', (string) $hash), 0, 16);
 }
 
-// Keluarkan sesi user bila password akunnya sudah diganti sejak login
+// keluarin sesi user kalo password udah diganti
 if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['user_id'], $_SESSION['pw_sig'])) {
   $sessUid = intval($_SESSION['user_id']);
   $stmt = $conn->prepare("SELECT password FROM users WHERE id = ?");
@@ -51,32 +49,43 @@ function updateUserActivity($conn, $userId) {
   $stmt->close();
 }
 
-// Key rate limit: per IP, ditambah username bila diberikan ($subject) supaya
-// pengunjung yang berbagi satu WiFi tidak saling memblokir saat login.
+// key rate limit: per IP + username (kalo ada) biar 1 WiFi gak saling blokir
 function rateLimitKey($action, $subject = '') {
   $key = $action . ':' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
   return $subject === '' ? $key : $key . ':' . mb_strtolower(mb_substr($subject, 0, 60));
 }
 
-// Rate limit disimpan di DB (bukan session) supaya tidak bisa dilewati
-// dengan membuang cookie session di tiap request.
+// rate limit di DB biar gak bisa diakalin buang cookie
 function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300, $subject = '') {
   global $conn;
   $key = rateLimitKey($action, $subject);
 
-  $stmt = $conn->prepare("DELETE FROM rate_limits WHERE rl_key = ? AND created_at < (NOW() - INTERVAL ? SECOND)");
-  $stmt->bind_param("si", $key, $windowSec);
-  $stmt->execute();
-  $stmt->close();
-  // Buang sisa percobaan lama dari IP/aksi lain supaya tabel tidak tumbuh terus
-  $conn->query("DELETE FROM rate_limits WHERE created_at < (NOW() - INTERVAL 1 DAY)");
+  // bersih-bersih cuma pelengkap, kalo deadlock skip aja daripada request gagal
+  try {
+    $stmt = $conn->prepare("DELETE FROM rate_limits WHERE rl_key = ? AND created_at < (NOW() - INTERVAL ? SECOND)");
+    $stmt->bind_param("si", $key, $windowSec);
+    $stmt->execute();
+    $stmt->close();
+    // buang data lama sesekali aja, tiap request bikin saling ngunci
+    if (mt_rand(1, 50) === 1) $conn->query("DELETE FROM rate_limits WHERE created_at < (NOW() - INTERVAL 1 DAY)");
+  } catch (\mysqli_sql_exception $e) {
+    error_log("rate limit cleanup skipped: " . $e->getMessage());
+  }
 
-  // Catat dulu baru hitung: request yang datang bersamaan saling melihat catatan
-  // masing-masing, jadi tidak bisa lolos semua seperti pola "cek lalu catat".
-  $stmt = $conn->prepare("INSERT INTO rate_limits (rl_key) VALUES (?)");
-  $stmt->bind_param("s", $key);
-  $stmt->execute();
-  $stmt->close();
+  // catat dulu baru hitung biar request barengan saling keliatan
+  for ($try = 1; ; $try++) {
+    try {
+      $stmt = $conn->prepare("INSERT INTO rate_limits (rl_key) VALUES (?)");
+      $stmt->bind_param("s", $key);
+      $stmt->execute();
+      $stmt->close();
+      break;
+    } catch (\mysqli_sql_exception $e) {
+      // 1213 deadlock, 1205 lock timeout: coba lagi
+      if ($try >= 3 || !in_array($e->getCode(), [1213, 1205], true)) throw $e;
+      usleep(20000 * $try);
+    }
+  }
 
   $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM rate_limits WHERE rl_key = ?");
   $stmt->bind_param("s", $key);
@@ -87,8 +96,7 @@ function checkRateLimit($action, $maxAttempts = 5, $windowSec = 300, $subject = 
   return $count <= $maxAttempts;
 }
 
-// Sesi admin valid hanya jika akunnya masih ber-role admin di DB
-// (admin yang sudah diturunkan langsung kehilangan akses).
+// sesi admin valid kalo akunnya masih admin di DB
 function isAdminSession($conn) {
   if (empty($_SESSION['admin']) || empty($_SESSION['admin_id'])) return false;
   $id = intval($_SESSION['admin_id']);
@@ -97,7 +105,7 @@ function isAdminSession($conn) {
   $stmt->execute();
   $row = $stmt->get_result()->fetch_assoc();
   $stmt->close();
-  // Password admin diganti sejak login: sesi lama tidak berlaku lagi
+  // password admin diganti: sesi lama gak berlaku
   $ok = $row && (empty($_SESSION['admin_pw_sig']) || hash_equals($_SESSION['admin_pw_sig'], passwordSig($row['password'])));
   if (!$ok) unset($_SESSION['admin'], $_SESSION['admin_id'], $_SESSION['admin_username'], $_SESSION['admin_pw_sig']);
   return $ok;

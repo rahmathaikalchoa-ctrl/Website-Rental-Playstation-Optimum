@@ -11,13 +11,14 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
 }
 
 if (!isset($_SESSION['user_id'])) {
-  // Sesi login habis: script.js membaca header ini lalu membuka modal login
+  // sesi habis: script.js baca header ini terus buka modal login
   header('X-Auth-Required: 1');
   echo json_encode(["status" => "error", "message" => "Silakan login terlebih dahulu"]);
   exit;
 }
 
-if (!checkRateLimit('booking', 20, 300)) {
+// limit per akun, bukan per IP aja (WiFi rental / seluler bisa 1 IP rame-rame)
+if (!checkRateLimit('booking', 20, 300, (string) intval($_SESSION['user_id']))) {
   echo json_encode(["status" => "error", "message" => "Terlalu banyak permintaan booking. Coba lagi dalam beberapa menit."]);
   exit;
 }
@@ -62,12 +63,13 @@ $res = createBooking($conn, [
   'phone'          => $phone,
   'user_id'        => $userId,
   'with_nintendo'  => !empty($_POST['nintendo']),
+  // konsumen minta ruangan dikunci (gak dipindah)
+  'lock_room'      => !empty($_POST['lock_room']),
   'source'         => 'online',
   'payment_status' => 'unpaid',
-  // Wajib lapor ke kasir paling lambat 15 menit setelah jam mulai
+  // wajib lapor kasir maks 15 menit setelah jam mulai
   'expires_at'     => $slot['start'] + BOOKING_CHECKIN_SEC,
-  // Satu akun maksimal punya beberapa reservasi aktif yang belum dibayar,
-  // supaya slot tidak diborong satu orang (dicek di dalam transaksi createBooking)
+  // batas reservasi belum bayar per akun biar slot gak diborong (dicek di createBooking)
   'max_unpaid'     => MAX_ACTIVE_UNPAID,
 ]);
 

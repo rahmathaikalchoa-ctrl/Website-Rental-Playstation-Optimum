@@ -6,16 +6,16 @@ require __DIR__ . '/db.php';
 require __DIR__ . '/site_info.php';
 require_once __DIR__ . '/queue_lib.php';
 
-// Harga termurah per kategori dari ruangan aktif, untuk kartu "Info Singkat" di Beranda
+// harga termurah per kategori buat kartu Info Singkat
 const CATEGORY_LABELS = ['public' => 'Public', 'private' => 'Private', 'private_pro' => 'Private Pro'];
 $priceFrom = [];
 $res = $conn->query("SELECT category, MIN(price) AS p FROM rooms WHERE status = 'available' GROUP BY category ORDER BY p");
 while ($row = $res->fetch_assoc()) $priceFrom[CATEGORY_LABELS[$row['category']]] = intval($row['p']);
 $queueClasses = roomClasses($conn);
 
-// Teks info diambil dari data ruangan supaya tetap benar bila admin mengubah ruangan
+// teks info dari data ruangan biar ikut berubah kalo admin edit
 $fmtRp = fn($n) => 'Rp' . number_format($n, 0, ',', '.');
-// Tambahan weekend dikelompokkan per nominal, mis. "+Rp3.000 (Public) / +Rp5.000 (Private, Private Pro)"
+// tambahan weekend dikelompokkan per nominal
 $weekendBy = [];
 $res = $conn->query("SELECT DISTINCT category, weekend_extra AS w FROM rooms WHERE status = 'available' AND weekend_extra > 0 ORDER BY w, category");
 while ($row = $res->fetch_assoc()) $weekendBy[intval($row['w'])][] = CATEGORY_LABELS[$row['category']];
@@ -27,7 +27,7 @@ $listTitles = function ($where) use ($conn) {
 };
 $switchRooms = $listTitles("console_type = 'SWITCH'");
 $addonRooms  = $listTitles("nintendo_extra IS NOT NULL");
-// Label kelas untuk setiap tarif paket, mis. 30000 => "VIP PS5, VIP Nintendo Switch"
+// label kelas per tarif paket, cth 30000 => VIP PS5, VIP Nintendo Switch
 $rateLabels = [];
 foreach ($conn->query("SELECT DISTINCT " . ROOM_CLASS_SQL . " AS cls, price, nintendo_extra FROM rooms WHERE status = 'available'") as $row) {
   $rateLabels[intval($row['price'])][] = $row['cls'];
@@ -176,6 +176,31 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
       <section id="view-consoles" class="view" style="display: none">
         <div class="container">
           <h1 style="color: var(--neon)">Daftar Ruangan</h1>
+
+          <!-- RUNDOWN: jam terisi semua ruangan, bisa diliat tanpa login -->
+          <div class="booking-form-card rundown-card">
+            <div class="rundown-head">
+              <div>
+                <h3 class="bsection-title"><?= icon('clock') ?> Rundown Ruangan</h3>
+                <p class="muted small" id="rundownSummary">Memuat jadwal...</p>
+              </div>
+              <div class="rundown-days" id="rundownDays"></div>
+            </div>
+            <div class="rundown-tools">
+              <div class="rundown-tiers" id="rundownTiers"></div>
+              <div class="rundown-legend">
+                <span><i class="rd-key rd-free"></i>Kosong</span>
+                <span><i class="rd-key rd-booked"></i>Sudah dipesan</span>
+                <span><i class="rd-key rd-playing"></i>Sedang dipakai</span>
+                <span><i class="rd-key rd-off"></i>Perawatan</span>
+              </div>
+            </div>
+            <div class="rundown-scroll">
+              <div class="rundown-grid" id="rundownGrid" aria-live="polite"></div>
+            </div>
+            <p class="muted small rundown-hint">Ketuk bagian yang kosong untuk langsung memesan jam itu.</p>
+          </div>
+
           <div class="booking-form-card finder-card">
             <h3 class="bsection-title"><?= icon('search') ?> Cari Ruangan Kosong</h3>
             <p class="muted small" style="margin-bottom:12px">Pilih jadwal main, kami tampilkan semua ruangan yang masih kosong beserta total harganya.</p>
@@ -227,6 +252,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
             <div><strong>Mau main di jam tertentu?</strong> Isi form Reservasi Jam Tertentu.</div>
             <div>Pembayaran di kasir saat datang. Lapor ke kasir paling lambat 15 menit setelah jam mulai, lewat dari itu booking batal otomatis.</div>
             <div>Pelajar? Harga Paket Pelajar (Senin-Jumat) dipasang kasir setelah kamu menunjukkan kartu pelajar.</div>
+            <div><strong>Aturan jadwal:</strong> datang telat, jam selesai tetap sesuai booking. Yang dijamin adalah kelas ruangan, jam, dan harga; ruangan bisa dipindah ke ruangan sekelas sebelum kamu datang, kecuali kamu mengunci ruangan.</div>
           </div>
 
           <!-- ANTRIAN MAIN SEKARANG -->
@@ -325,6 +351,10 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
                     <input type="checkbox" id="withNintendo">
                     <span>Tambah Nintendo Switch <strong id="nintendoExtra"></strong></span>
                   </label>
+                  <label class="bcheck">
+                    <input type="checkbox" id="lockRoom">
+                    <span>Kunci ruangan ini <em class="muted small">(tanpa centang, ruanganmu bisa dipindah ke ruangan sekelas dengan harga & jam yang sama bila orang sebelumnya menambah jam)</em></span>
+                  </label>
                 </div>
 
                 <div class="form-actions">
@@ -362,7 +392,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
                 <table class="price-table">
                   <thead><tr><th>Kelas</th><th>1 jam</th><th>2 jam</th><th>3 jam</th><th>4 jam</th><th>5 jam</th></tr></thead>
                   <tbody>
-                    <?php foreach (PRICE_PACKAGES as $rate => $pkg): ?>
+                    <?php foreach (pricePackages() as $rate => $pkg): ?>
                       <?php if (empty($rateLabels[$rate])) continue; ?>
                       <tr>
                         <th><?= htmlspecialchars($rateLabels[$rate]) ?></th>
@@ -384,7 +414,7 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
                 <table class="price-table price-table-compact">
                   <thead><tr><th>Kelas</th><th>1 jam</th><th>3 jam</th></tr></thead>
                   <tbody>
-                    <?php foreach (STUDENT_PRICES as $rate => [$one, $three]): ?>
+                    <?php foreach (studentPrices() as $rate => [$one, $three]): ?>
                       <?php if (empty($rateLabels[$rate])) continue; ?>
                       <tr>
                         <th><?= htmlspecialchars($rateLabels[$rate]) ?></th>
@@ -591,6 +621,29 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
         Sudah punya akun? <a href="#" id="backToLogin" style="color:var(--neon)">Kembali ke Login</a>
       </p>
     </form>
+  </div>
+</div>
+
+<!-- UBAH JADWAL MODAL -->
+<div id="rescheduleModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="rescheduleTitle">
+  <div class="modal-overlay"></div>
+  <div class="modal-content">
+    <h2 id="rescheduleTitle">Ubah Jadwal</h2>
+    <p class="small muted" id="rescheduleInfo" style="margin-bottom:12px"></p>
+    <input type="hidden" id="rescheduleBookingId">
+    <label for="rescheduleRoom" class="small">Ruangan</label>
+    <select id="rescheduleRoom" class="modal-select"></select>
+    <label for="rescheduleDate" class="small">Tanggal</label>
+    <select id="rescheduleDate" class="modal-select"></select>
+    <label for="rescheduleTime" class="small">Jam mulai</label>
+    <select id="rescheduleTime" class="modal-select"></select>
+    <label for="rescheduleDuration" class="small">Durasi</label>
+    <select id="rescheduleDuration" class="modal-select"></select>
+    <p class="small" id="reschedulePrice" style="margin-top:10px"></p>
+    <div class="form-actions" style="margin-top:14px">
+      <button type="button" class="btn" id="rescheduleSubmit" style="flex:1">Simpan Jadwal Baru</button>
+      <button type="button" class="btn-ghost" id="closeReschedule">Batal</button>
+    </div>
   </div>
 </div>
 

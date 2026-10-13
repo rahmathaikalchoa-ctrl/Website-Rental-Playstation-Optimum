@@ -6,10 +6,10 @@ require 'db.php';
 
 $action = $_REQUEST['action'] ?? '';
 
-// GET — daftar pesanan milik user yg sedang login
+// GET: pesanan user yg login
 if ($action === 'my_orders') {
     if (!isset($_SESSION['user_id'])) {
-        // Sesi login habis: script.js membaca header ini lalu membuka modal login
+        // sesi habis: script.js baca header ini terus buka modal login
         header('X-Auth-Required: 1');
         echo json_encode([]);
         exit;
@@ -32,10 +32,10 @@ if ($action === 'my_orders') {
     exit;
 }
 
-// POST — buat pesanan baru
+// POST: pesanan baru
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     if (!isset($_SESSION['user_id'])) {
-        // Sesi login habis: script.js membaca header ini lalu membuka modal login
+        // sesi habis: script.js baca header ini terus buka modal login
         header('X-Auth-Required: 1');
         echo json_encode(["status" => "error", "message" => "Belum login"]);
         exit;
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
         exit;
     }
 
-    // pastikan item ada dan tersedia
+    // item harus ada & tersedia
     $chk = $conn->prepare("SELECT id FROM menu_items WHERE id = ? AND is_available = 1");
     $chk->bind_param("i", $itemId);
     $chk->execute();
@@ -66,8 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     }
     $chk->close();
 
-    // Kalau user sedang punya booking aktif, tautkan pesanan ke booking itu
-    // supaya nanti bisa ditagih jadi satu (ruangan + jajanan).
+    // kalo lagi ada booking aktif, pesanan ditautin ke booking itu
     $now = time();
     $bk = $conn->prepare("
         SELECT id FROM bookings
@@ -81,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'order') {
     $bk->close();
     $bookingId = $activeBooking ? intval($activeBooking['id']) : null;
 
-    // Harga disimpan per pesanan supaya total lama tidak berubah bila harga menu diedit
+    // harga disimpan per pesanan biar total lama gak berubah
     $stmt = $conn->prepare("
         INSERT INTO menu_orders (user_id, item_id, booking_id, quantity, unit_price, note)
         SELECT ?, ?, ?, ?, price, ? FROM menu_items WHERE id = ?

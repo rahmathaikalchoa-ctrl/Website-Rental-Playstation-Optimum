@@ -1,6 +1,5 @@
 <?php
-// Cari ruangan yang masih kosong untuk tanggal, jam, dan durasi tertentu,
-// lengkap dengan total harga (paket, weekend, Nintendo sudah dihitung).
+// cari ruangan kosong buat tanggal, jam, durasi + total harga (paket, weekend, Nintendo)
 header('Content-Type: application/json');
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/queue_lib.php';
@@ -26,7 +25,7 @@ if ($end > closeTs($start)) {
   exit;
 }
 
-// Mau main Nintendo: ruangan Nintendo Switch, atau ruangan yang bisa tambah Nintendo
+// mau Nintendo: ruangan Switch atau yg bisa tambah Nintendo
 $stmt = $conn->prepare("
   SELECT r.id, r.title, r.category, r.tier, r.console_type, r.console_model, r.price, r.weekend_extra,
          r.nintendo_extra, r.max_players, r.has_netflix

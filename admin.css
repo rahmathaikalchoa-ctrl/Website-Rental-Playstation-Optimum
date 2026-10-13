@@ -20,7 +20,7 @@
   font-family: Inter, system-ui, sans-serif;
 }
 
-/* Input & select tidak boleh lebih lebar dari wadahnya */
+/* input & select jangan lebih lebar dari wadahnya */
 input,
 select,
 textarea {
@@ -39,7 +39,7 @@ body {
   width: 340px;
   max-width: calc(100% - 32px);
   margin: 100px auto;
-  /* body memakai flex; tanpa ini kotak login ikut memanjang setinggi layar */
+  /* body flex, tanpa ini kotak login ikut setinggi layar */
   align-self: flex-start;
   background: var(--panel);
   border-radius: 14px;
@@ -87,7 +87,7 @@ body {
   text-align: center;
 }
 
-/* Label kecil di bawah nama brand (sidebar & login) */
+/* label kecil di bawah brand */
 .brand-sub {
   display: block;
   margin-top: 4px;
@@ -181,7 +181,7 @@ main {
   margin-left: 240px;
   padding: 32px 36px;
   flex: 1;
-  /* min-width 0 supaya tabel lebar di-scroll di dalam .table-wrap, bukan melebarkan halaman */
+  /* min-width 0 biar tabel lebar scroll di .table-wrap */
   min-width: 0;
 }
 
@@ -221,7 +221,7 @@ td {
   font-size: 14px;
   text-align: left;
   vertical-align: middle;
-  /* Isi sel tidak dipecah; tabel lebar di-scroll dalam .table-wrap */
+  /* isi sel gak dipecah, scroll di .table-wrap */
   white-space: nowrap;
 }
 
@@ -242,7 +242,7 @@ tr:hover td {
   main { padding: 28px 24px; }
 }
 
-/* Wrapper tabel: scroll horizontal di layar sempit, bukan meluber keluar halaman */
+/* wrapper tabel, scroll horizontal di layar kecil */
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -369,10 +369,10 @@ button:hover {
   cursor: pointer;
 }
 
-/* File input — disembunyikan, diganti .file-upload-zone */
+/* file input disembunyiin, diganti .file-upload-zone */
 #addGameForm input[type="file"] { display: none; }
 
-/* Custom genre input */
+/* input genre custom */
 .custom-genre-wrap {
   display: flex;
   align-items: center;
@@ -385,7 +385,7 @@ button:hover {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Pakai #addGameForm supaya menang atas #addGameForm input[type="text"] */
+/* pakai #addGameForm biar menang dari input[type=text] */
 #addGameForm .custom-genre-wrap input {
   flex: 1;
   height: 42px;
@@ -419,7 +419,7 @@ button:hover {
   background: rgba(255, 107, 107, 0.3);
 }
 
-/* Checkbox group */
+/* checkbox group */
 #addGameForm .checkbox-group {
   display: flex;
   gap: 10px;
@@ -474,7 +474,7 @@ button:hover {
   box-shadow: 0 0 12px rgba(178, 107, 255, 0.5);
 }
 
-/* Submit button */
+/* tombol submit */
 #addGameForm button[type="submit"] {
   height: 44px;
   width: 100%;
@@ -631,7 +631,7 @@ button:hover {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-/* Ikon SVG inline */
+/* ikon SVG inline */
 .icon {
   width: 1em;
   height: 1em;
@@ -677,7 +677,7 @@ button:hover {
   white-space: nowrap;
 }
 
-/* Kartu statistik */
+/* kartu statistik */
 .stat-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -712,7 +712,7 @@ button:hover {
 .stat-tunggu  { --accent: var(--neon); }
 .stat-service { --accent: var(--warn); }
 
-/* Layout form + ruangan */
+/* layout form + ruangan */
 .booking-grid {
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -813,7 +813,7 @@ button:hover {
 .btn-primary:hover { transform: translateY(-1px); }
 .btn-primary:disabled { opacity: 0.6; cursor: wait; transform: none; }
 
-/* Kartu ruangan */
+/* kartu ruangan */
 .room-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -923,7 +923,7 @@ button:hover {
   opacity: 1;
 }
 
-/* Daftar tunggu */
+/* daftar tunggu */
 .queue-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1021,7 +1021,7 @@ button:hover {
   opacity: 1;
 }
 
-/* Tab form Main Sekarang / Reservasi */
+/* tab Main Sekarang / Reservasi */
 .form-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1050,7 +1050,7 @@ button:hover {
   gap: 14px;
 }
 .tab-form[hidden] { display: none; }
-/* minmax(0, 1fr): kolom tidak ikut melebar mengikuti teks opsi terpanjang */
+/* minmax(0, 1fr) biar kolom gak melebar ikut opsi terpanjang */
 .field-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1065,7 +1065,7 @@ button:hover {
 .form-note:empty { display: none; }
 .field select option:disabled { color: #55606b; }
 
-/* Aksi di kartu ruangan */
+/* aksi di kartu ruangan */
 .tile-actions {
   display: flex;
   flex-direction: column;
@@ -1105,7 +1105,7 @@ button:hover {
 .room-who { flex-wrap: wrap; }
 td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 
-/* Tombol kecil untuk aksi di tabel */
+/* tombol kecil di tabel */
 .btn-danger-sm,
 .btn-warn-sm,
 .btn-paid-sm {
@@ -1127,21 +1127,21 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 .btn-paid-sm   { color: var(--neon-green); border: 1px solid rgba(0, 255, 157, 0.45); background: rgba(0, 255, 157, 0.08); }
 .btn-paid-sm:hover { background: rgba(0, 255, 157, 0.16); opacity: 1; }
 
-/* Layout form (kiri) + tabel (kanan) untuk halaman Game & Menu */
+/* layout form kiri + tabel kanan (Game & Menu) */
 .split {
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
   gap: 22px;
   align-items: start;
 }
-/* Pakai id supaya menang atas max-width lama di #addGameForm / #addMenuForm */
+/* pakai id biar menang dari max-width lama */
 .split > #addGameForm,
 .split > #addMenuForm {
   max-width: none;
   margin-bottom: 0;
 }
 
-/* Panah untuk select yang appearance-nya dimatikan */
+/* panah select (appearance dimatiin) */
 #addGameForm select,
 #addMenuForm select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239fb4c2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -1150,7 +1150,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   padding-right: 32px;
 }
 
-/* Modal edit konsol game */
+/* modal edit konsol game */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1212,7 +1212,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 
 /* ===== DASHBOARD ===== */
 :root {
-  /* Warna data (lolos validasi palet dataviz di latar gelap #181b22) */
+  /* warna data (aman di latar gelap #181b22) */
   --data-1: #1aa3b8;
   --data-2: #9b6fe8;
   --grid-line: rgba(255, 255, 255, 0.06);
@@ -1232,7 +1232,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   margin-top: 6px;
 }
 
-/* Grafik batang pendapatan harian (satu seri, satu warna) */
+/* grafik batang pendapatan harian */
 .bar-chart {
   display: grid;
   grid-template-columns: repeat(14, minmax(0, 1fr));
@@ -1297,7 +1297,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
 
-/* Bar horizontal: status, peringkat ruangan */
+/* bar horizontal: status, peringkat ruangan */
 .hbar-list,
 .rank-list {
   list-style: none;
@@ -1343,7 +1343,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 }
 .rank-info { flex: 1; min-width: 0; }
 
-/* Proporsi online vs offline (2px celah antar segmen) */
+/* proporsi online vs offline */
 .split-bar {
   display: flex;
   gap: 2px;
@@ -1399,7 +1399,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   .dash-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Cetak: hanya isi halaman, tanpa sidebar & tombol */
+/* cetak: isi halaman aja, tanpa sidebar & tombol */
 @media print {
   .sidebar, .no-print, .row-actions, .col-actions, .pagination { display: none !important; }
   body { background: #fff; color: #000; display: block; }
@@ -1410,7 +1410,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   .pay-badge { border: 1px solid #999; color: #000 !important; background: none !important; }
 }
 
-/* Riwayat booking & tabel umum */
+/* riwayat booking & tabel umum */
 .pay-badge {
   display: inline-block;
   padding: 3px 10px;
@@ -1432,7 +1432,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 }
 .muted-dash { color: #555e6b; font-size: 13px; }
 
-/* Konsumen online dapat giliran, belum datang */
+/* konsumen online dapat giliran, belum dateng */
 .checkin-wait {
   font-size: 12px;
   font-weight: 600;
@@ -1467,7 +1467,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   .queue-grid { grid-template-columns: 1fr; }
 }
 
-/* Layar kecil: sidebar jadi bar navigasi horizontal di atas */
+/* layar kecil: sidebar jadi bar atas */
 @media (max-width: 900px) {
   body { flex-direction: column; }
   .sidebar {
@@ -1519,7 +1519,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   .field-row { grid-template-columns: 1fr; }
 }
 
-/* Kelas ruangan (VIP/VVIP/Public) dan kelompok daftar tunggu */
+/* kelas ruangan (VIP/VVIP/Public) & kelompok daftar tunggu */
 .tier-tag {
   font-size: 10px;
   font-weight: 700;
@@ -1539,7 +1539,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
   background: rgba(0, 234, 255, 0.1);
 }
 
-/* Pilihan tambahan Nintendo & harga pelajar di form booking operator */
+/* opsi Nintendo & harga pelajar di form kasir */
 .check-row { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 4px 0 12px; }
 .check-opt { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .check-opt[hidden] { display: none; }
@@ -1547,7 +1547,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 .check-opt em { color: var(--muted); font-style: normal; font-size: 12px; }
 .check-field .check-opt { min-height: 40px; }
 
-/* Modal game per ruangan */
+/* modal game per ruangan */
 .room-games-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .room-games-tools input[type="search"] {
   flex: 1 1 180px; height: 36px; padding: 0 12px; border-radius: 8px;
@@ -1560,7 +1560,7 @@ td .btn-paid { height: auto; padding: 6px 12px; margin-right: 6px; }
 }
 .room-games-list label[hidden] { display: none; }
 
-/* Tombol teks kecil di dalam sel tabel (mis. "Atur" di kolom Game) */
+/* tombol teks kecil di sel tabel (cth Atur) */
 .link-btn {
   background: none;
   border: none;
@@ -1631,7 +1631,7 @@ a.sched-slot:hover { background: rgba(0, 234, 255, 0.12); }
 .sched-dot.sched-unpaid { background: var(--danger); }
 .sched-dot.sched-paid { background: var(--neon-green); }
 
-/* Garis waktu sekarang (hari ini) */
+/* garis jam sekarang */
 .sched-now {
   position: absolute; top: 0; bottom: 0; z-index: 4; width: 2px;
   left: calc(var(--label) + (100% - var(--label)) * var(--pos));
@@ -1662,3 +1662,12 @@ a.sched-slot:hover { background: rgba(0, 234, 255, 0.12); }
 @media (prefers-reduced-motion: reduce) { .notify-toast { animation: none; } }
 
 .review-stars-admin { color: #ffcf66; white-space: nowrap; letter-spacing: 1px; }
+
+/* halaman Harga & Paket */
+.price-edit input {
+  width: 100%; min-width: 86px; height: 36px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--field-bg); color: #fff;
+}
+.price-edit td { vertical-align: middle; }
+.price-edit .is-unused { color: var(--warn); }
+.price-save-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 18px; }
