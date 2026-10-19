@@ -59,10 +59,15 @@ $nintendoInfo = trim(($switchRooms ? "Tersedia di $switchRooms" : '') . ($switch
             <input
               id="navSearchInput"
               type="search"
-              placeholder="Cari ruangan atau game..."
+              placeholder="Cari ruangan, game, menu..."
               aria-label="Cari"
+              autocomplete="off"
+              role="combobox"
+              aria-expanded="false"
+              aria-controls="searchSuggest"
             />
             <button type="submit" aria-label="Cari"><?= icon('search') ?></button>
+            <div id="searchSuggest" class="search-suggest" role="listbox" hidden></div>
           </form>
         </div>
 

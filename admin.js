@@ -863,7 +863,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const imgMsg = res.image_saved === false ? "\nCatatan: gambar gagal tersimpan (cek format/ukuran file)." : "";
             // ruangan dgn daftar game khusus gak otomatis dapat game baru
             alert("Game berhasil ditambahkan!" + imgMsg +
-              "\n\nTambahkan game ini ke ruangan lewat menu Room > Atur Game supaya tampil di detail ruangan.");
+              "\n\nTambahkan game ini ke ruangan lewat menu Ruangan > Atur Game supaya tampil di detail ruangan.");
             location.reload();
           } else {
             alert("Gagal menambahkan game:\n" + (res.message || res.msg));

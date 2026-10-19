@@ -415,6 +415,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "Public":      "public",
   };
   let activeRoomCat = "Semua";
+  let roomQuery = "";   // kata kunci dari search bar header
 
   function renderRoomCatTabs() {
     const container = $("roomCatTabs");
@@ -430,12 +431,20 @@ document.addEventListener("DOMContentLoaded", () => {
     grid.innerHTML = "";
 
     const catFilter = roomCatMap[activeRoomCat];
-    const filtered = catFilter
+    let filtered = catFilter
       ? roomsData.filter(r => r.category === catFilter)
       : roomsData;
+    // hasil dari search bar header
+    if (roomQuery) {
+      filtered = filtered.filter((r) => roomMatches(r, roomQuery));
+      const note = document.createElement("p");
+      note.className = "muted small search-note";
+      note.innerHTML = `Hasil pencarian "<strong>${escapeHtml(roomQuery)}</strong>" · ${filtered.length} ruangan · <a href="#" data-clear-room-search>Tampilkan semua</a>`;
+      grid.appendChild(note);
+    }
 
     if (filtered.length === 0) {
-      grid.innerHTML = "<p class='muted'>Belum ada ruangan untuk kategori ini.</p>";
+      grid.insertAdjacentHTML("beforeend", "<p class='muted'>Belum ada ruangan yg cocok.</p>");
     } else {
       filtered.forEach(r => grid.appendChild(createRoomCard(r)));
     }
@@ -768,7 +777,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const filtered = gamesData
       .filter(g => activeGenre === 'Semua' || g.genre === activeGenre)
-      .filter(g => !gameQuery || g.title.toLowerCase().includes(gameQuery));
+      .filter(g => !gameQuery || matchAll(normSearch([g.title, g.genre, (g.platforms || []).join(" ")].join(" ")), gameQuery));
 
     if (gameQuery) {
       const note = document.createElement("p");
@@ -857,7 +866,7 @@ document.addEventListener("DOMContentLoaded", () => {
         openProfileDetail();
         return;
       }
-      if (v === "consoles") renderAll();
+      if (v === "consoles") { roomQuery = ""; renderAll(); }
       if (v === "booking") {
         if (!IS_LOGGED_IN) {
           requireLogin("Silakan login terlebih dahulu untuk melakukan booking.", "booking");
@@ -984,28 +993,232 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // search header
+  // ===== SEARCH BAR HEADER =====
+  const searchInput = $("navSearchInput");
+  const suggestBox = $("searchSuggest");
+  let suggestItems = [];   // item yg lagi tampil di dropdown
+  let suggestActive = -1;  // index item yg disorot keyboard
+  let menuSearchData = null;
+
+  // menu dimuat sekali buat pencarian (tamu juga bisa liat hasilnya)
+  function ensureMenuSearchData() {
+    if (menuSearchData) return;
+    menuSearchData = [];
+    fetch("menu_api.php").then((r) => r.json())
+      .then((d) => { menuSearchData = Array.isArray(d) ? d : []; if (searchInput.value.trim()) renderSuggest(); })
+      .catch(() => {});
+  }
+
+  // halaman yg bisa dicari, kw = kata kunci tambahan
+  const SEARCH_PAGES = [
+    { label: "Cek ruangan kosong", view: "consoles", kw: "ruangan kosong cari jadwal rundown tersedia available daftar ruangan room" },
+    { label: "Booking / ambil antrian", view: "booking", kw: "booking pesan reservasi antrian main sekarang" },
+    { label: "Promo & paket hemat", view: "promo", kw: "promo paket hemat diskon pelajar harga murah weekend" },
+    { label: "Fasilitas", view: "fasilitas", kw: "fasilitas wifi netflix ac parkir toilet" },
+    { label: "Jam buka & lokasi", view: "home", kw: "jam buka operasional lokasi alamat maps whatsapp wa kontak beranda" },
+    { label: "Daftar game", view: "game", kw: "game daftar game semua game" },
+    { label: "Menu makanan & minuman", view: "menu", kw: "menu makanan minuman snack jajan pesan makan" },
+    { label: "Profil & riwayat booking", view: "profile", kw: "profil akun riwayat booking saya poin" },
+  ];
+
+  // huruf kecil, "ps 5" = "ps5", nintendo = switch
+  function normSearch(s) {
+    return String(s || "").toLowerCase()
+      .replace(/\bps\s+(\d)/g, "ps$1")
+      .replace(/nintendo/g, "nintendo switch")
+      .replace(/[^a-z0-9+ ]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+  const CAT_LABEL = { private: "private", private_pro: "private pro", public: "public area" };
+  function roomHaystack(r) {
+    return normSearch([r.title, CAT_LABEL[r.category] || r.category, r.tier, r.consoleModel, r.rawDesc,
+      r.hasNetflix ? "netflix" : "", r.nintendoExtra ? "bisa tambah nintendo" : "",
+      `${r.maxPlayers} orang ${r.maxPlayers} pemain`].join(" "));
+  }
+  // semua kata harus ketemu (AND)
+  // kata pendek / ada angka harus cocok di awal kata ("vip" gak kena "vvip", "3" gak kena "13")
+  // loose = cari di tengah kata juga, dipakai kalo hasil ketat kosong
+  let searchLoose = false;
+  function matchAll(hay, q) {
+    const words = normSearch(q).split(" ").filter(Boolean);
+    const hw = hay.split(" ");
+    return words.length > 0 && words.every((w) =>
+      searchLoose || (w.length > 3 && !/\d/.test(w)) ? hay.includes(w) : hw.some((h) => h.startsWith(w)));
+  }
+  // "4 orang" / "3 pemain" = kapasitas minimal, bukan nama ruangan
+  function roomMatches(r, q) {
+    const cap = normSearch(q).match(/(\d+) (orang|pemain)/);
+    if (cap) {
+      if (r.maxPlayers < Number(cap[1])) return false;
+      q = normSearch(q).replace(cap[0], " ").trim();
+      if (!q) return true;
+    }
+    return matchAll(roomHaystack(r), q);
+  }
+  // makin kecil makin atas: awal judul > ada di judul > field lain
+  function rankBy(title, q) {
+    const t = normSearch(title), n = normSearch(q);
+    return t.startsWith(n) ? 0 : t.includes(n) ? 1 : 2;
+  }
+
+  function searchAll(q) {
+    searchLoose = false;
+    const strict = searchAllOnce(q);
+    if (strict.rooms.length + strict.games.length + strict.menus.length + strict.pages.length) return strict;
+    searchLoose = true;
+    const loose = searchAllOnce(q);
+    searchLoose = false;
+    return loose;
+  }
+  function searchAllOnce(q) {
+    const sortRank = (arr, titleOf) => arr
+      .map((x) => ({ x, r: rankBy(titleOf(x), q) }))
+      .sort((a, b) => a.r - b.r)
+      .map((o) => o.x);
+    const rooms = sortRank(roomsData.filter((r) => roomMatches(r, q)), (r) => r.title);
+    const games = sortRank(gamesData.filter((g) =>
+      matchAll(normSearch([g.title, g.genre, (g.platforms || []).join(" ")].join(" ")), q)), (g) => g.title);
+    const menus = sortRank((menuSearchData || []).filter((m) =>
+      Number(m.is_available) !== 0 && matchAll(normSearch([m.name, m.category, m.description].join(" ")), q)), (m) => m.name);
+    const pages = SEARCH_PAGES.filter((p) => matchAll(normSearch(p.label + " " + p.kw), q));
+    return { rooms, games, menus, pages };
+  }
+
+  // status singkat ruangan hari ini dari rundown (kalau udah kemuat)
+  function roomNowText(id) {
+    const d = typeof rundownCache !== "undefined" ? rundownCache : null;
+    if (!d) return "";
+    const room = d.rooms.find((r) => r.id === id);
+    if (room?.maintenance) return "Perawatan";
+    if (d.now >= d.close) return "Tutup";
+    const cur = d.slots.find((s) => s.room_id === id && s.start <= d.now && s.end > d.now);
+    return cur ? (cur.playing ? "Dipakai" : "Dipesan") : "Kosong";
+  }
+
+  function closeSuggest() {
+    suggestBox.hidden = true;
+    suggestBox.innerHTML = "";
+    suggestItems = [];
+    suggestActive = -1;
+    searchInput.setAttribute("aria-expanded", "false");
+  }
+
+  function renderSuggest() {
+    const q = searchInput.value.trim();
+    if (!q) { closeSuggest(); return; }
+    const res = searchAll(q);
+    const groups = [];
+    const add = (title, list, toItem) => { if (list.length) groups.push({ title, items: list.slice(0, 4).map(toItem), more: list.length - 4 }); };
+    add("Ruangan", res.rooms, (r) => ({
+      label: r.title, sub: `${r.consoleModel} · ${formatRup(r.price)}/jam`, badge: roomNowText(r.id),
+      run: () => { stopMenuRefresh(); showDetail(r.id); },
+    }));
+    add("Game", res.games, (g) => ({
+      label: g.title, sub: [g.genre, (g.platforms || []).map((p) => p === "SWITCH" ? "Switch" : p).join(", ")].filter(Boolean).join(" · "),
+      run: () => { stopMenuRefresh(); loadGamesFromDB(g.title); showView("game"); },
+    }));
+    add("Menu", res.menus, (m) => ({
+      label: m.name, sub: formatRup(m.price),
+      run: () => goView("menu"),
+    }));
+    add("Halaman", res.pages, (p) => ({ label: p.label, sub: "", run: () => goView(p.view) }));
+
+    suggestItems = [];
+    let html = "";
+    groups.forEach((g) => {
+      html += `<div class="ss-group">${escapeHtml(g.title)}${g.more > 0 ? ` <span>+${g.more}</span>` : ""}</div>`;
+      g.items.forEach((it) => {
+        const i = suggestItems.push(it) - 1;
+        html += `<div class="ss-item" role="option" data-ss="${i}">
+          <span class="ss-main"><strong>${escapeHtml(it.label)}</strong>${it.sub ? `<small>${escapeHtml(it.sub)}</small>` : ""}</span>
+          ${it.badge ? `<span class="ss-badge ss-${escapeHtml(it.badge.toLowerCase())}">${escapeHtml(it.badge)}</span>` : ""}
+        </div>`;
+      });
+    });
+    if (!suggestItems.length) {
+      html = `<div class="ss-empty">Tidak ada hasil untuk "<strong>${escapeHtml(q)}</strong>"</div>`;
+      [["Cek ruangan kosong", "consoles"], ["Lihat semua game", "game"]].forEach(([label, view]) => {
+        const i = suggestItems.push({ label, sub: "", run: () => goView(view) }) - 1;
+        html += `<div class="ss-item" role="option" data-ss="${i}"><span class="ss-main"><strong>${label}</strong></span></div>`;
+      });
+    } else {
+      const i = suggestItems.push({ label: "all", run: () => runSearch(q) }) - 1;
+      html += `<div class="ss-item ss-all" role="option" data-ss="${i}">Lihat semua hasil untuk "${escapeHtml(q)}"</div>`;
+    }
+    suggestBox.innerHTML = html;
+    suggestBox.hidden = false;
+    suggestActive = -1;
+    searchInput.setAttribute("aria-expanded", "true");
+  }
+
+  // pindah halaman lewat link nav biar logika tiap halaman (login, load data) tetap kepake
+  function goView(view) {
+    if (view === "menu" && !IS_LOGGED_IN) {
+      requireLogin("Silakan login dulu untuk pesan menu.", "menu");
+      return;
+    }
+    const link = document.querySelector(`.nav [data-view="${view}"], [data-view="${view}"]`);
+    if (link) link.click(); else showView(view);
+  }
+
+  // Enter tanpa milih saran
+  function runSearch(raw) {
+    const q = raw.trim();
+    closeSuggest();
+    if (!q) return;
+    const res = searchAll(q);
+    stopMenuRefresh();
+    if (res.rooms.length === 1 && !res.games.length) { showDetail(res.rooms[0].id); return; }
+    if (res.rooms.length) {
+      roomQuery = q;
+      activeRoomCat = "Semua";
+      renderAll();
+      showView("consoles");
+      return;
+    }
+    if (res.games.length) { loadGamesFromDB(q); showView("game"); return; }
+    if (res.menus.length) { goView("menu"); return; }
+    if (res.pages.length) { goView(res.pages[0].view); return; }
+    renderSuggest(); // tampilin pesan gak ada hasil
+  }
+
+  function pickSuggest(i) {
+    const it = suggestItems[i];
+    if (!it) return;
+    closeSuggest();
+    searchInput.blur();
+    it.run();
+  }
+
+  function highlightSuggest(i) {
+    const els = suggestBox.querySelectorAll(".ss-item");
+    if (!els.length) return;
+    suggestActive = (i + els.length) % els.length;
+    els.forEach((el, k) => el.classList.toggle("active", k === suggestActive));
+    els[suggestActive].scrollIntoView({ block: "nearest" });
+  }
+
+  searchInput.addEventListener("input", () => { ensureMenuSearchData(); renderSuggest(); });
+  searchInput.addEventListener("focus", () => { ensureMenuSearchData(); if (searchInput.value.trim()) renderSuggest(); });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); if (suggestBox.hidden) renderSuggest(); highlightSuggest(suggestActive + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); highlightSuggest(suggestActive - 1); }
+    else if (e.key === "Escape") { closeSuggest(); }
+  });
+  // mousedown biar kepilih sebelum input blur
+  suggestBox.addEventListener("mousedown", (e) => {
+    const el = e.target.closest("[data-ss]");
+    if (!el) return;
+    e.preventDefault();
+    pickSuggest(Number(el.dataset.ss));
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#navSearchForm")) closeSuggest(); });
+
   $("navSearchForm").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const q = ($("navSearchInput").value || "").trim().toLowerCase();
-    if (!q) {
-      alert("Masukkan kata kunci pencarian.");
-      return;
-    }
-    stopMenuRefresh();
-    const roomFound = roomsData.find((r) =>
-      [r.title, r.tier, r.consoleModel, r.rawDesc].join(" ").toLowerCase().includes(q),
-    );
-    if (roomFound) {
-      showDetail(roomFound.id);
-      return;
-    }
-    const gameFound = gamesData.find((g) => g.title.toLowerCase().includes(q));
-    if (gameFound) {
-      loadGamesFromDB(q);
-      showView("game");
-      return;
-    }
-    alert("Tidak ditemukan hasil untuk: " + q);
+    if (!searchInput.value.trim()) { searchInput.focus(); return; }
+    if (suggestActive >= 0 && !suggestBox.hidden) { pickSuggest(suggestActive); return; }
+    searchInput.blur();
+    runSearch(searchInput.value);
   });
 
   // load data dari DB setelah UI siap
@@ -1055,10 +1268,21 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // filter kategori ruangan
+    // hapus filter cari ruangan
+    if (e.target.closest("[data-clear-room-search]")) {
+      e.preventDefault();
+      roomQuery = "";
+      const input = $("navSearchInput");
+      if (input) input.value = "";
+      renderAll();
+      return;
+    }
+
+    // filter kategori ruangan (hasil search ikut dilepas)
     const roomCatBtn = e.target.closest(".genre-btn[data-roomcat]");
     if (roomCatBtn) {
       activeRoomCat = roomCatBtn.dataset.roomcat;
+      roomQuery = "";
       renderAll();
       return;
     }

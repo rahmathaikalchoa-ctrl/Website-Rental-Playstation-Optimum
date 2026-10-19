@@ -56,7 +56,7 @@ if (isset($_POST['logout']) && hash_equals($_SESSION['csrf'], (string) ($_POST['
 $isAdmin = isAdminSession($conn);
 
 $navItems = ['dashboard' => 'Dashboard', 'booking' => 'Booking', 'jadwal' => 'Jadwal', 'riwayat' => 'Riwayat Booking',
-             'room' => 'Room', 'harga' => 'Harga & Paket', 'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
+             'room' => 'Ruangan', 'harga' => 'Harga & Paket', 'akun' => 'Akun', 'game' => 'Game', 'menu' => 'Menu'];
 $page    = $_GET['page'] ?? 'dashboard';
 if (!isset($navItems[$page])) $page = 'dashboard';
 $perPage = 20;
@@ -912,7 +912,7 @@ $offset  = ($pageNum - 1) * $perPage;
         </div>
         <?php endforeach; ?>
         <?php if (!$rooms): ?>
-          <p class="queue-empty">Belum ada ruangan. Tambahkan di menu Room.</p>
+          <p class="queue-empty">Belum ada ruangan. Tambahkan di menu Ruangan.</p>
         <?php endif; ?>
       </div>
     </div>
@@ -949,7 +949,7 @@ $offset  = ($pageNum - 1) * $perPage;
     <?php endforeach; ?>
   </div>
 
-  <!-- ROOMS -->
+  <!-- RUANGAN -->
 <?php elseif ($page === 'room'): ?>
   <?php
     // upcoming = booking aktif ke depan, buat peringatan set perawatan
@@ -973,7 +973,7 @@ $offset  = ($pageNum - 1) * $perPage;
   ?>
   <div class="page-head">
     <div>
-      <h2>Manajemen Room</h2>
+      <h2>Manajemen Ruangan</h2>
       <p class="page-sub">Harga paket 1-5 jam dan harga pelajar mengikuti pricelist, otomatis dipakai bila tarif per jam ruangan sama dengan tarif paket.</p>
     </div>
     <button type="button" class="btn-primary" onclick="openEditRoom(null)"><?= icon('check') ?> Tambah Ruangan</button>
@@ -981,7 +981,7 @@ $offset  = ($pageNum - 1) * $perPage;
 
   <div class="table-wrap">
     <table class="users-table">
-      <tr><th>Room</th><th>Kategori</th><th>Konsol</th><th>Harga / jam</th><th>Game</th><th>Status</th><th class="col-actions">Aksi</th></tr>
+      <tr><th>Ruangan</th><th>Kategori</th><th>Konsol</th><th>Harga / jam</th><th>Game</th><th>Status</th><th class="col-actions">Aksi</th></tr>
       <?php if (mysqli_num_rows($rooms) === 0): ?>
         <tr><td colspan="7" class="empty-row">Belum ada ruangan.</td></tr>
       <?php endif; ?>
@@ -1073,7 +1073,7 @@ $offset  = ($pageNum - 1) * $perPage;
       <p class="page-sub">Harga baru hanya berlaku untuk booking berikutnya.</p>
       <input type="hidden" name="id">
       <div class="field-row">
-        <label class="field"><span>Nama room</span><input name="title" maxlength="100" placeholder="mis. Room 14" required></label>
+        <label class="field"><span>Nama ruangan</span><input name="title" maxlength="100" placeholder="mis. Room 14" required></label>
         <label class="field"><span>Maks pemain</span><input type="number" name="max_players" min="1" max="8" value="2" required></label>
       </div>
       <div class="field-row">
@@ -1359,7 +1359,10 @@ $orders = mysqli_query($conn, "
     JOIN users u       ON u.id  = mo.user_id
     LEFT JOIN bookings b ON b.id = mo.booking_id
     LEFT JOIN rooms r    ON r.id = b.room_id
-    ORDER BY mo.status ASC, mo.created_at DESC
+    -- pending paling lama di atas (antri), sisanya terbaru dulu
+    ORDER BY mo.status = 'pending' DESC,
+             CASE WHEN mo.status = 'pending' THEN mo.created_at END ASC,
+             mo.created_at DESC
     LIMIT 50
 ");
 ?>
