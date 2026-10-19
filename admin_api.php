@@ -163,11 +163,12 @@ if ($action === 'toggle_student') {
       exit;
     }
     $student = $b['is_student'] ? 0 : 1;
-    // potongan poin tetap jalan
-    $total = max(0, bookingPrice($b, intval($b['duration']), intval($b['start_time']), (bool) $b['with_nintendo'], (bool) $student)
-                    - intval($b['discount']));
-    $stmt = $conn->prepare("UPDATE bookings SET is_student = ?, total_price = ? WHERE id = ?");
-    $stmt->bind_param("iii", $student, $total, $id);
+    $gross   = bookingPrice($b, intval($b['duration']), intval($b['start_time']), (bool) $b['with_nintendo'], (bool) $student);
+    // potongan poin tetap jalan, nilainya ikut harga 1 jam yg baru (pelajar / biasa)
+    $discount = intval($b['discount']) > 0 ? min(freeHourValue($b, (bool) $b['with_nintendo'], (bool) $student), $gross) : 0;
+    $total = $gross - $discount;
+    $stmt = $conn->prepare("UPDATE bookings SET is_student = ?, total_price = ?, discount = ? WHERE id = ?");
+    $stmt->bind_param("iiii", $student, $total, $discount, $id);
     $stmt->execute();
     $stmt->close();
     $conn->commit();

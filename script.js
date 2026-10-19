@@ -1090,6 +1090,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const room = d.rooms.find((r) => r.id === id);
     if (room?.maintenance) return "Perawatan";
     if (d.now >= d.close) return "Tutup";
+    if (d.now < d.open) return "Belum buka";
     const cur = d.slots.find((s) => s.room_id === id && s.start <= d.now && s.end > d.now);
     return cur ? (cur.playing ? "Dipakai" : "Dipesan") : "Kosong";
   }
@@ -3129,6 +3130,11 @@ function fillCardRundown(el) {
 
   if (room?.maintenance) { status = "Perawatan"; cls = "rr-off"; }
   else if (now >= d.close) { status = "Tutup"; cls = "rr-off"; }
+  else if (now < d.open) {
+    // sebelum jam buka: tampilin jadwal pertama hari ini (kalo ada)
+    status = "Belum buka"; cls = "rr-off";
+    if (later.length) time = `${rdTime(later[0].start)}–${rdTime(later[0].end)}`;
+  }
   else if (cur) {
     time = `${rdTime(cur.start)}–${rdTime(cur.end)}`;
     status = cur.playing ? "Dipakai" : "Dipesan";

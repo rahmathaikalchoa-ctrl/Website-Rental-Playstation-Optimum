@@ -1427,6 +1427,6 @@ p .field-hint { display: inline; margin-left: 4px; }
 .ss-kosong { color: var(--neon-green); }
 .ss-dipesan { color: #f2c14e; }
 .ss-dipakai { color: #ef7a5f; }
-.ss-perawatan, .ss-tutup { color: var(--muted); }
+.ss-perawatan, .ss-tutup, .ss-belum { color: var(--muted); }
 .ss-all { justify-content: center; font-size: 0.8rem; font-weight: 600; color: var(--neon); border-top: 1px solid rgba(255, 255, 255, 0.06); margin-top: 4px; border-radius: 0 0 8px 8px; }
 .ss-empty { padding: 10px; font-size: 0.85rem; color: var(--muted); }

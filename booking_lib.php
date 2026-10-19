@@ -71,6 +71,12 @@ function studentEligible(array $room, $withNintendo, $startTs) {
   return !isWeekendTs($startTs) && isset(studentPrices()[roomHourlyRate($room, $withNintendo)]);
 }
 
+// nilai potongan tukar poin (gratis 1 jam): tarif 1 jam ruangan, kalo harga pelajar pakai harga pelajar 1 jam
+function freeHourValue(array $room, $withNintendo, $isStudent) {
+  $rate = roomHourlyRate($room, $withNintendo);
+  return $isStudent && isset(studentPrices()[$rate]) ? studentPrices()[$rate][0] : intval($room['price']);
+}
+
 // total harga: pelajar > paket 1-5 jam > tarif x jam, terus + weekend per jam (sabtu/minggu tgl mulai)
 function bookingPrice(array $room, $hours, $startTs, $withNintendo = false, $isStudent = false) {
   $hours = intval($hours);
@@ -447,7 +453,8 @@ function toggleRedeemPoints($conn, $bookingId, $userId = null) {
   try {
     $conn->begin_transaction();
     $stmt = $conn->prepare("
-      SELECT b.user_id, b.discount, b.total_price, b.amount_paid, b.payment_status, r.price
+      SELECT b.user_id, b.discount, b.total_price, b.amount_paid, b.payment_status, b.with_nintendo, b.is_student,
+             r.price, r.nintendo_extra
       FROM bookings b JOIN rooms r ON r.id = b.room_id
       WHERE b.id = ? FOR UPDATE
     ");
@@ -489,7 +496,8 @@ function toggleRedeemPoints($conn, $bookingId, $userId = null) {
         $conn->rollback();
         return bookingFail("Poin belum cukup (butuh " . POINTS_PER_FREE_HOUR . " poin)");
       }
-      $discount = min(intval($b['price']), intval($b['total_price']) - intval($b['amount_paid']));
+      $discount = min(freeHourValue($b, (bool) $b['with_nintendo'], (bool) $b['is_student']),
+                      intval($b['total_price']) - intval($b['amount_paid']));
       $stmt = $conn->prepare("UPDATE bookings SET discount = ?, total_price = total_price - ? WHERE id = ?");
       $stmt->bind_param("iii", $discount, $discount, $id);
       $stmt->execute();
@@ -570,7 +578,7 @@ function rescheduleBooking($conn, $bookingId, $userId, $roomId, $start, $duratio
     $student  = (bool) $b['is_student'] && studentEligible($room, $nintendo, $start);
     $gross    = bookingPrice($room, $duration, $start, $nintendo, $student);
     // potongan poin ikut tarif ruangan baru
-    $discount = intval($b['discount']) > 0 ? min(intval($room['price']), $gross) : 0;
+    $discount = intval($b['discount']) > 0 ? min(freeHourValue($room, $nintendo, $student), $gross) : 0;
     $total    = $gross - $discount;
     $paid     = intval($b['amount_paid']);
     $status   = $paid > 0 && $paid >= $total ? 'paid' : 'unpaid';
