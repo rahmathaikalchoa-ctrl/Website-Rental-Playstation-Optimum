@@ -50,7 +50,18 @@ $sql = "
   LEFT JOIN rooms ro ON ro.id = b.relocated_from
   WHERE b.user_id = ?
   ORDER BY b.start_time DESC
+  LIMIT 50
 ";
+
+// total jam main dari semua booking (riwayat cuma 50 terbaru), no-show & batal gak dihitung
+$stmt = $conn->prepare("
+  SELECT COALESCE(SUM(duration), 0) FROM bookings
+  WHERE user_id = ? AND payment_status <> 'cancelled' AND expires_at IS NULL AND end_time <= UNIX_TIMESTAMP()
+");
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+header('X-Played-Hours: ' . intval($stmt->get_result()->fetch_row()[0]));
+$stmt->close();
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $user_id);

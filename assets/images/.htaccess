@@ -1,0 +1,5 @@
+# folder upload: cuma gambar, script gak boleh jalan
+<FilesMatch "\.(php|phtml|php\d|phar|pl|py|cgi|sh|js|html?)$">
+  Require all denied
+</FilesMatch>
+Options -Indexes -ExecCGI

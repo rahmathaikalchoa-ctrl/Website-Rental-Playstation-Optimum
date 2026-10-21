@@ -561,8 +561,8 @@ let reserveReq = 0;
 let reservePrefillTime = "";
 
 // jam operasional dari <body>: 10:00-22:00, slot 30 menit
-const OPEN_SEC  = Number(document.body.dataset.openSec) || 36000;
-const CLOSE_SEC = Number(document.body.dataset.closeSec) || 79200;
+const OPEN_SEC  = Number(document.body.dataset.openSec ?? 36000); // 0 = buka 00:00, jangan dianggap kosong
+const CLOSE_SEC = Number(document.body.dataset.closeSec ?? 79200);
 const SLOT_SEC  = 1800;
 const secToHHMM = (sec) =>
   `${String(Math.floor(sec / 3600)).padStart(2, "0")}:${String(Math.floor(sec % 3600 / 60)).padStart(2, "0")}`;

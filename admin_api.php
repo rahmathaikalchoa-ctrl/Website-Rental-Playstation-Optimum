@@ -513,14 +513,14 @@ if ($action === 'queue_cancel') {
 if ($action === 'finish_booking') {
   $id  = intval($_POST['id'] ?? 0);
   $now = time();
-  // biaya tetap, durasi dicatat sesuai jam main (bulat ke atas)
-  // cuma sesi yg udah check-in
+  // biaya tetap, durasi tetap jam yg dibayar (poin ikut durasi, jadi gak boleh berubah)
+  // cuma end_time yg dipotong biar ruangan langsung kosong. cuma sesi yg udah check-in
   $stmt = $conn->prepare("
     UPDATE bookings
-    SET end_time = ?, duration = GREATEST(1, CEIL((? - start_time) / 3600))
+    SET end_time = ?
     WHERE id = ? AND start_time <= ? AND end_time > ? AND payment_status <> 'cancelled' AND expires_at IS NULL
   ");
-  $stmt->bind_param("iiiii", $now, $now, $id, $now, $now);
+  $stmt->bind_param("iiii", $now, $id, $now, $now);
   $stmt->execute();
   $ok = $stmt->affected_rows > 0;
   $stmt->close();

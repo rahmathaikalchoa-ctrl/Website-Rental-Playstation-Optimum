@@ -1,0 +1,16 @@
+# file & folder yg gak boleh dibuka lewat browser
+Options -Indexes
+
+# dump DB, catatan, config
+<FilesMatch "\.(sql|md|ini|log|bak|env)$">
+  Require all denied
+</FilesMatch>
+
+# library PHP (cuma di-require, bukan endpoint)
+<FilesMatch "^(db|booking_lib|queue_lib|riwayat_filter|icons|site_info)\.php$">
+  Require all denied
+</FilesMatch>
+
+# folder git & editor
+RedirectMatch 403 (^|/)\.(git|vscode)(/|$)
+RedirectMatch 403 (^|/)docs(/|$)

@@ -48,8 +48,8 @@ function wibTs(isoDate, hhmm = "00:00") {
 }
 
 // jam operasional dari <body>: 10:00-22:00, slot 30 menit, gak boleh lewat tutup
-const OPEN_SEC  = Number(document.body.dataset.openSec) || 36000;
-const CLOSE_SEC = Number(document.body.dataset.closeSec) || 79200;
+const OPEN_SEC  = Number(document.body.dataset.openSec ?? 36000); // 0 = buka 00:00, jangan dianggap kosong
+const CLOSE_SEC = Number(document.body.dataset.closeSec ?? 79200);
 const SLOT_SEC  = 1800;
 // HH:MM dari detik
 function secToHHMM(sec) {
@@ -2158,8 +2158,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!keepScroll) box.innerHTML = '<p class="muted small">Memuat booking...</p>';
 
+        let playedHours = null;
         fetch("get_user_bookings.php?t=" + Date.now())
-          .then((r) => r.json())
+          .then((r) => { playedHours = r.headers.get("X-Played-Hours"); return r.json(); })
           .then((data) => {
             if (!IS_LOGGED_IN) return;
             if (!data || data.length === 0) {
@@ -2175,7 +2176,8 @@ document.addEventListener("DOMContentLoaded", () => {
               .filter(b => parseInt(b.end_time) <= now && b.payment_status !== "cancelled" && !b.expires_at)
               .reduce((sum, b) => sum + parseInt(b.duration), 0);
             const totalEl = document.getElementById("profileTotalHours");
-            if (totalEl) totalEl.textContent = totalHours + " jam";
+            // dari server (semua booking), riwayat di sini cuma 50 terbaru
+            if (totalEl) totalEl.textContent = (playedHours !== null ? Number(playedHours) : totalHours) + " jam";
 
             data.forEach((b) => {
               const start = parseInt(b.start_time);
